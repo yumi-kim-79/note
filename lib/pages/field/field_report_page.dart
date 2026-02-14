@@ -1796,10 +1796,37 @@ class FieldReportPageState extends State<FieldReportPage> with SingleTickerProvi
                         // [1] 보고하기 버튼
                         OutlinedButton.icon(
                           onPressed: () {
-                            if (hasPermission) {
-                              _showEditReportDialog(data);
-                            } else {
+                            // 1. 권한 체크
+                            if (!hasPermission) {
                               _showAccessDeniedDialog();
+                              return;
+                            }
+
+                            // ✅ [수정] 완료된 상태라면 경고 팝업 띄우기 (수정 불가)
+                            if (isCompleted) {
+                              showDialog(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  backgroundColor: Colors.white,
+                                  title: const Row(
+                                    children: [
+                                      Icon(Icons.warning_amber_rounded, color: Colors.deepOrange),
+                                      SizedBox(width: 8),
+                                      Text("수정 제한", style: TextStyle(fontWeight: FontWeight.bold)),
+                                    ],
+                                  ),
+                                  content: const Text("취소버튼을 눌러 업무완료를 취소 해야\n다시 보고하기를 할수 있습니다."),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(ctx),
+                                      child: const Text("확인", style: TextStyle(color: AppTheme.primaryColor, fontWeight: FontWeight.bold)),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            } else {
+                              // 2. 미완료 상태일 때만 정상적으로 수정 팝업 열기
+                              _showEditReportDialog(data);
                             }
                           },
                           icon: const Icon(Icons.edit_note, size: 16),
