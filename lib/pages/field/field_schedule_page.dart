@@ -809,7 +809,7 @@ class _AddScheduleDialogState extends State<_AddScheduleDialog> {
                     ],
 
                     const SizedBox(height: 24),
-                    const Text("📋 업무 내용 및 피드백", style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryColor)),
+                    const Text("📋 업무내용 및 히스토리", style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryColor)),
                     const SizedBox(height: 12),
 
                     if (_workLogs.isNotEmpty)

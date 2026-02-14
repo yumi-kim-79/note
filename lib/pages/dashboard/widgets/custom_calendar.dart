@@ -1,8 +1,8 @@
 // [파일 위치: lib/pages/dashboard/widgets/custom_calendar.dart]
 // 수정 내용:
-// 1. [디자인] 현장 일정 페이지(FieldSchedulePage)와 동일한 카드 디자인 및 기간 표시 로직 적용
-// 2. [기능] 일정 등록 팝업을 최신 버전(기간설정, 건물검색 포함)으로 교체
-// 3. [오류 수정] TextSpan 이름 충돌 해결 (hide TextSpan)
+// 1. [디자인] 현장 일정 페이지(FieldSchedulePage)와 100% 동일한 디자인(CommonCard, 폰트사이즈) 적용
+// 2. [기능] 일정 등록 팝업을 현장 페이지와 동일한 최신 버전(기간설정, 건물검색, 수정자 기록 등)으로 교체
+// 3. [기타] 엑셀 출력 로직 및 정렬 방식 동기화
 
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
@@ -41,7 +41,7 @@ class _CustomCalendarState extends State<CustomCalendar> {
     _fetchSchedules();
   }
 
-  // ✅ [데이터 로드] startDate ~ endDate 로직 적용
+  // ✅ [데이터 로드] startDate ~ endDate 로직 적용 (현장 페이지와 동일)
   void _fetchSchedules() {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -79,29 +79,46 @@ class _CustomCalendarState extends State<CustomCalendar> {
     return _events[DateTime.utc(day.year, day.month, day.day)] ?? [];
   }
 
-  // ✅ [엑셀 출력] 최신 데이터 구조 반영
+  // ✅ [엑셀 출력] 현장 페이지와 동일한 헤더 및 정렬 로직 적용
   Future<void> _exportToExcel() async {
+    if (_selectedDay == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("출력할 날짜를 선택해주세요.")));
+      return;
+    }
+
+    DateTime dateKey = DateTime.utc(_selectedDay!.year, _selectedDay!.month, _selectedDay!.day);
+    List<dynamic> targetEvents = List.from(_events[dateKey] ?? []);
+
+    if (targetEvents.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("해당 날짜에 출력할 일정이 없습니다.")));
+      return;
+    }
+
+    // 정렬 (팀 보기일 경우 이름순 -> 시간순)
+    targetEvents.sort((a, b) {
+      if (_isTeamView) {
+        String authorA = a['author'] ?? '';
+        String authorB = b['author'] ?? '';
+        int nameCompare = authorA.compareTo(authorB);
+        if (nameCompare != 0) return nameCompare;
+      }
+      Timestamp timeA = a['startTime'] ?? Timestamp.now();
+      Timestamp timeB = b['startTime'] ?? Timestamp.now();
+      return timeA.compareTo(timeB);
+    });
+
     var excel = Excel.createExcel();
     Sheet sheet = excel['Sheet1'];
 
-    List<String> headers = ['담당자', '제목', '건물명', '기간/일시', '시간', '최초 내용', '수정 로그'];
+    List<String> headers = ['담당자(직책)', '제목', '건물명', '기간/일시', '시간', '최초 내용', '수정 로그'];
     for (int i = 0; i < headers.length; i++) {
       var cell = sheet.cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0));
       cell.value = TextCellValue(headers[i]);
       cell.cellStyle = CellStyle(bold: true, horizontalAlign: HorizontalAlign.Center, backgroundColorHex: ExcelColor.fromHexString("#E0E0E0"));
     }
 
-    // 전체 이벤트 리스트화
-    List<dynamic> allEvents = _events.values.expand((e) => e).toList();
-    // 시간순 정렬
-    allEvents.sort((a, b) {
-      Timestamp timeA = a['startTime'] ?? Timestamp.now();
-      Timestamp timeB = b['startTime'] ?? Timestamp.now();
-      return timeA.compareTo(timeB);
-    });
-
-    for (int i = 0; i < allEvents.length; i++) {
-      var event = allEvents[i];
+    for (int i = 0; i < targetEvents.length; i++) {
+      var event = targetEvents[i];
       DateTime startTime = (event['startTime'] as Timestamp).toDate();
       DateTime endTime = (event['endTime'] as Timestamp).toDate();
 
@@ -149,10 +166,12 @@ class _CustomCalendarState extends State<CustomCalendar> {
     if (fileBytes != null) {
       final blob = html.Blob([fileBytes], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       final url = html.Url.createObjectUrlFromBlob(blob);
+      String viewType = _isTeamView ? "팀전체" : "나의일정";
+      String dateStr = DateFormat('yyyyMMdd').format(_selectedDay!);
       final anchor = html.document.createElement('a') as html.AnchorElement
         ..href = url
         ..style.display = 'none'
-        ..download = '일정현황_${DateFormat('MMdd_HHmm').format(DateTime.now())}.xlsx';
+        ..download = '일정현황_${viewType}_$dateStr.xlsx';
       html.document.body!.children.add(anchor);
       anchor.click();
       html.document.body!.children.remove(anchor);
@@ -173,9 +192,6 @@ class _CustomCalendarState extends State<CustomCalendar> {
 
   @override
   Widget build(BuildContext context) {
-    // 선택된 날짜의 이벤트 가져오기
-    final selectedEvents = _getEventsForDay(_selectedDay ?? DateTime.now());
-
     return CommonCard(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -280,14 +296,12 @@ class _CustomCalendarState extends State<CustomCalendar> {
 
           const Divider(height: 1, color: AppTheme.borderColor),
 
-          // ✅ [수정] Expanded -> SizedBox로 변경하여 높이 고정 (오류 해결 핵심)
-          // 화면이 줄어들거나 모바일 환경에서도 항상 250px 높이를 유지하며 내부에서 스크롤됩니다.
+          // 3. 리스트 영역 (높이 고정 및 스크롤)
           SizedBox(
             height: 250,
             child: _events[DateTime.utc(_selectedDay!.year, _selectedDay!.month, _selectedDay!.day)]?.isEmpty ?? true
                 ? const Center(child: Text("일정이 없습니다.", style: TextStyle(color: AppTheme.textSub)))
                 : ListView.separated(
-              // 리스트 내부 패딩 추가
               padding: const EdgeInsets.symmetric(vertical: 12),
               itemCount: _getEventsForDay(_selectedDay!).length,
               separatorBuilder: (context, index) => const SizedBox(height: 8),
@@ -296,10 +310,9 @@ class _CustomCalendarState extends State<CustomCalendar> {
           ),
 
           const Spacer(),
-
           const SizedBox(height: 12),
 
-          // 일정 등록 버튼 (항상 하단 유지)
+          // 일정 등록 버튼
           CommonButton(
             onPressed: () => _showScheduleDialog(),
             icon: Icons.add,
@@ -311,7 +324,7 @@ class _CustomCalendarState extends State<CustomCalendar> {
     );
   }
 
-  // ✅ [UI 통일] FieldSchedulePage의 카드 디자인 적용 (제목+작성일시+기간 한 줄 표시)
+  // ✅ [UI 통일] FieldSchedulePage와 동일한 카드 디자인 (CommonCard 사용, 폰트 사이즈 통일)
   Widget _buildCustomEventCard(Map<String, dynamic> event) {
     Color eventColor = Color(event['colorCode'] ?? 0xFF1A233A);
     List<dynamic> logs = event['workLogs'] ?? [];
@@ -349,27 +362,24 @@ class _CustomCalendarState extends State<CustomCalendar> {
 
     return GestureDetector(
       onTap: () => _showScheduleDialog(eventData: event),
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppTheme.borderColor),
-        ),
+      // ✅ [통일] CommonCard 사용 (현장 페이지와 동일)
+      child: CommonCard(
+        padding: const EdgeInsets.all(16),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
               width: 4,
-              height: 36,
+              height: 40,
+              margin: const EdgeInsets.only(top: 4),
               decoration: BoxDecoration(color: eventColor, borderRadius: BorderRadius.circular(2)),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 16),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // [제목 + 작성일시 + 기간] RichText
+                  // [제목 + 작성일시 + 기간] RichText (현장 페이지와 동일한 폰트 사이즈)
                   RichText(
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -378,39 +388,49 @@ class _CustomCalendarState extends State<CustomCalendar> {
                       children: [
                         TextSpan(
                             text: "$title  ",
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppTheme.textMain)
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppTheme.textMain)
                         ),
                         TextSpan(
                             text: "$createInfoStr  ",
-                            style: const TextStyle(fontSize: 11, color: Colors.grey)
+                            style: const TextStyle(fontSize: 12, color: Colors.grey)
                         ),
                         TextSpan(
                             text: "[$dateRangeStr]",
-                            style: const TextStyle(fontSize: 11, color: AppTheme.primaryColor, fontWeight: FontWeight.bold)
+                            style: const TextStyle(fontSize: 12, color: AppTheme.primaryColor, fontWeight: FontWeight.bold)
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 6),
 
                   // 내용 표시
                   if (lastText.isNotEmpty)
                     isWrittenByOther
-                        ? Text("$lastAuthor : $lastText", maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, color: AppTheme.errorColor, fontWeight: FontWeight.bold))
-                        : Text(lastText, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, color: AppTheme.textSub)),
+                        ? Text(
+                      "$lastAuthor : $lastText",
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 14, color: AppTheme.errorColor, fontWeight: FontWeight.bold),
+                    )
+                        : Text(
+                      lastText,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 14, color: AppTheme.textSub),
+                    ),
 
                   // 건물명 표시
                   if (event['buildingName'] != null && event['buildingName'].toString().isNotEmpty)
                     Padding(
-                      padding: const EdgeInsets.only(top: 4),
+                      padding: const EdgeInsets.only(top: 6),
                       child: Row(
                         children: [
-                          const Icon(Icons.location_on, size: 12, color: AppTheme.primaryColor),
+                          const Icon(Icons.location_on, size: 14, color: AppTheme.primaryColor),
                           const SizedBox(width: 4),
                           Expanded(
                             child: Text(
                               event['buildingName'],
-                              style: const TextStyle(fontSize: 12, color: AppTheme.primaryColor, fontWeight: FontWeight.w600),
+                              style: const TextStyle(fontSize: 13, color: AppTheme.primaryColor, fontWeight: FontWeight.w600),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -421,6 +441,11 @@ class _CustomCalendarState extends State<CustomCalendar> {
                 ],
               ),
             ),
+            const SizedBox(width: 8),
+            const Padding(
+              padding: EdgeInsets.only(top: 12.0),
+              child: Icon(Icons.chevron_right, size: 20, color: AppTheme.textSub),
+            ),
           ],
         ),
       ),
@@ -428,7 +453,7 @@ class _CustomCalendarState extends State<CustomCalendar> {
   }
 }
 
-// ✅ [고도화] 일정 등록/수정 다이얼로그 (FieldSchedulePage와 동일한 최신 버전)
+// ✅ [고도화] 일정 등록/수정 다이얼로그 (FieldSchedulePage와 100% 동일 로직)
 class _AddScheduleDialog extends StatefulWidget {
   final DateTime initialDate;
   final Map<String, dynamic>? existingData;
@@ -635,14 +660,29 @@ class _AddScheduleDialogState extends State<_AddScheduleDialog> {
                                   child: Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        Text(_selectedBuilding!['name']!, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppTheme.textMain)),
-                                        Text(_selectedBuilding!['address']!, style: const TextStyle(fontSize: 12, color: AppTheme.textSub))
+                                        Text(
+                                            _selectedBuilding!['name']!,
+                                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppTheme.textMain)
+                                        ),
+                                        Text(
+                                            _selectedBuilding!['address']!,
+                                            style: const TextStyle(fontSize: 12, color: AppTheme.textSub)
+                                        )
                                       ]
                                   )
                               ),
                               IconButton(
-                                onPressed: () => setState(() { _selectedBuilding = null; _isBuildingSelected = false; _hasChanges = true; }),
+                                onPressed: () {
+                                  setState(() {
+                                    _selectedBuilding = null;
+                                    _isBuildingSelected = false;
+                                    _hasChanges = true;
+                                  });
+                                },
                                 icon: const Icon(Icons.close, size: 20, color: AppTheme.textSub),
+                                tooltip: "건물 선택 취소",
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(),
                               ),
                             ]
                         ),
@@ -650,7 +690,8 @@ class _AddScheduleDialogState extends State<_AddScheduleDialog> {
                     ],
 
                     const SizedBox(height: 24),
-                    const Text("📋 업무 내용 및 피드백", style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryColor)),
+                    // ✅ [수정] 문구 통일: "업무내용 및 히스토리"
+                    const Text("📋 업무내용 및 히스토리", style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryColor)),
                     const SizedBox(height: 12),
 
                     if (_workLogs.isNotEmpty)
@@ -663,14 +704,28 @@ class _AddScheduleDialogState extends State<_AddScheduleDialog> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: _workLogs.map((log) {
                             bool isOriginalAuthor = log['uid'] == originalAuthorUid;
+                            String timeStr = "";
+                            if (log['createdAt'] != null && log['createdAt'] is Timestamp) {
+                              timeStr = DateFormat('yy.MM.dd HH:mm').format((log['createdAt'] as Timestamp).toDate());
+                            }
+
                             return Padding(
                               padding: const EdgeInsets.only(bottom: 12.0),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(log['author'] ?? '알 수 없음', style: const TextStyle(fontSize: 12, color: AppTheme.textSub, fontWeight: FontWeight.bold)),
+                                  Row(
+                                    children: [
+                                      Text(log['author'] ?? '알 수 없음', style: const TextStyle(fontSize: 12, color: AppTheme.textSub, fontWeight: FontWeight.bold)),
+                                      const SizedBox(width: 8),
+                                      Text(timeStr, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                                    ],
+                                  ),
                                   const SizedBox(height: 2),
-                                  Text(log['text'] ?? '', style: TextStyle(fontSize: 14, color: isOriginalAuthor ? AppTheme.textMain : AppTheme.errorColor)),
+                                  Text(
+                                    log['text'] ?? '',
+                                    style: TextStyle(fontSize: 14, color: isOriginalAuthor ? AppTheme.textMain : AppTheme.errorColor, fontWeight: isOriginalAuthor ? FontWeight.normal : FontWeight.bold),
+                                  ),
                                 ],
                               ),
                             );
@@ -683,6 +738,7 @@ class _AddScheduleDialogState extends State<_AddScheduleDialog> {
                         style: TextStyle(color: inputTextColor),
                         maxLines: null,
                         minLines: 3,
+                        keyboardType: TextInputType.multiline,
                         decoration: const InputDecoration(hintText: "추가할 내용이나 수정 사항을 입력하세요...", filled: true, fillColor: AppTheme.backgroundColor)
                     ),
                   ],
@@ -752,6 +808,7 @@ class _AddScheduleDialogState extends State<_AddScheduleDialog> {
       if (userDoc.exists) {
         final userData = userDoc.data() as Map<String, dynamic>;
         myName = "${userData['name'] ?? ''} ${userData['rank'] ?? ''}".trim();
+        if (myName.isEmpty) myName = "직원";
       }
     } catch(e) { print("이름 실패: $e"); }
 
@@ -782,6 +839,10 @@ class _AddScheduleDialogState extends State<_AddScheduleDialog> {
       'buildingId': _isBuildingSelected ? _selectedBuilding!['docId'] : null,
     };
 
+    // ✅ [고도화] 수정자 정보 기록 (현장 페이지와 동일)
+    scheduleData['lastModifierUid'] = user.uid;
+    scheduleData['lastModifierName'] = myName;
+
     try {
       if (isEditMode) {
         await FirebaseFirestore.instance.collection('schedules').doc(widget.existingData!['id']).update(scheduleData);
@@ -802,18 +863,29 @@ class _AddScheduleDialogState extends State<_AddScheduleDialog> {
     if (confirm == true) { await FirebaseFirestore.instance.collection('schedules').doc(widget.existingData!['id']).delete(); if (mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("삭제되었습니다."))); }}
   }
 
+  // ✅ [수정] 날짜 선택기 (Start/End 구분)
   Widget _buildDatePicker({required bool isStart}) {
     return InkWell(
         onTap: () async {
-          final date = await showDatePicker(context: context, initialDate: isStart ? _startDate : _endDate, firstDate: DateTime(2020), lastDate: DateTime(2030));
+          final date = await showDatePicker(
+              context: context,
+              initialDate: isStart ? _startDate : _endDate,
+              firstDate: DateTime(2020),
+              lastDate: DateTime(2030)
+          );
+
           if (date != null) {
             setState(() {
               if (isStart) {
                 _startDate = date;
-                if (_endDate.isBefore(_startDate)) _endDate = _startDate;
+                if (_endDate.isBefore(_startDate)) {
+                  _endDate = _startDate;
+                }
               } else {
                 _endDate = date;
-                if (_startDate.isAfter(_endDate)) _startDate = _endDate;
+                if (_startDate.isAfter(_endDate)) {
+                  _startDate = _endDate;
+                }
               }
               _hasChanges = true;
             });
@@ -836,6 +908,9 @@ class _AddScheduleDialogState extends State<_AddScheduleDialog> {
             _hasChanges = true;
             if (isStart) {
               _startTime = time;
+              final startDT = DateTime(2020, 1, 1, _startTime.hour, _startTime.minute);
+              final endDT = startDT.add(const Duration(hours: 1));
+              _endTime = TimeOfDay.fromDateTime(endDT);
             } else {
               _endTime = time;
             }
@@ -846,8 +921,12 @@ class _AddScheduleDialogState extends State<_AddScheduleDialog> {
     );
   }
 
+  // ✅ [고도화] 10가지 눈에 띄는 색상 라벨 (현장 페이지와 동일)
   Widget _buildColorPicker() {
-    final colors = [0xFF1E88E5, 0xFFE53935, 0xFF43A047, 0xFFFB8C00, 0xFF8E24AA, 0xFF00ACC1, 0xFF3949AB, 0xFFD81B60, 0xFF8D6E63, 0xFF546E7A];
+    final colors = [
+      0xFF1E88E5, 0xFFE53935, 0xFF43A047, 0xFFFB8C00, 0xFF8E24AA,
+      0xFF00ACC1, 0xFF3949AB, 0xFFD81B60, 0xFF8D6E63, 0xFF546E7A,
+    ];
     return Row(children: colors.map((color) {
       return GestureDetector(
           onTap: () => setState(() { _selectedColor = color; _hasChanges = true; }),
@@ -856,5 +935,57 @@ class _AddScheduleDialogState extends State<_AddScheduleDialog> {
   }
 }
 
-class _BuildingSearchWidget extends StatefulWidget { final ScrollController scrollController; final Function(String name, String address, String docId) onSelected; const _BuildingSearchWidget({required this.scrollController, required this.onSelected}); @override State<_BuildingSearchWidget> createState() => _BuildingSearchWidgetState(); }
-class _BuildingSearchWidgetState extends State<_BuildingSearchWidget> { String _searchText = ""; @override Widget build(BuildContext context) { return Container(padding: const EdgeInsets.all(16), decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(20))), child: Column(children: [Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)), margin: const EdgeInsets.only(bottom: 16)), const Text("건물 검색 및 선택", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.textMain)), const SizedBox(height: 16), TextField(onChanged: (val) => setState(() => _searchText = val), decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: "건물명 또는 주소 검색")), const SizedBox(height: 16), Expanded(child: StreamBuilder<QuerySnapshot>(stream: FirebaseFirestore.instance.collection('buildings').orderBy('createdAt', descending: true).snapshots(), builder: (context, snapshot) { if (!snapshot.hasData) return const Center(child: CircularProgressIndicator()); var docs = snapshot.data!.docs; if (_searchText.isNotEmpty) { docs = docs.where((doc) { var data = doc.data() as Map<String, dynamic>; String name = (data['name'] ?? '').toString().toLowerCase(); String address = (data['address'] ?? '').toString().toLowerCase(); String search = _searchText.toLowerCase(); return name.contains(search) || address.contains(search); }).toList(); } if (docs.isEmpty) return const Center(child: Text("검색 결과가 없습니다.")); return ListView.separated(separatorBuilder: (context, index) => const Divider(), controller: widget.scrollController, itemCount: docs.length, itemBuilder: (context, index) { var data = docs[index].data() as Map<String, dynamic>; return ListTile(leading: const Icon(Icons.location_city, color: AppTheme.textSub), title: Text(data['name'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold)), subtitle: Text(data['address'] ?? ''), onTap: () { widget.onSelected(data['name'] ?? '이름 없음', data['address'] ?? '', docs[index].id); }); }); }))])); } }
+class _BuildingSearchWidget extends StatefulWidget {
+  final ScrollController scrollController;
+  final Function(String name, String address, String docId) onSelected;
+  const _BuildingSearchWidget({required this.scrollController, required this.onSelected});
+  @override
+  State<_BuildingSearchWidget> createState() => _BuildingSearchWidgetState();
+}
+
+class _BuildingSearchWidgetState extends State<_BuildingSearchWidget> {
+  String _searchText = "";
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        child: Column(children: [
+          Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)), margin: const EdgeInsets.only(bottom: 16)),
+          const Text("건물 검색 및 선택", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.textMain)),
+          const SizedBox(height: 16),
+          TextField(onChanged: (val) => setState(() => _searchText = val), decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: "건물명 또는 주소 검색")),
+          const SizedBox(height: 16),
+          Expanded(child: StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance.collection('buildings').orderBy('createdAt', descending: true).snapshots(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+                var docs = snapshot.data!.docs;
+                if (_searchText.isNotEmpty) {
+                  docs = docs.where((doc) {
+                    var data = doc.data() as Map<String, dynamic>;
+                    String name = (data['name'] ?? '').toString().toLowerCase();
+                    String address = (data['address'] ?? '').toString().toLowerCase();
+                    String search = _searchText.toLowerCase();
+                    return name.contains(search) || address.contains(search);
+                  }).toList();
+                }
+                if (docs.isEmpty) return const Center(child: Text("검색 결과가 없습니다."));
+                return ListView.separated(
+                    separatorBuilder: (context, index) => const Divider(),
+                    controller: widget.scrollController,
+                    itemCount: docs.length,
+                    itemBuilder: (context, index) {
+                      var data = docs[index].data() as Map<String, dynamic>;
+                      return ListTile(
+                          leading: const Icon(Icons.location_city, color: AppTheme.textSub),
+                          title: Text(data['name'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold)),
+                          subtitle: Text(data['address'] ?? ''),
+                          onTap: () {
+                            widget.onSelected(data['name'] ?? '이름 없음', data['address'] ?? '', docs[index].id);
+                          });
+                    });
+              }))
+        ]));
+  }
+}

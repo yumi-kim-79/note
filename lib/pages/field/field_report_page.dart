@@ -679,17 +679,8 @@ class FieldReportPageState extends State<FieldReportPage> with SingleTickerProvi
                       _buildReadOnlyRow("제목", title),
                       _buildReadOnlyRow("일시", "${DateFormat('yyyy-MM-dd').format(start)}  ${DateFormat('HH:mm').format(start)} ~ ${DateFormat('HH:mm').format(end)}"),
                       _buildReadOnlyRow("장소", "$buildingName\n$buildingAddress"),
-                      const SizedBox(height: 10),
-                      const Text("업무 내용", style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.textSub)),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(12),
-                        margin: const EdgeInsets.only(top: 4, bottom: 10),
-                        decoration: BoxDecoration(color: AppTheme.backgroundColor, borderRadius: BorderRadius.circular(4)),
-                        child: Text(content.isEmpty ? "입력된 업무 내용이 없습니다." : content, style: const TextStyle(fontSize: 14)),
-                      ),
                       if (logs.isNotEmpty) ...[
-                        const Text("업무 피드백 / 히스토리", style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.textSub)),
+                        const Text("업무내용 및 히스토리", style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.textSub)),
                         Container(
                           width: double.infinity,
                           margin: const EdgeInsets.only(top: 4, bottom: 10),
@@ -1044,19 +1035,22 @@ class FieldReportPageState extends State<FieldReportPage> with SingleTickerProvi
     // 팀 탭이 아닐 때만 작성자 표시
     if (_tabController.index != 2) sb.writeln("• 작성자: ${item['author'] ?? '담당자'}");
 
-    if (item['content'] != null && item['content'].toString().isNotEmpty) {
-      sb.writeln("\n[업무 내용]\n${item['content']}");
-    }
-
     List logs = item['workLogs'] ?? [];
     if (logs.isNotEmpty) {
-      sb.writeln("\n[피드백/히스토리]");
+      sb.writeln("\n[업무내용 및 히스토리]");
+
       for (var log in logs) {
+        String author = log['author'] ?? '알수없음';
+        String text = log['text'] ?? '';
         String logTime = "";
-        if (log['createdAt'] != null) {
-          logTime = DateFormat('MM.dd HH:mm').format((log['createdAt'] as Timestamp).toDate());
+
+        // ✅ [추가] 날짜/시간 포맷팅 (년.월.일 시:분)
+        if (log['createdAt'] != null && log['createdAt'] is Timestamp) {
+          logTime = DateFormat('yyyy.MM.dd HH:mm').format((log['createdAt'] as Timestamp).toDate());
         }
-        sb.writeln("- ${log['author'] ?? '알수없음'}: ${log['text']} ($logTime)");
+
+        // 결과: - [홍길동] 특이사항 확인했습니다 (2026.02.14 14:30)
+        sb.writeln("- [$author] $text ($logTime)");
       }
     }
 
@@ -1199,9 +1193,23 @@ class FieldReportPageState extends State<FieldReportPage> with SingleTickerProvi
               _buildPdfRow("일시", "${DateFormat('MM.dd HH:mm').format(start)} ~ ${DateFormat('HH:mm').format(end)}"),
               _buildPdfRow("장소", "${item['buildingName'] ?? '-'}"),
 
-              if (item['content'] != null) ...[
-                pw.SizedBox(height: 4),
-                pw.Text("내용: ${item['content']}", style: const pw.TextStyle(fontSize: 10)),
+              if (logs.isNotEmpty) ...[
+                pw.SizedBox(height: 6),
+                pw.Text("[업무내용 및 히스토리]", style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                ...logs.map((log) {
+                  String author = log['author'] ?? '알수없음';
+                  String text = log['text'] ?? '';
+                  String dateStr = "";
+                  // ✅ [추가] PDF용 날짜/시간 변환
+                  if (log['createdAt'] != null && log['createdAt'] is Timestamp) {
+                    dateStr = DateFormat('yyyy.MM.dd HH:mm').format((log['createdAt'] as Timestamp).toDate());
+                  }
+                  // 결과: • [홍길동] 내용... (2026.02.14 14:30)
+                  return pw.Padding(
+                    padding: const pw.EdgeInsets.only(bottom: 1),
+                    child: pw.Text("• [$author] $text ($dateStr)", style: const pw.TextStyle(fontSize: 9)),
+                  );
+                }).toList(),
               ],
 
               if (item['reportContent'] != null && item['reportContent'].toString().isNotEmpty) ...[

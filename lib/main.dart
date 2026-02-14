@@ -323,8 +323,8 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
                         ),
                       ),
 
-                      _buildMenuItem(icon: Icons.business, title: '건물 DB 정보', index: 8),
                       const Divider(height: 32, indent: 24, endIndent: 24, color: AppTheme.borderColor),
+                      _buildMenuItem(icon: Icons.business, title: '건물 DB 정보', index: 8),
                       _buildMenuItem(icon: Icons.settings_outlined, title: '설정', index: 6),
                       if (isAdmin) _buildMenuItem(icon: Icons.admin_panel_settings_outlined, title: '관리자 설정', index: 3),
                       ListTile(
