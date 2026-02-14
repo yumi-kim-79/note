@@ -1,7 +1,7 @@
 // [파일 위치: lib/pages/login_page.dart]
 // 수정 내용:
-// 1. 아이디/비밀번호 입력 시 모바일 키보드 타입을 '숫자 전용'에서 '일반 텍스트(영문/한글 가능)'로 변경
-// 2. 디자인 시스템 및 로그인 로직(4자리 패스워드 처리 등) 100% 유지
+// 1. [디자인] 기본 아이콘/텍스트 삭제 -> 회사 로고 이미지(sm_logo.png)로 교체
+// 2. [기능] 아이디/비밀번호 입력 로직 및 디자인 시스템(AppTheme) 100% 유지
 
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
@@ -32,14 +32,14 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => _isLoading = true);
 
     try {
-      // 1. 아이디 처리 (@sm.com 자동 완성) - 기능 유지
+      // 1. 아이디 처리 (@sm.com 자동 완성)
       String inputId = _idController.text.trim();
       String finalEmail = inputId;
       if (!inputId.contains('@')) {
         finalEmail = "$inputId@sm.com";
       }
 
-      // 2. [비밀번호 처리] 4자리만 입력했다면 뒤에 '00' 붙여서 로그인 시도 - 기능 유지
+      // 2. [비밀번호 처리] 4자리만 입력했다면 뒤에 '00' 붙여서 로그인 시도
       String inputPw = _pwController.text.trim();
       String finalPw = inputPw;
       if (inputPw.length == 4) {
@@ -76,21 +76,25 @@ class _LoginPageState extends State<LoginPage> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.business_center, size: 60, color: AppTheme.primaryColor),
-                  const SizedBox(height: 16),
-                  const Text(
-                    "SM Service Management",
-                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppTheme.textMain),
-                    textAlign: TextAlign.center,
+
+                  // -------------------------------------------------------
+                  // ✅ [수정] 로고 이미지 적용 (기존 아이콘/텍스트 대체)
+                  // -------------------------------------------------------
+                  Image.asset(
+                    'assets/images/sm_logo.png', // 등록한 이미지 파일명
+                    width: 220, // 로고 크기 (필요에 따라 조절하세요)
+                    fit: BoxFit.contain,
                   ),
-                  const SizedBox(height: 8),
+
+                  const SizedBox(height: 24),
+
                   const Text(
                     "로그인하여 업무를 시작하세요",
                     style: TextStyle(color: AppTheme.textSub),
                   ),
                   const SizedBox(height: 40),
 
-                  // 아이디 입력창 (AppTheme 적용됨)
+                  // 아이디 입력창
                   TextField(
                     controller: _idController,
                     decoration: const InputDecoration(
@@ -98,12 +102,11 @@ class _LoginPageState extends State<LoginPage> {
                       hintText: "예: 01012345678",
                       prefixIcon: Icon(Icons.person_outline),
                     ),
-                    // ✅ [수정됨] 숫자판 강제(number) -> 일반 텍스트(text)로 변경하여 영문 자판 활성화
-                    keyboardType: TextInputType.text,
+                    keyboardType: TextInputType.text, // 영문/한글 입력 가능
                   ),
                   const SizedBox(height: 20),
 
-                  // 비밀번호 입력창 (AppTheme 적용됨)
+                  // 비밀번호 입력창
                   TextField(
                     controller: _pwController,
                     obscureText: true,
@@ -112,18 +115,17 @@ class _LoginPageState extends State<LoginPage> {
                       hintText: "4자리 입력",
                       prefixIcon: Icon(Icons.lock_outline),
                     ),
-                    // ✅ [수정됨] 숫자판 강제(number) -> 일반 텍스트(text)로 변경
                     keyboardType: TextInputType.text,
                     onSubmitted: (_) => _tryLogin(),
                   ),
                   const SizedBox(height: 32),
 
-                  // ✅ 디자인 통일: 공통 버튼 위젯 사용
+                  // 로그인 버튼
                   CommonButton(
                     text: "로그인",
                     onPressed: _isLoading ? null : _tryLogin,
                     isLoading: _isLoading,
-                    width: double.infinity, // 버튼 꽉 채우기
+                    width: double.infinity,
                   ),
                 ],
               ),

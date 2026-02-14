@@ -253,22 +253,14 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
           child: Column(
             children: [
               Container(
-                  height: 80,
-                  alignment: Alignment.centerLeft,
+                  height: 110,
+                  alignment: Alignment.centerLeft, // 왼쪽 정렬
                   padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.business_center, size: 28, color: AppTheme.primaryColor),
-                      const SizedBox(width: 12),
-                      Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: const [
-                          Text('SM Service', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.textMain)),
-                          Text('Management', style: TextStyle(fontSize: 12, color: AppTheme.textSub)),
-                        ],
-                      )
-                    ],
+                  // ✅ [수정] 로고 이미지로 교체
+                  child: Image.asset(
+                    'assets/images/sm_logo.png',
+                    height: 65, // 로고 높이 (적절한 크기로 조절하세요)
+                    fit: BoxFit.contain, // 비율 유지
                   )
               ),
               const Divider(height: 1, color: AppTheme.borderColor),
