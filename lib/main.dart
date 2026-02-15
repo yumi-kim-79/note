@@ -217,6 +217,35 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
         .map((snapshot) => snapshot.docs.length);
   }
 
+  // ✅ [신규 추가] 모든 알림(읽지 않은 것 포함) 일괄 삭제 함수
+  Future<void> _deleteAllNotifications(BuildContext context) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    try {
+      // 읽음/안읽음 상관없이 나에게 온 모든 알림 조회
+      final snapshot = await FirebaseFirestore.instance
+          .collection('notifications')
+          .where('targetUid', isEqualTo: user.uid)
+          .get();
+
+      if (snapshot.docs.isEmpty) {
+        if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("삭제할 알림이 없습니다.")));
+        return;
+      }
+
+      // 배치(Batch)를 사용하여 일괄 삭제
+      WriteBatch batch = FirebaseFirestore.instance.batch();
+      for (var doc in snapshot.docs) {
+        batch.delete(doc.reference);
+      }
+      await batch.commit();
+
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("모든 알림을 삭제했습니다.")));
+    } catch (e) {
+      print("전체 삭제 오류: $e");
+    }
+  }
+
   Future<void> _deleteReadNotifications(BuildContext context) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -304,11 +333,27 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
           ),
         ),
         actions: [
+          // 1. ✅ [수정된 코드] 모두 삭제 버튼 (fontWeight 에러 해결)
+          TextButton(
+            onPressed: () async {
+              await _deleteAllNotifications(context);
+            },
+            style: TextButton.styleFrom(
+              foregroundColor: AppTheme.errorColor,
+              // ✨ [중요] fontWeight는 반드시 textStyle 안에 넣어야 합니다.
+              textStyle: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            child: const Text("모두 삭제"),
+          ),
+
+          // 2. [기존 유지] 읽은 알림 삭제 버튼
           TextButton(
             onPressed: () async { await _deleteReadNotifications(context); },
-            style: TextButton.styleFrom(foregroundColor: AppTheme.errorColor),
+            style: TextButton.styleFrom(foregroundColor: Colors.grey),
             child: const Text("읽은 알림 삭제"),
           ),
+
+          // 3. [기존 유지] 닫기 버튼
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("닫기"))
         ],
       ),
