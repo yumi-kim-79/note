@@ -1,15 +1,15 @@
 // [파일 위치: lib/main.dart]
-// [페이지 기능: SM 서비스 매니지먼트 통합 레이아웃 및 실시간 알림 관리]
-// 수정 내용:
-// 1. [고도화] 알림 팝업에 '읽은 알림 전체 삭제' 기능 추가 (일괄 삭제 로직)
-// 2. [기존 유지] 알림 배지, 팝업 목록(최신순), 네이버 지도, 메뉴 등 100% 동일
+// [수정 완료 내용]
+// 1. 모바일/태블릿 상단바(AppBar) 우측 상단(actions)에 알림+유저정보 배치
+// 2. 알림 클릭 시 흰색 화면(Pop 오류) 해결 (_onMenuSelected 로직 수정)
+// 3. 구문 오류(괄호 누락) 전체 수정 및 기존 기능(지도, 알림 등) 100% 유지
 
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/date_symbol_data_local.dart';
-import 'package:intl/intl.dart'; // 날짜 포맷팅용
+import 'package:intl/intl.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_naver_map/flutter_naver_map.dart';
 import 'firebase_options.dart';
@@ -35,7 +35,6 @@ import 'pages/field/field_report_page.dart';
 import 'services/auth_service.dart';
 import 'services/sales_service.dart';
 
-// 네이버 지도 전역 컨트롤러
 NaverMapController? globalMapController;
 
 void main() async {
@@ -52,8 +51,7 @@ void main() async {
           clientId: 's9qk2rcdyp',
           onAuthFailed: (ex) {
             print("********* 네이버 지도 인증 실패: $ex *********");
-          }
-      );
+          });
     } catch (e) {
       print("********* 네이버 지도 초기화 오류: $e *********");
     }
@@ -127,7 +125,8 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
 
     _pages = [
       DashboardPage(key: _dashboardKey),
-      SalesWritePage(onSaved: () => _onMenuSelected(2)),
+      // 저장 후 이동 시에는 드로어 클릭이 아니므로 false
+      SalesWritePage(onSaved: () => _onMenuSelected(2, isDrawerClick: false)),
       SalesListPage(),
       const AdminPage(),
       const ChecklistPage(),
@@ -140,12 +139,15 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
     ];
   }
 
-  void _onMenuSelected(int index) async {
+  // ✅ [수정] isDrawerClick 파라미터 추가 (흰색 화면 버그 해결의 핵심)
+  // 기본값 true: 메뉴바에서 눌렀을 때 / false: 코드에서 이동시켰을 때 (알림 클릭 등)
+  void _onMenuSelected(int index, {bool isDrawerClick = true}) async {
     final isMobile = MediaQuery.of(context).size.width < 900;
 
     if (_selectedIndex == index) {
       _triggerPageRefresh(index);
-      if (isMobile) Navigator.pop(context);
+      // 모바일이고 + 드로어(메뉴)에서 직접 클릭했을 때만 닫기
+      if (isMobile && isDrawerClick) Navigator.pop(context);
       return;
     }
 
@@ -170,7 +172,8 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
       });
     }
 
-    if (isMobile) {
+    // ✅ [핵심 수정] 알림 팝업 등에서 호출 시(isDrawerClick: false)에는 창을 닫으면 안 됨
+    if (isMobile && isDrawerClick) {
       Navigator.pop(context);
     }
   }
@@ -202,7 +205,6 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
     }
   }
 
-  // 배지 카운트용 (정렬 없음 - 에러 방지)
   Stream<int> _getUnreadNotificationCountStream() {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return Stream.value(0);
@@ -215,13 +217,10 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
         .map((snapshot) => snapshot.docs.length);
   }
 
-  // ✅ [신규] 읽은 알림 일괄 삭제 함수
   Future<void> _deleteReadNotifications(BuildContext context) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
-
     try {
-      // 1. 내 알림 중 '읽음(true)' 처리된 것만 가져오기
       final snapshot = await FirebaseFirestore.instance
           .collection('notifications')
           .where('targetUid', isEqualTo: user.uid)
@@ -229,28 +228,16 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
           .get();
 
       if (snapshot.docs.isEmpty) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("삭제할 읽은 알림이 없습니다.")));
-        }
+        if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("삭제할 읽은 알림이 없습니다.")));
         return;
       }
-
-      // 2. 일괄 삭제 (Batch) 실행
       WriteBatch batch = FirebaseFirestore.instance.batch();
-      for (var doc in snapshot.docs) {
-        batch.delete(doc.reference);
-      }
+      for (var doc in snapshot.docs) { batch.delete(doc.reference); }
       await batch.commit();
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("읽은 알림을 모두 삭제했습니다.")));
-      }
-    } catch (e) {
-      print("알림 삭제 중 오류: $e");
-    }
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("읽은 알림을 모두 삭제했습니다.")));
+    } catch (e) { print("알림 삭제 오류: $e"); }
   }
 
-  // 알림 목록 팝업 (정렬 없음 - 즉시 표시)
   void _showNotificationList(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -259,13 +246,7 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        title: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text("최신 알림", style: TextStyle(fontWeight: FontWeight.bold)),
-            // 카운트 표시 (선택 사항)
-          ],
-        ),
+        title: const Text("최신 알림", style: TextStyle(fontWeight: FontWeight.bold)),
         content: SizedBox(
           width: 400,
           height: 450,
@@ -273,13 +254,11 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
             stream: FirebaseFirestore.instance
                 .collection('notifications')
                 .where('targetUid', isEqualTo: user.uid)
-                .limit(20) // 최신 20개만 로드 (정렬은 메모리에서)
+                .limit(20)
                 .snapshots(),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
               final docs = snapshot.data?.docs ?? [];
-
-              // 메모리상 최신순 정렬
               docs.sort((a, b) {
                 Timestamp t1 = a['createdAt'] ?? Timestamp.now();
                 Timestamp t2 = b['createdAt'] ?? Timestamp.now();
@@ -311,12 +290,11 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
                       ],
                     ),
                     onTap: () async {
-                      // 1. 읽음 처리
                       await docs[index].reference.update({'isRead': true});
                       if (!mounted) return;
                       Navigator.pop(ctx);
 
-                      // 2. 페이지 이동
+                      // ✅ [핵심] 알림 클릭 시에는 'Drawer 닫기'를 하지 않도록 false 전달
                       _handleNotificationClick(data['type']);
                     },
                   );
@@ -326,12 +304,8 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
           ),
         ),
         actions: [
-          // ✅ [추가됨] 읽은 알림 삭제 버튼
           TextButton(
-            onPressed: () async {
-              await _deleteReadNotifications(context);
-              // 삭제 후 팝업 유지 (목록이 갱신됨)
-            },
+            onPressed: () async { await _deleteReadNotifications(context); },
             style: TextButton.styleFrom(foregroundColor: AppTheme.errorColor),
             child: const Text("읽은 알림 삭제"),
           ),
@@ -341,11 +315,12 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
     );
   }
 
+  // ✅ [수정] 알림 클릭 핸들러에서 isDrawerClick: false 전달
   void _handleNotificationClick(String? type) {
     switch (type) {
-      case 'schedule': _onMenuSelected(9); break;
-      case 'chat': _onMenuSelected(5); break;
-      case 'report': _onMenuSelected(10); break;
+      case 'schedule': _onMenuSelected(9, isDrawerClick: false); break;
+      case 'chat': _onMenuSelected(5, isDrawerClick: false); break;
+      case 'report': _onMenuSelected(10, isDrawerClick: false); break;
       default: break;
     }
   }
@@ -361,7 +336,6 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
         .map((snapshot) {
       DateTime today = DateTime.now();
       DateTime todayBase = DateTime(today.year, today.month, today.day);
-
       return snapshot.docs.where((doc) {
         final data = doc.data();
         DateTime start = (data['startDate'] as Timestamp?)?.toDate() ?? (data['date'] as Timestamp?)?.toDate() ?? DateTime.now();
@@ -372,12 +346,8 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
     });
   }
 
-  // [파일 위치: lib/main.dart]
-// _MainLayoutPageState 클래스 내부
-
   @override
   Widget build(BuildContext context) {
-    // 반응형 기준점 설정 (900px 기준)
     final bool isWideScreen = MediaQuery.of(context).size.width > 900;
     final user = FirebaseAuth.instance.currentUser;
 
@@ -385,21 +355,16 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
       stream: FirebaseFirestore.instance.collection('users').doc(user?.uid).snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) return const Scaffold(body: Center(child: CircularProgressIndicator()));
-
-        // 유저 정보 가져오기
         var userData = snapshot.data!.data() as Map<String, dynamic>?;
         String userName = userData?['name'] ?? '사용자';
         String userRank = userData?['rank'] ?? '';
         bool isAdmin = (userData?['role'] ?? 'user') == 'admin';
 
-        // 관리자가 아닌데 관리자 페이지 접속 시 대시보드로 이동
         if (!isAdmin && _selectedIndex == 3) {
-          WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) _onMenuSelected(0); });
+          WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) _onMenuSelected(0, isDrawerClick: false); });
         }
 
-        // ---------------------------------------------------------------
-        // ✅ [1. 공통 위젯 분리] 알림 버튼 (배지 포함)
-        // ---------------------------------------------------------------
+        // 1. 알림 버튼 (공통)
         Widget notificationButton = StreamBuilder<int>(
           stream: _getUnreadNotificationCountStream(),
           builder: (context, snap) {
@@ -427,9 +392,7 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
           },
         );
 
-        // ---------------------------------------------------------------
-        // ✅ [2. 공통 위젯 분리] 유저 정보 (이름 + 직급)
-        // ---------------------------------------------------------------
+        // 2. 유저 정보 위젯 (공통)
         Widget userInfoWidget = Row(
           children: [
             CircleAvatar(
@@ -450,7 +413,6 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
           ],
         );
 
-        // 사이드 메뉴 컨텐츠
         Widget menuContent = Container(
           color: AppTheme.surfaceColor,
           child: Column(
@@ -524,28 +486,23 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
         );
 
         return Scaffold(
-          // ---------------------------------------------------------------
-          // ✅ [3. 모바일/태블릿 상단바 고도화] 좌측 상단에 알림+유저정보 배치
-          // ---------------------------------------------------------------
+          // ✅ [모바일/태블릿 상단바] 우측 상단(actions)에 알림/정보 배치, 좌측(title)엔 페이지 제목
           appBar: isWideScreen
-              ? null // PC 화면에서는 AppBar 제거 (Body에 통합)
+              ? null
               : AppBar(
             backgroundColor: Colors.white,
             elevation: 1,
             iconTheme: const IconThemeData(color: AppTheme.textMain),
-            titleSpacing: 0, // 메뉴 아이콘과 타이틀 사이 간격 좁힘
-            centerTitle: false, // 왼쪽 정렬 강제
-            title: Row(
-              children: [
-                // 요청하신 대로: 종모양 -> 유저 정보 순서로 좌측 상단 배치
-                notificationButton,
-                const SizedBox(width: 4),
-                userInfoWidget,
-              ],
+            title: Text(
+                _getTitleByIndex(_selectedIndex),
+                style: const TextStyle(color: AppTheme.textMain, fontSize: 18, fontWeight: FontWeight.bold)
             ),
+            centerTitle: false, // 제목 왼쪽 정렬
             actions: [
-              // 우측 공간이 비어보이면 로고 등을 넣을 수 있음 (현재는 비워둠)
-              const SizedBox(width: 16),
+              notificationButton, // 종 모양 알림
+              const SizedBox(width: 8),
+              userInfoWidget,     // 이름/직급
+              const SizedBox(width: 16), // 우측 여백
             ],
           ),
           drawer: isWideScreen ? null : Drawer(child: menuContent),
@@ -560,22 +517,15 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
                       color: (_selectedIndex == 7 && !kIsWeb) ? Colors.transparent : AppTheme.backgroundColor,
                       child: Column(
                         children: [
-                          // ---------------------------------------------------------------
-                          // ✅ [4. 헤더 반응형 처리]
-                          // PC: 페이지 제목 + (알림+유저정보) 우측 배치
-                          // 모바일: 페이지 제목만 표시 (알림+유저정보는 앱바에 있음)
-                          // ---------------------------------------------------------------
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                            color: AppTheme.surfaceColor,
-                            child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  // 페이지 제목
-                                  Text(_getTitleByIndex(_selectedIndex), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-
-                                  // PC 환경일 때만 우측에 알림+유저정보 표시 (모바일은 앱바에 있으므로 숨김)
-                                  if (isWideScreen)
+                          // PC 헤더
+                          if (isWideScreen)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                              color: AppTheme.surfaceColor,
+                              child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(_getTitleByIndex(_selectedIndex), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
                                     Row(
                                       children: [
                                         notificationButton,
@@ -583,11 +533,10 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
                                         userInfoWidget,
                                       ],
                                     )
-                                ]
+                                  ]
+                              ),
                             ),
-                          ),
-                          const Divider(height: 1, color: AppTheme.borderColor),
-
+                          if (isWideScreen) const Divider(height: 1, color: AppTheme.borderColor),
                           Expanded(
                             child: IndexedStack(
                               index: _selectedIndex,
@@ -607,6 +556,7 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
     );
   }
 
+  // 메뉴 아이템 (드로어 클릭이므로 기본값 isDrawerClick: true 사용)
   Widget _buildMenuItem({required IconData icon, required String title, required int index, int badgeCount = 0}) {
     final bool isSelected = _selectedIndex == index;
     return Padding(
@@ -635,6 +585,7 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
     );
   }
 
+  // 서브 메뉴 아이템 (드로어 클릭이므로 기본값 isDrawerClick: true 사용)
   Widget _buildSubMenuItem({required IconData icon, required String title, required int index, int badgeCount = 0}) {
     final bool isSelected = _selectedIndex == index;
     return Padding(
