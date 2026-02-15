@@ -1,9 +1,9 @@
 // [파일 위치: lib/main.dart]
 // [최종 수정 내용]
-// 1. [Feature] 알림 팝업 내 '모두 삭제(안 읽은 알림 포함)' 기능 추가 및 버튼 스타일 수정
-// 2. [Feature] 앱 실행 중 소리/진동/상단배너 알림 로직 통합 (flutter_local_notifications)
-// 3. [Fix] 모바일 우측 상단 배치, 흰색 화면 버그, 버튼 스타일 에러 등 모든 이슈 해결
-// 4. [Maintenance] 기존 기능(지도, 메뉴, 화면 이동 등) 100% 유지
+// 1. [Fix] 중복 변수 선언 제거 및 48개 빌드 오류 해결
+// 2. [Feature] 안드로이드 알림 채널(소리/진동) 시스템 강제 등록
+// 3. [Feature] iOS 알림 상세 설정(DarwinNotificationDetails) 추가
+// 4. [Maintenance] 기존 기능(지도, 알림센터 모두삭제, 유저설정 연동) 100% 유지
 
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -15,7 +15,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_naver_map/flutter_naver_map.dart';
 import 'firebase_options.dart';
 import 'package:flutter/foundation.dart';
-import 'dart:async'; // StreamSubscription 사용
+import 'dart:async';
 
 // ✅ 알림/진동 패키지
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -43,49 +43,51 @@ import 'services/sales_service.dart';
 
 NaverMapController? globalMapController;
 
-// ✅ 알림 플러그인 인스턴스
+// ✅ [고도화] 전역 알림 플러그인 인스턴스 (하나만 유지)
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+
+// ✅ [고도화] 안드로이드용 고중요도 알림 채널 정의
+const AndroidNotificationChannel channel = AndroidNotificationChannel(
+  'high_importance_channel', // ID
+  '중요한 업무 알림', // 이름
+  description: '업무 톡톡 및 일정 알림을 위한 채널입니다.',
+  importance: Importance.max,
+  playSound: true,
+  enableVibration: true,
+);
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('ko_KR', null);
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
+  // 알림 서비스 초기화 (FCM 등)
   await NotificationService().init();
 
-  // ✅ 1. 안드로이드 알림 채널 정의 (소리, 진동 설정의 핵심)
-  const AndroidNotificationChannel channel = AndroidNotificationChannel(
-    'high_importance_channel', // ID (notification_service.dart와 동일해야 함)
-    'High Importance Notifications', // 이름
-    description: '중요한 업무 알림을 위한 채널입니다.',
-    importance: Importance.max,
-    playSound: true,
-    enableVibration: true,
-  );
-
-  final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
-
-  // ✅ 2. 안드로이드 초기화 및 채널 생성
+  // ✅ [수정] 알림 초기화 설정 (중복 선언 오류 해결)
   const AndroidInitializationSettings initializationSettingsAndroid =
   AndroidInitializationSettings('@mipmap/ic_launcher');
 
-  const DarwinInitializationSettings initializationSettingsIOS =
-  DarwinInitializationSettings(
+  const DarwinInitializationSettings initializationSettingsIOS = DarwinInitializationSettings(
     requestAlertPermission: true,
     requestBadgePermission: true,
     requestSoundPermission: true,
   );
 
-  await flutterLocalNotificationsPlugin.initialize(
-    const InitializationSettings(android: initializationSettingsAndroid, iOS: initializationSettingsIOS),
+  const InitializationSettings initializationSettings = InitializationSettings(
+    android: initializationSettingsAndroid,
+    iOS: initializationSettingsIOS,
   );
 
-  // 안드로이드 기기에 채널을 등록합니다.
-  await flutterLocalNotificationsPlugin
-      .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
-      ?.createNotificationChannel(channel);
+  // 전역 인스턴스 초기화
+  await flutterLocalNotificationsPlugin.initialize(initializationSettings);
 
+  // ✅ [수정] 안드로이드 시스템에 소리/진동 채널 강제 생성
   if (!kIsWeb) {
+    await flutterLocalNotificationsPlugin
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(channel);
+
     try {
       await NaverMapSdk.instance.initialize(
           clientId: 's9qk2rcdyp',
@@ -143,7 +145,6 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
   late final Widget _permanentNaverMap;
   late final List<Widget> _pages;
 
-  // ✅ 알림 리스너 관리
   StreamSubscription<QuerySnapshot>? _notificationSubscription;
 
   final GlobalKey<FieldReportPageState> _reportPageKey = GlobalKey<FieldReportPageState>();
@@ -180,17 +181,17 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
       FieldReportPage(key: _reportPageKey),
     ];
 
-    // ✅ 앱 실행 중 실시간 알림 감지 시작 (소리/진동)
     _listenToNotifications();
   }
 
   @override
   void dispose() {
     _notificationSubscription?.cancel();
+    _pageController.dispose();
     super.dispose();
   }
 
-  // ✅ Firestore 실시간 감지 -> 소리/진동/배너 실행
+  // ✅ Firestore 실시간 감지 -> 유저 설정(소리/진동) 체크 후 실행
   void _listenToNotifications() {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -202,23 +203,22 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
         .snapshots()
         .listen((snapshot) async {
 
-      // ✅ [신규] 유저의 '설정(Settings)' 문서를 먼저 가져옵니다.
       final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
       final settings = userDoc.data() as Map<String, dynamic>?;
 
-      // 설정 페이지의 필드명에 맞춰 확인 (예: isVibrate, isSound)
-      bool canVibrate = settings?['isVibrate'] ?? true; // 기본값은 true
+      bool canVibrate = settings?['isVibrate'] ?? true;
       bool canSound = settings?['isSound'] ?? true;
 
       for (var change in snapshot.docChanges) {
         if (change.type == DocumentChangeType.added) {
-
-          // 1. 진동 (설정에서 켜져 있을 때만)
-          if (canVibrate && (await Vibration.hasVibrator() ?? false)) {
-            Vibration.vibrate();
+          // 1. 진동 처리
+          if (canVibrate && !kIsWeb) {
+            Vibration.hasVibrator().then((hasVibrator) {
+              if (hasVibrator == true) Vibration.vibrate();
+            });
           }
 
-          // 2. 상단 배너 및 소리 (설정에서 켜져 있을 때만)
+          // 2. 소리 및 배너 알림 처리
           if (canSound) {
             final data = change.doc.data() as Map<String, dynamic>;
             _showLocalNotification(
@@ -231,41 +231,39 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
     });
   }
 
+  // ✅ [고도화] 실제 알림 팝업 실행 (Android/iOS 통합 상세 설정)
   Future<void> _showLocalNotification({required String title, required String body}) async {
-    // 안드로이드 설정
-    const AndroidNotificationDetails androidPlatformChannelSpecifics =
-    AndroidNotificationDetails(
-      'high_importance_channel',
-      'High Importance Notifications',
+    // 안드로이드 상세 설정 (채널 연동)
+    final AndroidNotificationDetails androidPlatformChannelSpecifics = AndroidNotificationDetails(
+      channel.id,
+      channel.name,
+      channelDescription: channel.description,
       importance: Importance.max,
       priority: Priority.high,
-      showWhen: true,
       playSound: true,
       enableVibration: true,
     );
 
-    // ✅ iOS 설정을 추가해야 아이폰에서 소리가 납니다.
+    // iOS 상세 설정 (소리/배너 노출 보장)
     const DarwinNotificationDetails iosNotificationDetails = DarwinNotificationDetails(
       presentAlert: true,
       presentBadge: true,
       presentSound: true,
     );
 
-    const NotificationDetails platformChannelSpecifics =
-    NotificationDetails(
+    final NotificationDetails platformChannelSpecifics = NotificationDetails(
       android: androidPlatformChannelSpecifics,
-      iOS: iosNotificationDetails, // iOS 상세 설정 연결
+      iOS: iosNotificationDetails,
     );
 
     await flutterLocalNotificationsPlugin.show(
-      DateTime.now().millisecond, // 고유 ID 부여 (0 고정 시 알림이 겹칠 수 있음)
+      DateTime.now().millisecond, // 고유 ID 부여
       title,
       body,
       platformChannelSpecifics,
     );
   }
 
-  // ✅ 메뉴 선택 함수 (흰색 화면 버그 해결)
   void _onMenuSelected(int index, {bool isDrawerClick = true}) async {
     final isMobile = MediaQuery.of(context).size.width < 900;
 
@@ -340,7 +338,6 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
         .map((snapshot) => snapshot.docs.length);
   }
 
-  // ✅ [기존] 읽은 알림만 삭제
   Future<void> _deleteReadNotifications(BuildContext context) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -362,12 +359,10 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
     } catch (e) { print("알림 삭제 오류: $e"); }
   }
 
-  // ✅ [신규] '모두 삭제' 기능 (안 읽은 것도 포함)
   Future<void> _deleteAllNotifications(BuildContext context) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
     try {
-      // 읽음/안읽음 구분 없이 나에게 온 모든 알림 조회
       final snapshot = await FirebaseFirestore.instance
           .collection('notifications')
           .where('targetUid', isEqualTo: user.uid)
@@ -450,17 +445,14 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
           ),
         ),
         actions: [
-          // ✅ [신규] 모두 삭제 버튼 (빨간색)
           TextButton(
             onPressed: () async { await _deleteAllNotifications(context); },
             style: TextButton.styleFrom(
               foregroundColor: AppTheme.errorColor,
-              // ✅ [수정] 스타일 에러 해결 (fontWeight를 textStyle 안으로)
               textStyle: const TextStyle(fontWeight: FontWeight.bold),
             ),
             child: const Text("모두 삭제"),
           ),
-          // ✅ [기존] 읽은 알림 삭제 버튼
           TextButton(
             onPressed: () async { await _deleteReadNotifications(context); },
             style: TextButton.styleFrom(foregroundColor: Colors.grey),
@@ -520,7 +512,6 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
           WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) _onMenuSelected(0, isDrawerClick: false); });
         }
 
-        // 알림 버튼 (배지 포함)
         Widget notificationButton = StreamBuilder<int>(
           stream: _getUnreadNotificationCountStream(),
           builder: (context, snap) {
@@ -548,7 +539,6 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
           },
         );
 
-        // 유저 정보 위젯
         Widget userInfoWidget = Row(
           children: [
             CircleAvatar(
@@ -642,7 +632,6 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
         );
 
         return Scaffold(
-          // ✅ [모바일] 앱바 우측 상단에 알림/정보 배치
           appBar: isWideScreen
               ? null
               : AppBar(
