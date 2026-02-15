@@ -1,8 +1,8 @@
 // [파일 위치: lib/pages/chat/chat_page.dart]
-// [고도화 완료] 화면 깜빡임 없는 부드러운 채팅 UI 구현
-// 1. [구조 변경] 메시지 목록(_MessageList)과 입력창(_ChatInput)을 별도 위젯으로 분리하여 불필요한 재렌더링 방지
-// 2. [성능 개선] 메시지 전송 시, 전체 화면이 아닌 입력창과 스크롤 위치만 제어하도록 최적화
-// 3. [기존 기능 100% 보존] 사진 전송, 대화 백업, 자동 삭제, 알림 등 모든 기존 기능은 완벽하게 유지
+// [최종 고도화] 카카오톡 방식의 무중단 채팅 UI 구현
+// 1. [Mobile] 엔터 키를 '줄바꿈'으로 변경하여 키보드 내려감(깜빡임) 원천 차단
+// 2. [PC] 엔터 키로 '전송' 유지 (기존 100점 경험 보존)
+// 3. [Focus] 메시지 전송 후 포커스를 강제로 유지하여 연속 입력 보장
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -15,6 +15,7 @@ import 'package:universal_html/html.dart' as html;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:convert';
 import 'dart:async';
+import 'dart:io'; // 플랫폼 감지용
 
 import '../../services/sales_service.dart';
 import '../../services/notification_service.dart';
@@ -54,8 +55,8 @@ class _ChatPageState extends State<ChatPage> {
     _scrollController.dispose();
     super.dispose();
   }
-  
-  // 30일 지난 메시지 자동 삭제 (기존 유지)
+
+  // 30일 지난 메시지 자동 삭제
   Future<void> _deleteOldMessages() async {
     DateTime cutOffDate = DateTime.now().subtract(const Duration(days: 30));
     try {
@@ -79,11 +80,10 @@ class _ChatPageState extends State<ChatPage> {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        _ChatHeader(), // 헤더 분리
+        _ChatHeader(),
         Expanded(
           child: Container(
             color: const Color(0xFFB2C7DA),
-            // ✅ [구조 분리 1] 메시지 목록을 별도 위젯으로 분리
             child: _MessageList(
               salesService: _salesService,
               scrollController: _scrollController,
@@ -91,7 +91,6 @@ class _ChatPageState extends State<ChatPage> {
             ),
           ),
         ),
-        // ✅ [구조 분리 2] 입력창을 별도 위젯으로 분리
         _ChatInput(
           salesService: _salesService,
           scrollController: _scrollController,
@@ -101,9 +100,9 @@ class _ChatPageState extends State<ChatPage> {
   }
 }
 
-// --- 1. 헤더 위젯 (Stateless) ---
+// --- 1. 헤더 위젯 ---
 class _ChatHeader extends StatelessWidget {
-  
+
   Future<void> _backupChat(BuildContext context) async {
     try {
       var snapshot = await FirebaseFirestore.instance
@@ -149,7 +148,7 @@ class _ChatHeader extends StatelessWidget {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("백업 중 오류가 발생했습니다.")));
     }
   }
-  
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -175,7 +174,7 @@ class _ChatHeader extends StatelessWidget {
   }
 }
 
-// --- 2. 메시지 목록 위젯 (Stateless) ---
+// --- 2. 메시지 목록 위젯 ---
 class _MessageList extends StatelessWidget {
   final SalesService salesService;
   final ScrollController scrollController;
@@ -256,7 +255,7 @@ class _MessageList extends StatelessWidget {
                   message: data['message'] ?? '',
                   imageUrl: data['imageUrl'],
                   date: date,
-                  onLongPress: isMe ? () => _showDeleteOption(context, docId) : null, 
+                  onLongPress: isMe ? () => _showDeleteOption(context, docId) : null,
                 ),
               ],
             );
@@ -293,7 +292,7 @@ class _MessageList extends StatelessWidget {
 class _ChatInput extends StatefulWidget {
   final SalesService salesService;
   final ScrollController scrollController;
-  
+
   const _ChatInput({required this.salesService, required this.scrollController});
 
   @override
@@ -308,13 +307,16 @@ class _ChatInputState extends State<_ChatInput> {
   bool _isUploading = false;
   bool _isSending = false;
 
+  // ✅ [플랫폼 감지] 모바일 환경(Android/iOS)인지 확인
+  bool get _isMobile => !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+
   @override
   void dispose() {
     _msgController.dispose();
     _focusNode.dispose();
     super.dispose();
   }
-  
+
   void _scrollToBottom() {
     if (widget.scrollController.hasClients) {
       widget.scrollController.animateTo(
@@ -335,13 +337,17 @@ class _ChatInputState extends State<_ChatInput> {
     setState(() => _isSending = true);
     _msgController.clear();
     _scrollToBottom();
-    
+
+    // ✅ [키보드 고정 핵심 로직]
+    // 웹: 기존 한글 잔상 해결 로직 유지
+    // 모바일: 포커스를 강제로 잡아주어 키보드가 내려가는 것을 방지
     if (kIsWeb) {
       _focusNode.unfocus();
       Future.delayed(const Duration(milliseconds: 10), () {
         if (mounted) _focusNode.requestFocus();
       });
     } else {
+      // 모바일/PC(앱) 모두 포커스 유지하여 키보드 내려감 방지
       _focusNode.requestFocus();
     }
 
@@ -352,7 +358,7 @@ class _ChatInputState extends State<_ChatInput> {
       DocumentSnapshot myDoc = await FirebaseFirestore.instance.collection('users').doc(currentUser.uid).get();
       String myName = (myDoc.data() as Map<String, dynamic>?)?['name'] ?? '누군가';
       _sendChatNotification(myName, text, currentUser.uid);
-      
+
       Future.delayed(const Duration(milliseconds: 100), () => _scrollToBottom());
 
     } catch (e) {
@@ -387,7 +393,7 @@ class _ChatInputState extends State<_ChatInput> {
       }
     }
   }
-  
+
   Future<void> _sendChatNotification(String senderName, String message, String myUid) async {
     try {
       QuerySnapshot userSnapshot = await FirebaseFirestore.instance
@@ -437,10 +443,14 @@ class _ChatInputState extends State<_ChatInput> {
                       controller: _msgController,
                       maxLines: null,
                       keyboardType: TextInputType.multiline,
-                      textInputAction: TextInputAction.send,
-                      onSubmitted: (_) => _sendMessage(),
+                      // ✅ [핵심 변경] 모바일(카카오톡 방식): 줄바꿈 / PC: 전송
+                      // 모바일에서 TextInputAction.send를 쓰면 OS가 키보드를 강제로 내리려 합니다.
+                      // newline을 쓰면 키보드가 고정된 상태로 줄바꿈만 되고, 전송은 버튼으로 처리합니다.
+                      textInputAction: _isMobile ? TextInputAction.newline : TextInputAction.send,
+                      // 모바일은 엔터 키가 줄바꿈 역할을 하므로 onSubmitted를 null로 처리 (시스템 개입 차단)
+                      onSubmitted: _isMobile ? null : (_) => _sendMessage(),
                       decoration: InputDecoration(
-                        hintText: "메시지 입력 (Enter:전송)",
+                        hintText: _isMobile ? "메시지 입력" : "메시지 입력 (Enter:전송)",
                         hintStyle: const TextStyle(color: Colors.grey, fontSize: 12),
                         filled: true, fillColor: const Color(0xFFF2F2F2),
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),

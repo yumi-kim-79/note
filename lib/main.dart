@@ -1,13 +1,13 @@
 // [파일 위치: lib/main.dart]
-// [최종 수정 내용]
-// 1. [Fix] 중복 변수 선언 제거 및 48개 빌드 오류 해결
-// 2. [Feature] 안드로이드 알림 채널(소리/진동) 시스템 강제 등록
-// 3. [Feature] iOS 알림 상세 설정(DarwinNotificationDetails) 추가
-// 4. [Maintenance] 기존 기능(지도, 알림센터 모두삭제, 유저설정 연동) 100% 유지
+// [최종 업데이트] 백그라운드/종료 상태 알림 클릭 핸들링 추가
+// 1. 앱이 꺼진 상태에서 알림 클릭 시 -> 해당 페이지로 이동 (getInitialMessage)
+// 2. 앱이 백그라운드 상태에서 알림 클릭 시 -> 해당 페이지로 이동 (onMessageOpenedApp)
+// 3. 앱이 켜진 상태 -> 기존 Firestore 리스너 유지
 
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
@@ -43,13 +43,12 @@ import 'services/sales_service.dart';
 
 NaverMapController? globalMapController;
 
-// ✅ [고도화] 전역 알림 플러그인 인스턴스 (하나만 유지)
+final GlobalKey<MainLayoutPageState> mainLayoutKey = GlobalKey<MainLayoutPageState>();
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
-// ✅ [고도화] 안드로이드용 고중요도 알림 채널 정의
 const AndroidNotificationChannel channel = AndroidNotificationChannel(
-  'high_importance_channel', // ID
-  '중요한 업무 알림', // 이름
+  'high_importance_channel',
+  '중요한 업무 알림',
   description: '업무 톡톡 및 일정 알림을 위한 채널입니다.',
   importance: Importance.max,
   playSound: true,
@@ -61,10 +60,9 @@ void main() async {
   await initializeDateFormatting('ko_KR', null);
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  // 알림 서비스 초기화 (FCM 등)
   await NotificationService().init();
 
-  // ✅ [수정] 알림 초기화 설정 (중복 선언 오류 해결)
+  // 1. 로컬 알림 초기화
   const AndroidInitializationSettings initializationSettingsAndroid =
   AndroidInitializationSettings('@mipmap/ic_launcher');
 
@@ -79,15 +77,30 @@ void main() async {
     iOS: initializationSettingsIOS,
   );
 
-  // 전역 인스턴스 초기화
-  await flutterLocalNotificationsPlugin.initialize(initializationSettings);
+  await flutterLocalNotificationsPlugin.initialize(
+    initializationSettings,
+    onDidReceiveNotificationResponse: (NotificationResponse response) async {
+      final String? type = response.payload;
+      if (type != null) {
+        debugPrint("🔔 [포그라운드 알림 탭] 이동 요청 타입: $type");
+        mainLayoutKey.currentState?.handleNotificationClick(type);
+      }
+    },
+  );
 
-  // ✅ [수정] 안드로이드 시스템에 소리/진동 채널 강제 생성
+  await flutterLocalNotificationsPlugin
+      .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+      ?.createNotificationChannel(channel);
+
+  // 2. FCM 포그라운드 핸들러 (중복 방지용 - 로그만 출력)
+  FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+    debugPrint("📱 [FCM] 포그라운드 수신 (UI 표시 안 함): ${message.notification?.title}");
+  });
+
+  // ✅ [추가] 백그라운드 메시지 핸들러 (앱이 완전히 꺼져있을 때도 수신 처리)
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+
   if (!kIsWeb) {
-    await flutterLocalNotificationsPlugin
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(channel);
-
     try {
       await NaverMapSdk.instance.initialize(
           clientId: 's9qk2rcdyp',
@@ -100,6 +113,13 @@ void main() async {
   }
 
   runApp(const SMSalesNoteApp());
+}
+
+// ✅ [추가] 최상위 레벨 백그라운드 핸들러 (반드시 main 밖에 있어야 함)
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  debugPrint("🌙 [백그라운드] 메시지 수신: ${message.messageId}");
 }
 
 class SMSalesNoteApp extends StatelessWidget {
@@ -123,7 +143,7 @@ class SMSalesNoteApp extends StatelessWidget {
           if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
             return const Scaffold(body: Center(child: CircularProgressIndicator()));
           }
-          if (snapshot.hasData) return const MainLayoutPage();
+          if (snapshot.hasData) return MainLayoutPage(key: mainLayoutKey);
           return const LoginPage();
         },
       ),
@@ -134,11 +154,12 @@ class SMSalesNoteApp extends StatelessWidget {
 
 class MainLayoutPage extends StatefulWidget {
   const MainLayoutPage({super.key});
+
   @override
-  State<MainLayoutPage> createState() => _MainLayoutPageState();
+  State<MainLayoutPage> createState() => MainLayoutPageState();
 }
 
-class _MainLayoutPageState extends State<MainLayoutPage> {
+class MainLayoutPageState extends State<MainLayoutPage> {
   int _selectedIndex = 0;
   final SalesService _salesService = SalesService();
   final PageController _pageController = PageController();
@@ -181,7 +202,8 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
       FieldReportPage(key: _reportPageKey),
     ];
 
-    _listenToNotifications();
+    _listenToNotifications(); // 포그라운드(앱 켜짐) 처리
+    _setupInteractedMessage(); // ✅ [추가] 백그라운드/종료 상태 처리
   }
 
   @override
@@ -191,7 +213,65 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
     super.dispose();
   }
 
-  // ✅ Firestore 실시간 감지 -> 유저 설정(소리/진동) 체크 후 실행
+  // ✅ [추가] 백그라운드 알림 클릭 시 처리 로직
+  Future<void> _setupInteractedMessage() async {
+    // 1. 앱이 완전히 꺼져있다가 알림을 눌러서 켜진 경우
+    RemoteMessage? initialMessage = await FirebaseMessaging.instance.getInitialMessage();
+    if (initialMessage != null) {
+      _handleMessage(initialMessage);
+    }
+
+    // 2. 앱이 백그라운드(숨김) 상태에서 알림을 누른 경우
+    FirebaseMessaging.onMessageOpenedApp.listen(_handleMessage);
+  }
+
+  // 알림 메시지 분석 후 이동
+  void _handleMessage(RemoteMessage message) {
+    // data에 'type'이 있거나, notification title 등을 분석
+    // 보통 data payload에 type을 담아 보냅니다.
+    String? type = message.data['type'];
+
+    // 만약 data에 type이 없다면 title이나 body로 추측하거나 기본값 설정
+    if (type == null && message.notification != null) {
+      // 예: 제목에 '채팅'이 포함되면 chat으로 간주
+      if (message.notification!.title!.contains('메시지')) {
+        type = 'chat';
+      }
+    }
+
+    if (type != null) {
+      debugPrint("🚀 [백그라운드 알림 클릭] 이동 요청: $type");
+      handleNotificationClick(type);
+    }
+  }
+
+  // ✅ 외부 호출용 공개 함수
+  void handleNotificationClick(String? type) {
+    if (type == null) return;
+
+    int pageIndex = -1;
+    switch (type) {
+      case 'chat':
+        pageIndex = 5;
+        break;
+      case 'schedule':
+        pageIndex = 9;
+        break;
+      case 'report':
+        pageIndex = 10;
+        break;
+      default:
+        debugPrint("알 수 없는 알림 타입: $type");
+    }
+
+    if (pageIndex != -1) {
+      // 약간의 딜레이를 주어 앱이 완전히 로드된 후 이동하도록 함
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if(mounted) _onMenuSelected(pageIndex, isDrawerClick: false);
+      });
+    }
+  }
+
   void _listenToNotifications() {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -211,19 +291,20 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
 
       for (var change in snapshot.docChanges) {
         if (change.type == DocumentChangeType.added) {
-          // 1. 진동 처리
+          final data = change.doc.data() as Map<String, dynamic>;
+          final String type = data['type'] ?? '';
+
           if (canVibrate && !kIsWeb) {
             Vibration.hasVibrator().then((hasVibrator) {
               if (hasVibrator == true) Vibration.vibrate();
             });
           }
 
-          // 2. 소리 및 배너 알림 처리
           if (canSound) {
-            final data = change.doc.data() as Map<String, dynamic>;
             _showLocalNotification(
               title: data['title'] ?? '새 알림',
               body: data['body'] ?? '내용이 있습니다.',
+              payload: type,
             );
           }
         }
@@ -231,10 +312,10 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
     });
   }
 
-  // ✅ [고도화] 실제 알림 팝업 실행 (Android/iOS 통합 상세 설정)
-  Future<void> _showLocalNotification({required String title, required String body}) async {
-    // 안드로이드 상세 설정 (채널 연동)
-    final AndroidNotificationDetails androidPlatformChannelSpecifics = AndroidNotificationDetails(
+  Future<void> _showLocalNotification(
+      {required String title, required String body, String? payload}) async {
+    final AndroidNotificationDetails androidPlatformChannelSpecifics =
+    AndroidNotificationDetails(
       channel.id,
       channel.name,
       channelDescription: channel.description,
@@ -244,8 +325,8 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
       enableVibration: true,
     );
 
-    // iOS 상세 설정 (소리/배너 노출 보장)
-    const DarwinNotificationDetails iosNotificationDetails = DarwinNotificationDetails(
+    const DarwinNotificationDetails iosNotificationDetails =
+    DarwinNotificationDetails(
       presentAlert: true,
       presentBadge: true,
       presentSound: true,
@@ -257,10 +338,11 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
     );
 
     await flutterLocalNotificationsPlugin.show(
-      DateTime.now().millisecond, // 고유 ID 부여
+      DateTime.now().millisecond,
       title,
       body,
       platformChannelSpecifics,
+      payload: payload,
     );
   }
 
@@ -301,16 +383,24 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
 
   void _triggerPageRefresh(int index) {
     switch (index) {
-      case 0: _dashboardKey.currentState?.refreshData(); break;
-      case 9: _schedulePageKey.currentState?.refreshData(); break;
-      case 10: _reportPageKey.currentState?.refreshData(); break;
+      case 0:
+        _dashboardKey.currentState?.refreshData();
+        break;
+      case 9:
+        _schedulePageKey.currentState?.refreshData();
+        break;
+      case 10:
+        _reportPageKey.currentState?.refreshData();
+        break;
     }
   }
 
-  void _logout() { AuthService().logout(); }
+  void _logout() {
+    AuthService().logout();
+  }
 
   String _getTitleByIndex(int index) {
-    switch(index) {
+    switch (index) {
       case 0: return 'SM 종합 현황판';
       case 1: return '새 노트작성';
       case 2: return '노트관리';
@@ -349,14 +439,22 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
           .get();
 
       if (snapshot.docs.isEmpty) {
-        if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("삭제할 읽은 알림이 없습니다.")));
+        if (context.mounted)
+          ScaffoldMessenger.of(context)
+              .showSnackBar(const SnackBar(content: Text("삭제할 읽은 알림이 없습니다.")));
         return;
       }
       WriteBatch batch = FirebaseFirestore.instance.batch();
-      for (var doc in snapshot.docs) { batch.delete(doc.reference); }
+      for (var doc in snapshot.docs) {
+        batch.delete(doc.reference);
+      }
       await batch.commit();
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("읽은 알림을 삭제했습니다.")));
-    } catch (e) { print("알림 삭제 오류: $e"); }
+      if (context.mounted)
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text("읽은 알림을 삭제했습니다.")));
+    } catch (e) {
+      print("알림 삭제 오류: $e");
+    }
   }
 
   Future<void> _deleteAllNotifications(BuildContext context) async {
@@ -369,16 +467,24 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
           .get();
 
       if (snapshot.docs.isEmpty) {
-        if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("삭제할 알림이 없습니다.")));
+        if (context.mounted)
+          ScaffoldMessenger.of(context)
+              .showSnackBar(const SnackBar(content: Text("삭제할 알림이 없습니다.")));
         return;
       }
 
       WriteBatch batch = FirebaseFirestore.instance.batch();
-      for (var doc in snapshot.docs) { batch.delete(doc.reference); }
+      for (var doc in snapshot.docs) {
+        batch.delete(doc.reference);
+      }
       await batch.commit();
 
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("모든 알림을 삭제했습니다.")));
-    } catch (e) { print("전체 삭제 오류: $e"); }
+      if (context.mounted)
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text("모든 알림을 삭제했습니다.")));
+    } catch (e) {
+      print("전체 삭제 오류: $e");
+    }
   }
 
   void _showNotificationList(BuildContext context) {
@@ -389,7 +495,8 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        title: const Text("최신 알림", style: TextStyle(fontWeight: FontWeight.bold)),
+        title:
+        const Text("최신 알림", style: TextStyle(fontWeight: FontWeight.bold)),
         content: SizedBox(
           width: 400,
           height: 450,
@@ -400,7 +507,8 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
                 .limit(20)
                 .snapshots(),
             builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+              if (snapshot.connectionState == ConnectionState.waiting)
+                return const Center(child: CircularProgressIndicator());
               final docs = snapshot.data?.docs ?? [];
               docs.sort((a, b) {
                 Timestamp t1 = a['createdAt'] ?? Timestamp.now();
@@ -408,7 +516,10 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
                 return t2.compareTo(t1);
               });
 
-              if (docs.isEmpty) return const Center(child: Text("새로운 알림이 없습니다.", style: TextStyle(color: Colors.grey)));
+              if (docs.isEmpty)
+                return const Center(
+                    child: Text("새로운 알림이 없습니다.",
+                        style: TextStyle(color: Colors.grey)));
 
               return ListView.separated(
                 itemCount: docs.length,
@@ -416,27 +527,40 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
                 itemBuilder: (context, index) {
                   final data = docs[index].data() as Map<String, dynamic>;
                   final bool isRead = data['isRead'] ?? false;
-                  final DateTime time = (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
+                  final DateTime time =
+                      (data['createdAt'] as Timestamp?)?.toDate() ??
+                          DateTime.now();
 
                   return ListTile(
                     leading: CircleAvatar(
-                      backgroundColor: isRead ? Colors.grey[100] : AppTheme.primaryLight,
-                      child: Icon(Icons.notifications_active, color: isRead ? Colors.grey : AppTheme.primaryColor, size: 20),
+                      backgroundColor:
+                      isRead ? Colors.grey[100] : AppTheme.primaryLight,
+                      child: Icon(Icons.notifications_active,
+                          color: isRead ? Colors.grey : AppTheme.primaryColor,
+                          size: 20),
                     ),
-                    title: Text(data['title'] ?? '알림', style: TextStyle(fontWeight: isRead ? FontWeight.normal : FontWeight.bold, fontSize: 14)),
+                    title: Text(data['title'] ?? '알림',
+                        style: TextStyle(
+                            fontWeight: isRead ? FontWeight.normal : FontWeight.bold,
+                            fontSize: 14)),
                     subtitle: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(data['body'] ?? '', style: const TextStyle(fontSize: 13), maxLines: 2, overflow: TextOverflow.ellipsis),
+                        Text(data['body'] ?? '',
+                            style: const TextStyle(fontSize: 13),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis),
                         const SizedBox(height: 4),
-                        Text(DateFormat('MM.dd HH:mm').format(time), style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                        Text(DateFormat('MM.dd HH:mm').format(time),
+                            style: const TextStyle(
+                                fontSize: 11, color: Colors.grey)),
                       ],
                     ),
                     onTap: () async {
                       await docs[index].reference.update({'isRead': true});
                       if (!mounted) return;
                       Navigator.pop(ctx);
-                      _handleNotificationClick(data['type']);
+                      mainLayoutKey.currentState?.handleNotificationClick(data['type']);
                     },
                   );
                 },
@@ -446,7 +570,9 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
         ),
         actions: [
           TextButton(
-            onPressed: () async { await _deleteAllNotifications(context); },
+            onPressed: () async {
+              await _deleteAllNotifications(context);
+            },
             style: TextButton.styleFrom(
               foregroundColor: AppTheme.errorColor,
               textStyle: const TextStyle(fontWeight: FontWeight.bold),
@@ -454,7 +580,9 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
             child: const Text("모두 삭제"),
           ),
           TextButton(
-            onPressed: () async { await _deleteReadNotifications(context); },
+            onPressed: () async {
+              await _deleteReadNotifications(context);
+            },
             style: TextButton.styleFrom(foregroundColor: Colors.grey),
             child: const Text("읽은 알림 삭제"),
           ),
@@ -462,15 +590,6 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
         ],
       ),
     );
-  }
-
-  void _handleNotificationClick(String? type) {
-    switch (type) {
-      case 'schedule': _onMenuSelected(9, isDrawerClick: false); break;
-      case 'chat': _onMenuSelected(5, isDrawerClick: false); break;
-      case 'report': _onMenuSelected(10, isDrawerClick: false); break;
-      default: break;
-    }
   }
 
   Stream<int> _getOverdueWorkCountStream() {
@@ -486,7 +605,9 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
       DateTime todayBase = DateTime(today.year, today.month, today.day);
       return snapshot.docs.where((doc) {
         final data = doc.data();
-        DateTime start = (data['startDate'] as Timestamp?)?.toDate() ?? (data['date'] as Timestamp?)?.toDate() ?? DateTime.now();
+        DateTime start = (data['startDate'] as Timestamp?)?.toDate() ??
+            (data['date'] as Timestamp?)?.toDate() ??
+            DateTime.now();
         DateTime end = (data['endDate'] as Timestamp?)?.toDate() ?? start;
         DateTime endDateBase = DateTime(end.year, end.month, end.day);
         return endDateBase.isBefore(todayBase) && data['status'] != 'completed';
@@ -500,16 +621,22 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
     final user = FirebaseAuth.instance.currentUser;
 
     return StreamBuilder<DocumentSnapshot>(
-      stream: FirebaseFirestore.instance.collection('users').doc(user?.uid).snapshots(),
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .doc(user?.uid)
+          .snapshots(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        if (!snapshot.hasData)
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
         var userData = snapshot.data!.data() as Map<String, dynamic>?;
         String userName = userData?['name'] ?? '사용자';
         String userRank = userData?['rank'] ?? '';
         bool isAdmin = (userData?['role'] ?? 'user') == 'admin';
 
         if (!isAdmin && _selectedIndex == 3) {
-          WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) _onMenuSelected(0, isDrawerClick: false); });
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _onMenuSelected(0, isDrawerClick: false);
+          });
         }
 
         Widget notificationButton = StreamBuilder<int>(
@@ -520,7 +647,8 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
               alignment: Alignment.center,
               children: [
                 IconButton(
-                  icon: const Icon(Icons.notifications_none, color: AppTheme.textMain),
+                  icon: const Icon(Icons.notifications_none,
+                      color: AppTheme.textMain),
                   onPressed: () => _showNotificationList(context),
                   tooltip: "알림 확인",
                 ),
@@ -530,8 +658,10 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
                     top: 8,
                     child: Container(
                       padding: const EdgeInsets.all(4),
-                      decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
-                      constraints: const BoxConstraints(minWidth: 10, minHeight: 10),
+                      decoration: const BoxDecoration(
+                          color: Colors.red, shape: BoxShape.circle),
+                      constraints:
+                      const BoxConstraints(minWidth: 10, minHeight: 10),
                     ),
                   )
               ],
@@ -544,16 +674,24 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
             CircleAvatar(
               backgroundColor: AppTheme.primaryLight,
               radius: 16,
-              child: Text(userName.isNotEmpty ? userName[0] : 'U', style: const TextStyle(color: AppTheme.primaryColor, fontSize: 14)),
+              child: Text(userName.isNotEmpty ? userName[0] : 'U',
+                  style: const TextStyle(
+                      color: AppTheme.primaryColor, fontSize: 14)),
             ),
             const SizedBox(width: 8),
             Column(
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(userName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppTheme.textMain)),
+                Text(userName,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        color: AppTheme.textMain)),
                 if (userRank.isNotEmpty)
-                  Text(userRank, style: const TextStyle(color: AppTheme.textSub, fontSize: 11))
+                  Text(userRank,
+                      style: const TextStyle(
+                          color: AppTheme.textSub, fontSize: 11))
               ],
             )
           ],
@@ -567,61 +705,92 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
                   height: 110,
                   alignment: Alignment.centerLeft,
                   padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Image.asset('assets/images/sm_logo.png', height: 65, fit: BoxFit.contain)
-              ),
+                  child: Image.asset('assets/images/sm_logo.png',
+                      height: 65, fit: BoxFit.contain)),
               const Divider(height: 1, color: AppTheme.borderColor),
               Expanded(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   child: Column(
                     children: [
-                      _buildMenuItem(icon: Icons.dashboard_outlined, title: '대시보드', index: 0),
-                      _buildMenuItem(icon: Icons.edit_note, title: '새 노트작성', index: 1),
-                      _buildMenuItem(icon: Icons.article_outlined, title: '노트관리', index: 2),
-                      _buildMenuItem(icon: Icons.playlist_add_check_circle_outlined, title: '체크리스트', index: 4),
+                      _buildMenuItem(
+                          icon: Icons.dashboard_outlined,
+                          title: '대시보드',
+                          index: 0),
+                      _buildMenuItem(
+                          icon: Icons.edit_note, title: '새 노트작성', index: 1),
+                      _buildMenuItem(
+                          icon: Icons.article_outlined, title: '노트관리', index: 2),
+                      _buildMenuItem(
+                          icon: Icons.playlist_add_check_circle_outlined,
+                          title: '체크리스트',
+                          index: 4),
                       StreamBuilder<int>(
                         stream: _salesService.getUnreadMessageCountStream(),
                         builder: (context, snap) => _buildMenuItem(
                             icon: Icons.chat_bubble_outline,
                             title: '업무 톡톡',
                             index: 5,
-                            badgeCount: _selectedIndex == 5 ? 0 : (snap.data ?? 0)
-                        ),
+                            badgeCount:
+                            _selectedIndex == 5 ? 0 : (snap.data ?? 0)),
                       ),
                       Theme(
-                        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                        data: Theme.of(context)
+                            .copyWith(dividerColor: Colors.transparent),
                         child: ExpansionTile(
                           key: const PageStorageKey('FieldSupportMenu'),
                           leading: const Icon(Icons.map_outlined, size: 22),
-                          title: const Text("현장팀 업무지원", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                          title: const Text("현장팀 업무지원",
+                              style: TextStyle(
+                                  fontSize: 14, fontWeight: FontWeight.w500)),
                           initiallyExpanded: _isFieldSupportExpanded,
-                          onExpansionChanged: (expanded) => setState(() => _isFieldSupportExpanded = expanded),
+                          onExpansionChanged: (expanded) => setState(
+                                  () => _isFieldSupportExpanded = expanded),
                           iconColor: AppTheme.primaryColor,
                           collapsedIconColor: AppTheme.textSub,
                           children: [
-                            _buildSubMenuItem(icon: Icons.calendar_today, title: "일정 관리", index: 9),
-                            _buildSubMenuItem(icon: Icons.alt_route, title: "경로 관리 (AI)", index: 7),
+                            _buildSubMenuItem(
+                                icon: Icons.calendar_today,
+                                title: "일정 관리",
+                                index: 9),
+                            _buildSubMenuItem(
+                                icon: Icons.alt_route,
+                                title: "경로 관리 (AI)",
+                                index: 7),
                             StreamBuilder<int>(
                               stream: _getOverdueWorkCountStream(),
                               builder: (context, snap) => _buildSubMenuItem(
                                   icon: Icons.assignment_outlined,
                                   title: "업무 보고",
                                   index: 10,
-                                  badgeCount: snap.data ?? 0
-                              ),
+                                  badgeCount: snap.data ?? 0),
                             ),
                           ],
                         ),
                       ),
-                      const Divider(height: 32, indent: 24, endIndent: 24, color: AppTheme.borderColor),
-                      _buildMenuItem(icon: Icons.business, title: '건물 DB 정보', index: 8),
-                      _buildMenuItem(icon: Icons.settings_outlined, title: '설정', index: 6),
-                      if (isAdmin) _buildMenuItem(icon: Icons.admin_panel_settings_outlined, title: '관리자 설정', index: 3),
+                      const Divider(
+                          height: 32,
+                          indent: 24,
+                          endIndent: 24,
+                          color: AppTheme.borderColor),
+                      _buildMenuItem(
+                          icon: Icons.business, title: '건물 DB 정보', index: 8),
+                      _buildMenuItem(
+                          icon: Icons.settings_outlined, title: '설정', index: 6),
+                      if (isAdmin)
+                        _buildMenuItem(
+                            icon: Icons.admin_panel_settings_outlined,
+                            title: '관리자 설정',
+                            index: 3),
                       ListTile(
-                        leading: const Icon(Icons.logout, color: AppTheme.textSub),
-                        title: const Text("로그아웃", style: TextStyle(color: AppTheme.textSub, fontSize: 14)),
+                        leading:
+                        const Icon(Icons.logout, color: AppTheme.textSub),
+                        title: const Text("로그아웃",
+                            style: TextStyle(
+                                color: AppTheme.textSub, fontSize: 14)),
                         onTap: _logout,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 24),
+                        contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 24),
                       ),
                     ],
                   ),
@@ -638,10 +807,11 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
             backgroundColor: Colors.white,
             elevation: 1,
             iconTheme: const IconThemeData(color: AppTheme.textMain),
-            title: Text(
-                _getTitleByIndex(_selectedIndex),
-                style: const TextStyle(color: AppTheme.textMain, fontSize: 18, fontWeight: FontWeight.bold)
-            ),
+            title: Text(_getTitleByIndex(_selectedIndex),
+                style: const TextStyle(
+                    color: AppTheme.textMain,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold)),
             centerTitle: false,
             actions: [
               notificationButton,
@@ -657,19 +827,29 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
               Expanded(
                 child: Stack(
                   children: [
-                    if (!kIsWeb) Offstage(offstage: _selectedIndex != 7, child: _permanentNaverMap),
+                    if (!kIsWeb)
+                      Offstage(
+                          offstage: _selectedIndex != 7,
+                          child: _permanentNaverMap),
                     Container(
-                      color: (_selectedIndex == 7 && !kIsWeb) ? Colors.transparent : AppTheme.backgroundColor,
+                      color: (_selectedIndex == 7 && !kIsWeb)
+                          ? Colors.transparent
+                          : AppTheme.backgroundColor,
                       child: Column(
                         children: [
                           if (isWideScreen)
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 24, vertical: 16),
                               color: AppTheme.surfaceColor,
                               child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  mainAxisAlignment:
+                                  MainAxisAlignment.spaceBetween,
                                   children: [
-                                    Text(_getTitleByIndex(_selectedIndex), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                                    Text(_getTitleByIndex(_selectedIndex),
+                                        style: const TextStyle(
+                                            fontSize: 22,
+                                            fontWeight: FontWeight.bold)),
                                     Row(
                                       children: [
                                         notificationButton,
@@ -677,10 +857,10 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
                                         userInfoWidget,
                                       ],
                                     )
-                                  ]
-                              ),
+                                  ]),
                             ),
-                          if (isWideScreen) const Divider(height: 1, color: AppTheme.borderColor),
+                          if (isWideScreen)
+                            const Divider(height: 1, color: AppTheme.borderColor),
                           Expanded(
                             child: IndexedStack(
                               index: _selectedIndex,
@@ -700,7 +880,11 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
     );
   }
 
-  Widget _buildMenuItem({required IconData icon, required String title, required int index, int badgeCount = 0}) {
+  Widget _buildMenuItem(
+      {required IconData icon,
+        required String title,
+        required int index,
+        int badgeCount = 0}) {
     final bool isSelected = _selectedIndex == index;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -709,26 +893,45 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
         borderRadius: BorderRadius.circular(50),
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
-          decoration: BoxDecoration(color: isSelected ? AppTheme.primaryLight : Colors.transparent, borderRadius: BorderRadius.circular(50)),
-          child: Row(
-              children: [
-                Icon(icon, color: isSelected ? AppTheme.primaryColor : AppTheme.textSub, size: 22),
-                const SizedBox(width: 16),
-                Expanded(child: Text(title, style: TextStyle(fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500, color: isSelected ? AppTheme.primaryColor : AppTheme.textMain, fontSize: 14))),
-                if (badgeCount > 0)
-                  Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(color: AppTheme.errorColor, borderRadius: BorderRadius.circular(12)),
-                      child: Text(badgeCount > 99 ? "99+" : "$badgeCount", style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold))
-                  )
-              ]
-          ),
+          decoration: BoxDecoration(
+              color: isSelected ? AppTheme.primaryLight : Colors.transparent,
+              borderRadius: BorderRadius.circular(50)),
+          child: Row(children: [
+            Icon(icon,
+                color: isSelected ? AppTheme.primaryColor : AppTheme.textSub,
+                size: 22),
+            const SizedBox(width: 16),
+            Expanded(
+                child: Text(title,
+                    style: TextStyle(
+                        fontWeight:
+                        isSelected ? FontWeight.w600 : FontWeight.w500,
+                        color:
+                        isSelected ? AppTheme.primaryColor : AppTheme.textMain,
+                        fontSize: 14))),
+            if (badgeCount > 0)
+              Container(
+                  padding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                      color: AppTheme.errorColor,
+                      borderRadius: BorderRadius.circular(12)),
+                  child: Text(badgeCount > 99 ? "99+" : "$badgeCount",
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold)))
+          ]),
         ),
       ),
     );
   }
 
-  Widget _buildSubMenuItem({required IconData icon, required String title, required int index, int badgeCount = 0}) {
+  Widget _buildSubMenuItem(
+      {required IconData icon,
+        required String title,
+        required int index,
+        int badgeCount = 0}) {
     final bool isSelected = _selectedIndex == index;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -736,18 +939,37 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
         onTap: () => _onMenuSelected(index),
         borderRadius: BorderRadius.circular(50),
         child: Container(
-          padding: const EdgeInsets.only(left: 56, top: 10, bottom: 10, right: 16),
-          decoration: BoxDecoration(color: isSelected ? AppTheme.primaryLight : Colors.transparent, borderRadius: BorderRadius.circular(50)),
+          padding:
+          const EdgeInsets.only(left: 56, top: 10, bottom: 10, right: 16),
+          decoration: BoxDecoration(
+              color: isSelected ? AppTheme.primaryLight : Colors.transparent,
+              borderRadius: BorderRadius.circular(50)),
           child: Row(
             children: [
-              Icon(icon, size: 18, color: isSelected ? AppTheme.primaryColor : AppTheme.textSub),
+              Icon(icon,
+                  size: 18,
+                  color: isSelected ? AppTheme.primaryColor : AppTheme.textSub),
               const SizedBox(width: 12),
-              Expanded(child: Text(title, style: TextStyle(color: isSelected ? AppTheme.primaryColor : AppTheme.textMain, fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal, fontSize: 14))),
+              Expanded(
+                  child: Text(title,
+                      style: TextStyle(
+                          color: isSelected
+                              ? AppTheme.primaryColor
+                              : AppTheme.textMain,
+                          fontWeight:
+                          isSelected ? FontWeight.w600 : FontWeight.normal,
+                          fontSize: 14))),
               if (badgeCount > 0)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: const BoxDecoration(color: Colors.deepOrange, shape: BoxShape.circle),
-                  child: Text("$badgeCount", style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                  padding:
+                  const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: const BoxDecoration(
+                      color: Colors.deepOrange, shape: BoxShape.circle),
+                  child: Text("$badgeCount",
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold)),
                 )
             ],
           ),
