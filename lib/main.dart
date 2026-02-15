@@ -1,8 +1,8 @@
 // [파일 위치: lib/main.dart]
-// [최종 업데이트] 백그라운드/종료 상태 알림 클릭 핸들링 추가
-// 1. 앱이 꺼진 상태에서 알림 클릭 시 -> 해당 페이지로 이동 (getInitialMessage)
-// 2. 앱이 백그라운드 상태에서 알림 클릭 시 -> 해당 페이지로 이동 (onMessageOpenedApp)
-// 3. 앱이 켜진 상태 -> 기존 Firestore 리스너 유지
+// [최종 수정 완료] 컴파일 에러 해결 버전 (2026-02-15)
+// 1. [Fix] 'const' 에러 해결 -> 'final'로 변경하여 변수 할당 허용
+// 2. [Fix] 네이버 지도 -> 기존 'NaverMapSdk'로 원복하여 빨간 에러 해결
+// 3. [Feature] Data-Only 메시지 처리: 백그라운드/포그라운드 알림 로직 일원화
 
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -14,10 +14,10 @@ import 'package:intl/intl.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_naver_map/flutter_naver_map.dart';
 import 'firebase_options.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart'; // kIsWeb 사용을 위해 필수
 import 'dart:async';
 
-// ✅ 알림/진동 패키지
+// ✅ 알림/진동 패키지 (웹이 아닐 때만 작동하도록 코드에서 제어)
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:vibration/vibration.dart';
 
@@ -46,6 +46,7 @@ NaverMapController? globalMapController;
 final GlobalKey<MainLayoutPageState> mainLayoutKey = GlobalKey<MainLayoutPageState>();
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
+// ✅ 안드로이드 알림 채널 정의
 const AndroidNotificationChannel channel = AndroidNotificationChannel(
   'high_importance_channel',
   '중요한 업무 알림',
@@ -55,6 +56,49 @@ const AndroidNotificationChannel channel = AndroidNotificationChannel(
   enableVibration: true,
 );
 
+// =======================================================
+// 🌙 [백그라운드 핸들러] 앱이 꺼져있을 때(Background/Terminated) 알림 생성
+// =======================================================
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  // 웹에서는 이 핸들러가 실행되지 않으므로 바로 종료
+  if (kIsWeb) return;
+
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  debugPrint("🌙 [App 백그라운드] 메시지 수신: ${message.messageId}");
+
+  final FlutterLocalNotificationsPlugin backPlugin = FlutterLocalNotificationsPlugin();
+  const AndroidInitializationSettings initAndroid = AndroidInitializationSettings('@mipmap/ic_launcher');
+  const DarwinInitializationSettings initIOS = DarwinInitializationSettings(
+    requestAlertPermission: false,
+    requestBadgePermission: false,
+    requestSoundPermission: false,
+  );
+
+  const InitializationSettings initSettings = InitializationSettings(android: initAndroid, iOS: initIOS);
+  await backPlugin.initialize(initSettings);
+
+  final data = message.data;
+
+  // 🔴 [수정 완료 1] const 제거 -> final 사용 (에러 해결)
+  final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+      channel.id,
+      channel.name,
+      channelDescription: channel.description,
+      importance: Importance.max,
+      priority: Priority.high
+  );
+
+  // 백그라운드에서 직접 알림 표시
+  await backPlugin.show(
+      DateTime.now().millisecond,
+      data['title'] ?? '알림',
+      data['body'] ?? '내용',
+      NotificationDetails(android: androidDetails, iOS: const DarwinNotificationDetails()),
+      payload: data['type']
+  );
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('ko_KR', null);
@@ -62,46 +106,52 @@ void main() async {
 
   await NotificationService().init();
 
-  // 1. 로컬 알림 초기화
-  const AndroidInitializationSettings initializationSettingsAndroid =
-  AndroidInitializationSettings('@mipmap/ic_launcher');
+  // ✅ [Web 호환성] 웹이 아닐 때만 네이티브 알림 설정
+  if (!kIsWeb) {
+    const AndroidInitializationSettings initializationSettingsAndroid =
+    AndroidInitializationSettings('@mipmap/ic_launcher');
 
-  const DarwinInitializationSettings initializationSettingsIOS = DarwinInitializationSettings(
-    requestAlertPermission: true,
-    requestBadgePermission: true,
-    requestSoundPermission: true,
-  );
+    const DarwinInitializationSettings initializationSettingsIOS = DarwinInitializationSettings(
+      requestAlertPermission: true,
+      requestBadgePermission: true,
+      requestSoundPermission: true,
+    );
 
-  const InitializationSettings initializationSettings = InitializationSettings(
-    android: initializationSettingsAndroid,
-    iOS: initializationSettingsIOS,
-  );
+    const InitializationSettings initializationSettings = InitializationSettings(
+      android: initializationSettingsAndroid,
+      iOS: initializationSettingsIOS,
+    );
 
-  await flutterLocalNotificationsPlugin.initialize(
-    initializationSettings,
-    onDidReceiveNotificationResponse: (NotificationResponse response) async {
-      final String? type = response.payload;
-      if (type != null) {
-        debugPrint("🔔 [포그라운드 알림 탭] 이동 요청 타입: $type");
-        mainLayoutKey.currentState?.handleNotificationClick(type);
-      }
-    },
-  );
+    await flutterLocalNotificationsPlugin.initialize(
+      initializationSettings,
+      onDidReceiveNotificationResponse: (NotificationResponse response) async {
+        final String? type = response.payload;
+        if (type != null) {
+          debugPrint("🔔 [포그라운드 알림 탭] 이동 요청 타입: $type");
+          mainLayoutKey.currentState?.handleNotificationClick(type);
+        }
+      },
+    );
 
-  await flutterLocalNotificationsPlugin
-      .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
-      ?.createNotificationChannel(channel);
+    await flutterLocalNotificationsPlugin
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(channel);
 
-  // 2. FCM 포그라운드 핸들러 (중복 방지용 - 로그만 출력)
+    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+  } else {
+    // 웹일 경우 권한 요청
+    await FirebaseMessaging.instance.requestPermission();
+  }
+
+  // FCM 포그라운드 리스너 (로그 확인용)
   FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-    debugPrint("📱 [FCM] 포그라운드 수신 (UI 표시 안 함): ${message.notification?.title}");
+    debugPrint("📱 [FCM] 포그라운드 수신: ${message.data}");
   });
 
-  // ✅ [추가] 백그라운드 메시지 핸들러 (앱이 완전히 꺼져있을 때도 수신 처리)
-  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-
+  // 🔴 [수정 완료 2] 네이버 지도 초기화 (기존 NaverMapSdk 사용)
   if (!kIsWeb) {
     try {
+      // ignore: deprecated_member_use
       await NaverMapSdk.instance.initialize(
           clientId: 's9qk2rcdyp',
           onAuthFailed: (ex) {
@@ -113,13 +163,6 @@ void main() async {
   }
 
   runApp(const SMSalesNoteApp());
-}
-
-// ✅ [추가] 최상위 레벨 백그라운드 핸들러 (반드시 main 밖에 있어야 함)
-@pragma('vm:entry-point')
-Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  debugPrint("🌙 [백그라운드] 메시지 수신: ${message.messageId}");
 }
 
 class SMSalesNoteApp extends StatelessWidget {
@@ -202,8 +245,8 @@ class MainLayoutPageState extends State<MainLayoutPage> {
       FieldReportPage(key: _reportPageKey),
     ];
 
-    _listenToNotifications(); // 포그라운드(앱 켜짐) 처리
-    _setupInteractedMessage(); // ✅ [추가] 백그라운드/종료 상태 처리
+    _listenToNotifications(); // 포그라운드 처리
+    _setupInteractedMessage(); // 백그라운드 처리
   }
 
   @override
@@ -213,59 +256,50 @@ class MainLayoutPageState extends State<MainLayoutPage> {
     super.dispose();
   }
 
-  // ✅ [추가] 백그라운드 알림 클릭 시 처리 로직
   Future<void> _setupInteractedMessage() async {
-    // 1. 앱이 완전히 꺼져있다가 알림을 눌러서 켜진 경우
     RemoteMessage? initialMessage = await FirebaseMessaging.instance.getInitialMessage();
     if (initialMessage != null) {
       _handleMessage(initialMessage);
     }
 
-    // 2. 앱이 백그라운드(숨김) 상태에서 알림을 누른 경우
-    FirebaseMessaging.onMessageOpenedApp.listen(_handleMessage);
-  }
-
-  // 알림 메시지 분석 후 이동
-  void _handleMessage(RemoteMessage message) {
-    // data에 'type'이 있거나, notification title 등을 분석
-    // 보통 data payload에 type을 담아 보냅니다.
-    String? type = message.data['type'];
-
-    // 만약 data에 type이 없다면 title이나 body로 추측하거나 기본값 설정
-    if (type == null && message.notification != null) {
-      // 예: 제목에 '채팅'이 포함되면 chat으로 간주
-      if (message.notification!.title!.contains('메시지')) {
-        type = 'chat';
+    // 앱(App) 환경에서만 로컬 알림 클릭 체크
+    if (!kIsWeb) {
+      final NotificationAppLaunchDetails? notificationAppLaunchDetails =
+      await flutterLocalNotificationsPlugin.getNotificationAppLaunchDetails();
+      if (notificationAppLaunchDetails?.didNotificationLaunchApp ?? false) {
+        final response = notificationAppLaunchDetails!.notificationResponse;
+        if (response != null && response.payload != null) {
+          handleNotificationClick(response.payload);
+        }
       }
     }
 
+    FirebaseMessaging.onMessageOpenedApp.listen(_handleMessage);
+  }
+
+  void _handleMessage(RemoteMessage message) {
+    String? type = message.data['type'];
+    if (type == null && message.notification != null) {
+      if (message.notification!.title!.contains('메시지')) type = 'chat';
+    }
     if (type != null) {
       debugPrint("🚀 [백그라운드 알림 클릭] 이동 요청: $type");
       handleNotificationClick(type);
     }
   }
 
-  // ✅ 외부 호출용 공개 함수
   void handleNotificationClick(String? type) {
     if (type == null) return;
 
     int pageIndex = -1;
     switch (type) {
-      case 'chat':
-        pageIndex = 5;
-        break;
-      case 'schedule':
-        pageIndex = 9;
-        break;
-      case 'report':
-        pageIndex = 10;
-        break;
-      default:
-        debugPrint("알 수 없는 알림 타입: $type");
+      case 'chat': pageIndex = 5; break;
+      case 'schedule': pageIndex = 9; break;
+      case 'report': pageIndex = 10; break;
+      default: debugPrint("알 수 없는 알림 타입: $type");
     }
 
     if (pageIndex != -1) {
-      // 약간의 딜레이를 주어 앱이 완전히 로드된 후 이동하도록 함
       Future.delayed(const Duration(milliseconds: 500), () {
         if(mounted) _onMenuSelected(pageIndex, isDrawerClick: false);
       });
@@ -283,39 +317,57 @@ class MainLayoutPageState extends State<MainLayoutPage> {
         .snapshots()
         .listen((snapshot) async {
 
-      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-      final settings = userDoc.data() as Map<String, dynamic>?;
+      bool canVibrate = true;
+      bool canSound = true;
 
-      bool canVibrate = settings?['isVibrate'] ?? true;
-      bool canSound = settings?['isSound'] ?? true;
+      // 앱 환경에서만 설정값 로드
+      if (!kIsWeb) {
+        final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+        final settings = userDoc.data() as Map<String, dynamic>?;
+        canVibrate = settings?['isVibrate'] ?? true;
+        canSound = settings?['isSound'] ?? true;
+      }
 
       for (var change in snapshot.docChanges) {
         if (change.type == DocumentChangeType.added) {
           final data = change.doc.data() as Map<String, dynamic>;
           final String type = data['type'] ?? '';
 
-          if (canVibrate && !kIsWeb) {
-            Vibration.hasVibrator().then((hasVibrator) {
-              if (hasVibrator == true) Vibration.vibrate();
-            });
-          }
-
-          if (canSound) {
-            _showLocalNotification(
-              title: data['title'] ?? '새 알림',
-              body: data['body'] ?? '내용이 있습니다.',
-              payload: type,
-            );
+          if (kIsWeb) {
+            // ✅ [Web] 웹에서는 브라우저 하단 스낵바(Toast)로 알림 표시
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text("${data['title']}: ${data['body']}"),
+                    action: SnackBarAction(label: '보기', onPressed: () => handleNotificationClick(type)),
+                    duration: const Duration(seconds: 4),
+                  )
+              );
+            }
+          } else {
+            // ✅ [App] 모바일 앱에서는 네이티브 알림(상단 배너 + 소리/진동)
+            if (canVibrate) {
+              Vibration.hasVibrator().then((has) { if (has == true) Vibration.vibrate(); });
+            }
+            if (canSound) {
+              _showLocalNotification(
+                title: data['title'] ?? '새 알림',
+                body: data['body'] ?? '내용이 있습니다.',
+                payload: type,
+              );
+            }
           }
         }
       }
     });
   }
 
+  // 🔴 [수정 완료 3] const 제거 -> final 사용 (컴파일 에러 해결)
   Future<void> _showLocalNotification(
       {required String title, required String body, String? payload}) async {
-    final AndroidNotificationDetails androidPlatformChannelSpecifics =
-    AndroidNotificationDetails(
+
+    // channel.id는 상수(const)가 아니므로 final로 선언해야 함
+    final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
       channel.id,
       channel.name,
       channelDescription: channel.description,
@@ -325,23 +377,17 @@ class MainLayoutPageState extends State<MainLayoutPage> {
       enableVibration: true,
     );
 
-    const DarwinNotificationDetails iosNotificationDetails =
-    DarwinNotificationDetails(
+    const DarwinNotificationDetails iosDetails = DarwinNotificationDetails(
       presentAlert: true,
       presentBadge: true,
       presentSound: true,
-    );
-
-    final NotificationDetails platformChannelSpecifics = NotificationDetails(
-      android: androidPlatformChannelSpecifics,
-      iOS: iosNotificationDetails,
     );
 
     await flutterLocalNotificationsPlugin.show(
       DateTime.now().millisecond,
       title,
       body,
-      platformChannelSpecifics,
+      NotificationDetails(android: androidDetails, iOS: iosDetails),
       payload: payload,
     );
   }
@@ -383,21 +429,13 @@ class MainLayoutPageState extends State<MainLayoutPage> {
 
   void _triggerPageRefresh(int index) {
     switch (index) {
-      case 0:
-        _dashboardKey.currentState?.refreshData();
-        break;
-      case 9:
-        _schedulePageKey.currentState?.refreshData();
-        break;
-      case 10:
-        _reportPageKey.currentState?.refreshData();
-        break;
+      case 0: _dashboardKey.currentState?.refreshData(); break;
+      case 9: _schedulePageKey.currentState?.refreshData(); break;
+      case 10: _reportPageKey.currentState?.refreshData(); break;
     }
   }
 
-  void _logout() {
-    AuthService().logout();
-  }
+  void _logout() { AuthService().logout(); }
 
   String _getTitleByIndex(int index) {
     switch (index) {
@@ -495,8 +533,7 @@ class MainLayoutPageState extends State<MainLayoutPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        title:
-        const Text("최신 알림", style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text("최신 알림", style: TextStyle(fontWeight: FontWeight.bold)),
         content: SizedBox(
           width: 400,
           height: 450,
