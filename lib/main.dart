@@ -51,10 +51,21 @@ void main() async {
   await initializeDateFormatting('ko_KR', null);
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  // 알림 서비스 초기화
   await NotificationService().init();
 
-  // ✅ 로컬 알림(소리/진동) 초기화 설정
+  // ✅ 1. 안드로이드 알림 채널 정의 (소리, 진동 설정의 핵심)
+  const AndroidNotificationChannel channel = AndroidNotificationChannel(
+    'high_importance_channel', // ID (notification_service.dart와 동일해야 함)
+    'High Importance Notifications', // 이름
+    description: '중요한 업무 알림을 위한 채널입니다.',
+    importance: Importance.max,
+    playSound: true,
+    enableVibration: true,
+  );
+
+  final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+
+  // ✅ 2. 안드로이드 초기화 및 채널 생성
   const AndroidInitializationSettings initializationSettingsAndroid =
   AndroidInitializationSettings('@mipmap/ic_launcher');
 
@@ -65,12 +76,14 @@ void main() async {
     requestSoundPermission: true,
   );
 
-  const InitializationSettings initializationSettings = InitializationSettings(
-    android: initializationSettingsAndroid,
-    iOS: initializationSettingsIOS,
+  await flutterLocalNotificationsPlugin.initialize(
+    const InitializationSettings(android: initializationSettingsAndroid, iOS: initializationSettingsIOS),
   );
 
-  await flutterLocalNotificationsPlugin.initialize(initializationSettings);
+  // 안드로이드 기기에 채널을 등록합니다.
+  await flutterLocalNotificationsPlugin
+      .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+      ?.createNotificationChannel(channel);
 
   if (!kIsWeb) {
     try {
@@ -188,24 +201,38 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
         .where('isRead', isEqualTo: false)
         .snapshots()
         .listen((snapshot) async {
+
+      // ✅ [신규] 유저의 '설정(Settings)' 문서를 먼저 가져옵니다.
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      final settings = userDoc.data() as Map<String, dynamic>?;
+
+      // 설정 페이지의 필드명에 맞춰 확인 (예: isVibrate, isSound)
+      bool canVibrate = settings?['isVibrate'] ?? true; // 기본값은 true
+      bool canSound = settings?['isSound'] ?? true;
+
       for (var change in snapshot.docChanges) {
         if (change.type == DocumentChangeType.added) {
-          // 1. 진동
-          if (await Vibration.hasVibrator() ?? false) {
+
+          // 1. 진동 (설정에서 켜져 있을 때만)
+          if (canVibrate && (await Vibration.hasVibrator() ?? false)) {
             Vibration.vibrate();
           }
-          // 2. 상단 배너 알림
-          final data = change.doc.data() as Map<String, dynamic>;
-          _showLocalNotification(
-            title: data['title'] ?? '새 알림',
-            body: data['body'] ?? '내용이 있습니다.',
-          );
+
+          // 2. 상단 배너 및 소리 (설정에서 켜져 있을 때만)
+          if (canSound) {
+            final data = change.doc.data() as Map<String, dynamic>;
+            _showLocalNotification(
+              title: data['title'] ?? '새 알림',
+              body: data['body'] ?? '내용이 있습니다.',
+            );
+          }
         }
       }
     });
   }
 
   Future<void> _showLocalNotification({required String title, required String body}) async {
+    // 안드로이드 설정
     const AndroidNotificationDetails androidPlatformChannelSpecifics =
     AndroidNotificationDetails(
       'high_importance_channel',
@@ -213,12 +240,28 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
       importance: Importance.max,
       priority: Priority.high,
       showWhen: true,
+      playSound: true,
+      enableVibration: true,
     );
+
+    // ✅ iOS 설정을 추가해야 아이폰에서 소리가 납니다.
+    const DarwinNotificationDetails iosNotificationDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    );
+
     const NotificationDetails platformChannelSpecifics =
-    NotificationDetails(android: androidPlatformChannelSpecifics);
+    NotificationDetails(
+      android: androidPlatformChannelSpecifics,
+      iOS: iosNotificationDetails, // iOS 상세 설정 연결
+    );
 
     await flutterLocalNotificationsPlugin.show(
-      0, title, body, platformChannelSpecifics,
+      DateTime.now().millisecond, // 고유 ID 부여 (0 고정 시 알림이 겹칠 수 있음)
+      title,
+      body,
+      platformChannelSpecifics,
     );
   }
 

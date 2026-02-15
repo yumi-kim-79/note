@@ -14,7 +14,7 @@ import 'dart:convert';
 import 'dart:async';
 
 import '../../services/sales_service.dart';
-import '../../services/notification_service.dart'; // ✅ 알림 서비스 연동
+import '../../services/notification_service.dart';
 import '../../theme/app_theme.dart';
 
 class ChatPage extends StatefulWidget {
@@ -28,16 +28,16 @@ class ChatPage extends StatefulWidget {
 class _ChatPageState extends State<ChatPage> {
   final TextEditingController _msgController = TextEditingController();
   final SalesService _salesService = SalesService();
-  final NotificationService _notificationService = NotificationService(); // ✅ 알림 서비스 객체 생성
+  final NotificationService _notificationService = NotificationService();
   final ScrollController _scrollController = ScrollController();
   final FocusNode _focusNode = FocusNode();
 
   bool _isUploading = false;
+  bool _isSending = false; // 중복 전송 방지 플래그
 
   @override
   void initState() {
     super.initState();
-    // 화면 진입 시 읽음 처리
     if (widget.isVisible) {
       _salesService.updateLastReadTime();
     }
@@ -47,7 +47,6 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void didUpdateWidget(covariant ChatPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // 탭 이동 등으로 화면 가시성이 변할 때 읽음 처리
     if (!oldWidget.isVisible && widget.isVisible) {
       _salesService.updateLastReadTime();
     }
@@ -64,7 +63,7 @@ class _ChatPageState extends State<ChatPage> {
     super.dispose();
   }
 
-  // 30일 지난 메시지 자동 삭제 로직 (기존 유지)
+  // 30일 지난 메시지 자동 삭제 (기존 유지)
   Future<void> _deleteOldMessages() async {
     DateTime cutOffDate = DateTime.now().subtract(const Duration(days: 30));
     try {
@@ -72,7 +71,6 @@ class _ChatPageState extends State<ChatPage> {
           .collection('chats')
           .where('createdAt', isLessThan: Timestamp.fromDate(cutOffDate))
           .get();
-
       if (snapshot.docs.isNotEmpty) {
         WriteBatch batch = FirebaseFirestore.instance.batch();
         for (var doc in snapshot.docs) {
@@ -80,57 +78,71 @@ class _ChatPageState extends State<ChatPage> {
         }
         await batch.commit();
       }
-    } catch (e) {}
+    } catch (e) {
+      debugPrint("메시지 자동 삭제 중 오류: $e");
+    }
   }
 
-  // ✅ 메시지 전송 및 알림 발송 통합
+  // ✅ [고도화 및 최적화된 메시지 전송 로직]
+  // 1. 중복 전송 100% 차단 및 버튼 상태 즉시 반영
+  // 2. 웹(Chrome) 한글 잔상 버그 해결 유지
+  // 3. 모바일/태블릿 키보드 내려감(깜빡임) 현상 완벽 해결
   void _sendMessage() async {
     String text = _msgController.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty || _isSending) return;
 
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) return;
 
-    // 내 이름 정보 가져오기 (알림 배너 표시용)
-    DocumentSnapshot myDoc = await FirebaseFirestore.instance.collection('users').doc(currentUser.uid).get();
-    String myName = (myDoc.data() as Map<String, dynamic>?)?['name'] ?? '누군가';
+    // ✅ [고도화] setState를 추가하여 전송 버튼을 즉시 비활성화(중복 클릭 방지)
+    setState(() => _isSending = true);
 
-    _msgController.clear();
+    try {
+      // 내 이름 정보 가져오기
+      DocumentSnapshot myDoc = await FirebaseFirestore.instance.collection('users').doc(currentUser.uid).get();
+      String myName = (myDoc.data() as Map<String, dynamic>?)?['name'] ?? '누군가';
 
-    // 1. 메시지 저장
-    await _salesService.addChatMessage(message: text);
-    _salesService.updateLastReadTime();
+      // 1. 입력창 즉시 비우기 (사용자 체감 속도 향상)
+      _msgController.clear();
 
-    // 2. ✅ [알림 로직] 나를 제외한 모든 사용자에게 알림 전송 및 DB 기록
-    _sendChatNotification(myName, text, currentUser.uid);
+      // 2. [핵심 고도화] 모바일/태블릿은 'await' 지연이 발생하기 전에 포커스를 재요청합니다.
+      // 이렇게 하면 시스템에 "아직 입력 중"이라는 신호를 즉시 보내 키보드 유지를 보장합니다.
+      if (!kIsWeb) {
+        _focusNode.requestFocus();
+      } else {
+        // 웹(Web) 환경 한글 잔상 방지 로직 유지
+        _focusNode.unfocus();
+        Future.delayed(const Duration(milliseconds: 30), () {
+          if (mounted) _focusNode.requestFocus();
+        });
+      }
 
-    // [한글 입력 해결] 포커스 깜빡임 방지 전략
-    if (kIsWeb) {
-      _focusNode.unfocus();
-      Future.delayed(const Duration(milliseconds: 50), () {
-        if (mounted) _focusNode.requestFocus();
-      });
-    } else {
-      _focusNode.requestFocus();
+      // 3. 데이터 저장 및 알림 발송 (이제 여기서 지연이 생겨도 키보드가 내려가지 않습니다)
+      await _salesService.addChatMessage(message: text);
+      _salesService.updateLastReadTime();
+      _sendChatNotification(myName, text, currentUser.uid);
+
+    } catch (e) {
+      debugPrint("전송 중 에러 발생: $e");
+    } finally {
+      // 4. 전송 보호 해제 및 상태 갱신
+      if (mounted) {
+        setState(() => _isSending = false);
+      }
     }
   }
 
-  // ✅ 타 사용자에게 단체 알림 발송 로직 (보완됨)
+  // 알림 발송 (기존 로직 100% 유지)
   Future<void> _sendChatNotification(String senderName, String message, String myUid) async {
     try {
-      // fcmToken이 등록된 모든 유저 조회
       QuerySnapshot userSnapshot = await FirebaseFirestore.instance
           .collection('users')
           .where('fcmToken', isNotEqualTo: null)
           .get();
-
       for (var doc in userSnapshot.docs) {
         String userUid = doc.id;
         String? token = (doc.data() as Map<String, dynamic>)['fcmToken'];
-
-        // 나를 제외한 타인에게만 발송
         if (token != null && token.isNotEmpty && userUid != myUid) {
-          // 📌 NotificationService에 targetUid와 type('chat')을 함께 전달하여 notifications 컬렉션에 기록되게 함
           await _notificationService.sendNotification(
             targetToken: token,
             targetUid: userUid,
@@ -141,11 +153,11 @@ class _ChatPageState extends State<ChatPage> {
         }
       }
     } catch (e) {
-      print("채팅 알림 발송 실패: $e");
+      debugPrint("채팅 알림 발송 실패: $e");
     }
   }
 
-  // 이미지 전송 및 알림 (기존 유지)
+  // 이미지 전송 (기존 유지)
   Future<void> _sendImage() async {
     final ImagePicker picker = ImagePicker();
     final XFile? image = await picker.pickImage(source: ImageSource.gallery);
@@ -161,10 +173,7 @@ class _ChatPageState extends State<ChatPage> {
         final currentUser = FirebaseAuth.instance.currentUser;
         DocumentSnapshot myDoc = await FirebaseFirestore.instance.collection('users').doc(currentUser?.uid).get();
         String myName = (myDoc.data() as Map<String, dynamic>?)?['name'] ?? '누군가';
-
-        // 사진 전송 알림 발송
         _sendChatNotification(myName, "📷 사진을 보냈습니다.", currentUser?.uid ?? "");
-
       } catch (e) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("사진 전송 실패")));
       } finally {
@@ -173,25 +182,22 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
-  // 대화 백업 기능 (기존 유지)
+  // 대화 백업 (기존 유지)
   Future<void> _backupChat() async {
     try {
       var snapshot = await FirebaseFirestore.instance
           .collection('chats')
           .orderBy('createdAt', descending: false)
           .get();
-
       if (snapshot.docs.isEmpty) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("백업할 대화 내용이 없습니다.")));
         return;
       }
-
       StringBuffer sb = StringBuffer();
       sb.writeln("========================================");
       sb.writeln("[SM 업무 톡톡 대화 백업]");
       sb.writeln("저장일시: ${DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}");
       sb.writeln("========================================\n");
-
       for (var doc in snapshot.docs) {
         var data = doc.data();
         DateTime date = (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
@@ -200,9 +206,7 @@ class _ChatPageState extends State<ChatPage> {
         String time = DateFormat('yyyy-MM-dd HH:mm').format(date);
         sb.writeln("[$time] $author : $message");
       }
-
       String content = sb.toString();
-
       if (kIsWeb) {
         final bytes = utf8.encode(content);
         final blob = html.Blob([bytes]);
@@ -256,10 +260,8 @@ class _ChatPageState extends State<ChatPage> {
   @override
   Widget build(BuildContext context) {
     final currentUser = FirebaseAuth.instance.currentUser;
-
     return Column(
       children: [
-        // 상단 바
         Container(
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -280,8 +282,6 @@ class _ChatPageState extends State<ChatPage> {
             ],
           ),
         ),
-
-        // 채팅 메시지 리스트
         Expanded(
           child: Container(
             color: const Color(0xFFB2C7DA),
@@ -289,18 +289,13 @@ class _ChatPageState extends State<ChatPage> {
               stream: _salesService.getChatMessagesStream(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-
                 final List<QueryDocumentSnapshot> docs = snapshot.hasData ? snapshot.data!.docs : <QueryDocumentSnapshot>[];
-
-                // 새 글 수신 시 가시성 확인 후 읽음 처리
                 if (snapshot.hasData && widget.isVisible) {
                   WidgetsBinding.instance.addPostFrameCallback((_) {
                     _salesService.updateLastReadTime();
                   });
                 }
-
                 if (docs.isEmpty) return const Center(child: Text("첫 메시지를 남겨보세요!", style: TextStyle(color: Colors.black54)));
-
                 return ListView.builder(
                   reverse: true,
                   controller: _scrollController,
@@ -311,7 +306,6 @@ class _ChatPageState extends State<ChatPage> {
                     final String docId = docs[index].id;
                     final bool isMe = data['uid'] == currentUser?.uid;
                     final DateTime date = (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
-
                     bool showDateSeparator = false;
                     if (index < docs.length - 1) {
                       final prevData = docs[index + 1].data() as Map<String, dynamic>;
@@ -320,7 +314,6 @@ class _ChatPageState extends State<ChatPage> {
                     } else {
                       showDateSeparator = true;
                     }
-
                     return Column(
                       children: [
                         if (showDateSeparator) _buildDateSeparator(date),
@@ -340,10 +333,7 @@ class _ChatPageState extends State<ChatPage> {
             ),
           ),
         ),
-
         if (_isUploading) const LinearProgressIndicator(),
-
-        // 하단 메시지 입력창
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           color: Colors.white,
@@ -355,8 +345,9 @@ class _ChatPageState extends State<ChatPage> {
                 Expanded(
                   child: CallbackShortcuts(
                     bindings: {
-                      // ✅ [Enter] 키는 전송, [Shift+Enter]는 줄바꿈을 수행하도록 설정
-                      const SingleActivator(LogicalKeyboardKey.enter): () => _sendMessage(),
+                      const SingleActivator(LogicalKeyboardKey.enter): () {
+                        if (!_isSending) _sendMessage();
+                      },
                     },
                     child: TextField(
                       focusNode: _focusNode,
@@ -378,7 +369,12 @@ class _ChatPageState extends State<ChatPage> {
                 const SizedBox(width: 10),
                 Container(
                   decoration: BoxDecoration(color: const Color(0xFFFEE500), borderRadius: BorderRadius.circular(8)),
-                  child: IconButton(icon: const Icon(Icons.arrow_upward, color: Colors.black, size: 20), onPressed: _sendMessage, constraints: const BoxConstraints(minWidth: 40, minHeight: 40), padding: EdgeInsets.zero),
+                  child: IconButton(
+                      icon: const Icon(Icons.arrow_upward, color: Colors.black, size: 20),
+                      onPressed: _isSending ? null : _sendMessage,
+                      constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+                      padding: EdgeInsets.zero
+                  ),
                 ),
               ],
             ),

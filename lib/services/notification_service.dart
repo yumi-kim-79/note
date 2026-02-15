@@ -32,7 +32,17 @@ class NotificationService {
 ''';
 
   Future<void> init() async {
-    await _firebaseMessaging.requestPermission(alert: true, badge: true, sound: true);
+    // FCM 권한 요청
+    NotificationSettings settings = await _firebaseMessaging.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+      provisional: false,
+    );
+
+    if (settings.authorizationStatus == AuthorizationStatus.authorized) {
+      print('✅ 사용자가 알림 권한을 승인함');
+    }
   }
 
   Future<String?> getToken() async {
