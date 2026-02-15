@@ -58,8 +58,9 @@ dependencies:
   file_picker: ^10.3.10
   flutter_image_compress: ^2.1.0
   firebase_messaging: ^16.1.1
-  flutter_local_notifications: ^20.1.0
+  flutter_local_notifications: ^17.0.0    # ✅ 알림/소리 담당
   googleapis_auth: ^2.0.0
+  vibration: ^1.9.0                     # ✅ 진동 담당
 
 dev_dependencies:
   flutter_test:

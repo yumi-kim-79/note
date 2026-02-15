@@ -1,5 +1,6 @@
 # Uncomment this line to define a global platform for your project
-# platform :ios, '13.0'
+# ✅ iOS 최소 버전을 14.0으로 설정
+platform :ios, '15.0'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
@@ -36,8 +37,14 @@ target 'Runner' do
   end
 end
 
+# ✅ [핵심 수정 구간] post_install 블록을 수정하여 모든 Pod의 버전을 14.0으로 강제 통일시킵니다.
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
+
+    # ⬇️ 이 부분이 추가되었습니다 (모든 타겟을 14.0으로 강제 설정)
+    target.build_configurations.each do |config|
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
+    end
   end
 end
