@@ -5,6 +5,7 @@
 
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
+import '../services/notification_service.dart';
 
 // ✅ 디자인 시스템 import
 import '../theme/app_theme.dart';
@@ -28,6 +29,8 @@ class _LoginPageState extends State<LoginPage> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('아이디와 비밀번호를 입력해주세요.')));
       return;
     }
+
+    await NotificationService().init();
 
     setState(() => _isLoading = true);
 

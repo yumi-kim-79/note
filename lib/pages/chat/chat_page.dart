@@ -1,7 +1,5 @@
 // [파일 위치: lib/pages/chat/chat_page.dart]
-// 수정 내용:
-// 1. [줄바꿈 해결] CallbackShortcuts에서 'Shift+Enter'에 대한 차단을 해제하여 기본 줄바꿈 동작 허용
-// 2. [기존 기능 유지] 배지 해결, 한글 입력 해결, 백업 등 모든 기능 100% 유지
+// 역할: 실시간 채팅, 이미지 전송, 대화 백업 및 타 사용자에게 실시간 푸시 알림 발송
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -13,15 +11,14 @@ import 'package:share_plus/share_plus.dart';
 import 'package:universal_html/html.dart' as html;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:convert';
-import 'dart:async'; // Timer 사용
+import 'dart:async';
 
 import '../../services/sales_service.dart';
+import '../../services/notification_service.dart'; // ✅ 알림 서비스 연동
 import '../../theme/app_theme.dart';
 
 class ChatPage extends StatefulWidget {
-  // 외부에서 화면 보임 여부를 전달받음 (배지 처리용)
   final bool isVisible;
-
   const ChatPage({super.key, this.isVisible = false});
 
   @override
@@ -31,26 +28,26 @@ class ChatPage extends StatefulWidget {
 class _ChatPageState extends State<ChatPage> {
   final TextEditingController _msgController = TextEditingController();
   final SalesService _salesService = SalesService();
+  final NotificationService _notificationService = NotificationService(); // ✅ 알림 서비스 객체 생성
   final ScrollController _scrollController = ScrollController();
   final FocusNode _focusNode = FocusNode();
 
   bool _isUploading = false;
-  String? _lastMessageId;
 
   @override
   void initState() {
     super.initState();
-    // 최초 실행 시 화면이 보이고 있다면 읽음 처리
+    // 화면 진입 시 읽음 처리
     if (widget.isVisible) {
       _salesService.updateLastReadTime();
     }
     _deleteOldMessages();
   }
 
-  // 화면 보임 여부가 바뀔 때(탭 이동 등) 감지하여 읽음 처리
   @override
   void didUpdateWidget(covariant ChatPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // 탭 이동 등으로 화면 가시성이 변할 때 읽음 처리
     if (!oldWidget.isVisible && widget.isVisible) {
       _salesService.updateLastReadTime();
     }
@@ -67,6 +64,7 @@ class _ChatPageState extends State<ChatPage> {
     super.dispose();
   }
 
+  // 30일 지난 메시지 자동 삭제 로직 (기존 유지)
   Future<void> _deleteOldMessages() async {
     DateTime cutOffDate = DateTime.now().subtract(const Duration(days: 30));
     try {
@@ -82,21 +80,31 @@ class _ChatPageState extends State<ChatPage> {
         }
         await batch.commit();
       }
-    } catch (e) {
-      // print("자동 삭제 오류: $e");
-    }
+    } catch (e) {}
   }
 
-  // ✅ [한글 해결] 포커스 깜빡임 전략
+  // ✅ 메시지 전송 및 알림 발송 통합
   void _sendMessage() async {
     String text = _msgController.text.trim();
     if (text.isEmpty) return;
 
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) return;
+
+    // 내 이름 정보 가져오기 (알림 배너 표시용)
+    DocumentSnapshot myDoc = await FirebaseFirestore.instance.collection('users').doc(currentUser.uid).get();
+    String myName = (myDoc.data() as Map<String, dynamic>?)?['name'] ?? '누군가';
+
     _msgController.clear();
 
+    // 1. 메시지 저장
     await _salesService.addChatMessage(message: text);
     _salesService.updateLastReadTime();
 
+    // 2. ✅ [알림 로직] 나를 제외한 모든 사용자에게 알림 전송 및 DB 기록
+    _sendChatNotification(myName, text, currentUser.uid);
+
+    // [한글 입력 해결] 포커스 깜빡임 방지 전략
     if (kIsWeb) {
       _focusNode.unfocus();
       Future.delayed(const Duration(milliseconds: 50), () {
@@ -107,6 +115,37 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
+  // ✅ 타 사용자에게 단체 알림 발송 로직 (보완됨)
+  Future<void> _sendChatNotification(String senderName, String message, String myUid) async {
+    try {
+      // fcmToken이 등록된 모든 유저 조회
+      QuerySnapshot userSnapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .where('fcmToken', isNotEqualTo: null)
+          .get();
+
+      for (var doc in userSnapshot.docs) {
+        String userUid = doc.id;
+        String? token = (doc.data() as Map<String, dynamic>)['fcmToken'];
+
+        // 나를 제외한 타인에게만 발송
+        if (token != null && token.isNotEmpty && userUid != myUid) {
+          // 📌 NotificationService에 targetUid와 type('chat')을 함께 전달하여 notifications 컬렉션에 기록되게 함
+          await _notificationService.sendNotification(
+            targetToken: token,
+            targetUid: userUid,
+            title: "💬 업무 톡톡: $senderName",
+            body: message,
+            type: 'chat',
+          );
+        }
+      }
+    } catch (e) {
+      print("채팅 알림 발송 실패: $e");
+    }
+  }
+
+  // 이미지 전송 및 알림 (기존 유지)
   Future<void> _sendImage() async {
     final ImagePicker picker = ImagePicker();
     final XFile? image = await picker.pickImage(source: ImageSource.gallery);
@@ -118,6 +157,14 @@ class _ChatPageState extends State<ChatPage> {
         String downloadUrl = await _salesService.uploadImage(bytes, fileName);
         await _salesService.addChatMessage(message: "(사진)", imageUrl: downloadUrl);
         _salesService.updateLastReadTime();
+
+        final currentUser = FirebaseAuth.instance.currentUser;
+        DocumentSnapshot myDoc = await FirebaseFirestore.instance.collection('users').doc(currentUser?.uid).get();
+        String myName = (myDoc.data() as Map<String, dynamic>?)?['name'] ?? '누군가';
+
+        // 사진 전송 알림 발송
+        _sendChatNotification(myName, "📷 사진을 보냈습니다.", currentUser?.uid ?? "");
+
       } catch (e) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("사진 전송 실패")));
       } finally {
@@ -126,6 +173,7 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
+  // 대화 백업 기능 (기존 유지)
   Future<void> _backupChat() async {
     try {
       var snapshot = await FirebaseFirestore.instance
@@ -211,7 +259,7 @@ class _ChatPageState extends State<ChatPage> {
 
     return Column(
       children: [
-        // 헤더
+        // 상단 바
         Container(
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -233,7 +281,7 @@ class _ChatPageState extends State<ChatPage> {
           ),
         ),
 
-        // 채팅 내용
+        // 채팅 메시지 리스트
         Expanded(
           child: Container(
             color: const Color(0xFFB2C7DA),
@@ -244,7 +292,7 @@ class _ChatPageState extends State<ChatPage> {
 
                 final List<QueryDocumentSnapshot> docs = snapshot.hasData ? snapshot.data!.docs : <QueryDocumentSnapshot>[];
 
-                // 새 글이 왔고, 화면이 보인다면 읽음 처리
+                // 새 글 수신 시 가시성 확인 후 읽음 처리
                 if (snapshot.hasData && widget.isVisible) {
                   WidgetsBinding.instance.addPostFrameCallback((_) {
                     _salesService.updateLastReadTime();
@@ -293,8 +341,9 @@ class _ChatPageState extends State<ChatPage> {
           ),
         ),
 
-        // 입력창
         if (_isUploading) const LinearProgressIndicator(),
+
+        // 하단 메시지 입력창
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           color: Colors.white,
@@ -304,11 +353,10 @@ class _ChatPageState extends State<ChatPage> {
                 IconButton(icon: const Icon(Icons.add_box_outlined, color: Colors.grey, size: 30), onPressed: _sendImage, padding: EdgeInsets.zero, constraints: const BoxConstraints()),
                 const SizedBox(width: 10),
                 Expanded(
-                  // ✅ [핵심 수정] Shift+Enter는 바인딩에서 제거하여 기본 동작(줄바꿈)을 하게 함
                   child: CallbackShortcuts(
                     bindings: {
+                      // ✅ [Enter] 키는 전송, [Shift+Enter]는 줄바꿈을 수행하도록 설정
                       const SingleActivator(LogicalKeyboardKey.enter): () => _sendMessage(),
-                      // ⚠️ Shift+Enter 바인딩 삭제함 -> 기본 TextField 동작(줄바꿈) 수행
                     },
                     child: TextField(
                       focusNode: _focusNode,

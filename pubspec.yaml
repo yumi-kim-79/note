@@ -50,13 +50,16 @@ dependencies:
   share_plus: ^12.0.1
   url_launcher: ^6.2.4  # 네이버 지도 앱 실행용
   geolocator: ^14.0.2   # 거리 계산용
-  http: ^1.2.0
+  http: ^1.6.0
   excel: ^4.0.6
   flutter_naver_map: any
   universal_html: ^2.3.0
   js: ^0.7.2
   file_picker: ^10.3.10
   flutter_image_compress: ^2.1.0
+  firebase_messaging: ^16.1.1
+  flutter_local_notifications: ^20.1.0
+  googleapis_auth: ^2.0.0
 
 dev_dependencies:
   flutter_test:

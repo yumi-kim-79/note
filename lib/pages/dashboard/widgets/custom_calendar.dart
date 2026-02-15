@@ -3,6 +3,7 @@
 // 1. [디자인] 현장 일정 페이지(FieldSchedulePage)와 100% 동일한 디자인(CommonCard, 폰트사이즈) 적용
 // 2. [기능] 일정 등록 팝업을 현장 페이지와 동일한 최신 버전(기간설정, 건물검색, 수정자 기록 등)으로 교체
 // 3. [기타] 엑셀 출력 로직 및 정렬 방식 동기화
+// 4. [추가] 일정 수정 시 작성자에게 알림 발송 로직 적용 (NotificationService)
 
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
@@ -14,6 +15,9 @@ import 'dart:math'; // 반응형 계산용
 // ✅ TextSpan 충돌 방지
 import 'package:excel/excel.dart' hide Border, TextSpan;
 import 'package:universal_html/html.dart' as html;
+
+// ✅ 알림 서비스 import (추가됨)
+import '../../../services/notification_service.dart';
 
 // ✅ 디자인 시스템 import
 import '../../../theme/app_theme.dart';
@@ -690,7 +694,6 @@ class _AddScheduleDialogState extends State<_AddScheduleDialog> {
                     ],
 
                     const SizedBox(height: 24),
-                    // ✅ [수정] 문구 통일: "업무내용 및 히스토리"
                     const Text("📋 업무내용 및 히스토리", style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryColor)),
                     const SizedBox(height: 12),
 
@@ -839,13 +842,46 @@ class _AddScheduleDialogState extends State<_AddScheduleDialog> {
       'buildingId': _isBuildingSelected ? _selectedBuilding!['docId'] : null,
     };
 
-    // ✅ [고도화] 수정자 정보 기록 (현장 페이지와 동일)
     scheduleData['lastModifierUid'] = user.uid;
     scheduleData['lastModifierName'] = myName;
 
     try {
       if (isEditMode) {
+        // 1. 일정 업데이트
         await FirebaseFirestore.instance.collection('schedules').doc(widget.existingData!['id']).update(scheduleData);
+
+        // =============================================================
+        // ✅ [알림 로직 추가] 남의 글을 수정했을 때 알림 발송
+        // =============================================================
+        String ownerUid = widget.existingData!['uid'] ?? ''; // 글 쓴 사람 ID
+        String modifierUid = user.uid; // 지금 수정하는 사람(나) ID
+
+        // "주인이 내가 아닐 때"만 실행
+        if (ownerUid.isNotEmpty && ownerUid != modifierUid) {
+          // 1) 주인(작성자)의 정보를 DB에서 가져옴
+          DocumentSnapshot ownerDoc = await FirebaseFirestore.instance.collection('users').doc(ownerUid).get();
+
+          if (ownerDoc.exists) {
+            Map<String, dynamic> ownerData = ownerDoc.data() as Map<String, dynamic>;
+            String? targetToken = ownerData['fcmToken']; // 주인의 토큰
+
+            // 2) 주인이 토큰을 가지고 있다면 알림 발송
+            if (targetToken != null && targetToken.isNotEmpty) {
+              String notiTitle = "일정 수정 알림";
+              String notiBody = "$myName 님이 '${_titleCtrl.text}' 일정을 수정했습니다.";
+
+              await NotificationService().sendNotification(
+                targetToken: targetToken,
+                targetUid: ownerUid,      // 추가됨
+                title: notiTitle,
+                body: notiBody,
+                type: 'schedule',         // 추가됨
+              );
+            }
+          }
+        }
+        // =============================================================
+
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("일정이 업데이트되었습니다.")));
       } else {
         scheduleData['uid'] = user.uid;

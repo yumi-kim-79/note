@@ -1,22 +1,55 @@
 // [파일 위치: lib/services/auth_service.dart]
-// 수정 내용: 모바일 로그인 에러 수정 코드 유지 + 관리자용 직원 관리 기능 복구
+// 수정 내용:
+// 1. 기존 기능(모바일 로그인 에러 방지, 관리자 직원 관리) 100% 유지
+// 2. 로그인 성공 시 내 알림 토큰(fcmToken)을 DB에 자동 저장하는 기능 추가
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart'; // 직원 등록 시 관리자 로그아웃 방지용
 import 'package:flutter/foundation.dart'; // 웹/앱 구분용
 
+// ✅ 알림 서비스를 가져옵니다 (FCM 토큰 발급용)
+import 'notification_service.dart';
+
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // 1. 로그인 (모바일 에러 방지 포함)
+  // 1. 로그인 (기존 모바일 에러 방지 코드 유지 + 알림 토큰 저장 기능 통합)
   Future<void> login({required String email, required String password}) async {
-    // [중요] 웹일 때만 로그인 유지 설정 (안드로이드 에러 방지)
+    // [기존 유지] 웹일 때만 로그인 유지 설정 (안드로이드 에러 방지)
     if (kIsWeb) {
       await _auth.setPersistence(Persistence.LOCAL);
     }
-    await _auth.signInWithEmailAndPassword(email: email, password: password);
+
+    // 로그인 실행
+    UserCredential credential = await _auth.signInWithEmailAndPassword(email: email, password: password);
+
+    // ------------------------------------------------------------------
+    // ✅ [추가 로직] 로그인 성공 시, 내 알림 토큰을 DB(users 컬렉션)에 저장합니다.
+    // ------------------------------------------------------------------
+    User? user = credential.user;
+    if (user != null) {
+      try {
+        // NotificationService에서 내 기기의 고유 토큰을 가져옵니다.
+        String? token = await NotificationService().getToken();
+
+        if (token != null) {
+          // users 컬렉션의 내 문서에 fcmToken 필드를 추가하거나 갱신합니다.
+          // SetOptions(merge: true)를 사용하여 기존의 이름, 직급 정보는 그대로 보존합니다.
+          await _firestore.collection('users').doc(user.uid).set({
+            'fcmToken': token,
+            'lastLoginAt': FieldValue.serverTimestamp(), // 마지막 로그인 시간 기록
+          }, SetOptions(merge: true));
+
+          print("✅ FCM 토큰이 성공적으로 DB에 저장되었습니다: $token");
+        }
+      } catch (e) {
+        // 로그인 자체는 성공했으므로 알림 저장 실패 시 에러만 출력하고 중단하지 않습니다.
+        print("⚠️ 알림 토큰 저장 중 오류 발생 (로그인은 성공함): $e");
+      }
+    }
+    // ------------------------------------------------------------------
   }
 
   // 2. 로그아웃
@@ -28,7 +61,7 @@ class AuthService {
   User? get currentUser => _auth.currentUser;
 
   // ---------------------------------------------------------
-  // [복구된 기능] 관리자 페이지(AdminPage)용 함수들
+  // [기존 기능 보존] 관리자 페이지(AdminPage)용 함수들
   // ---------------------------------------------------------
 
   // 4. 직원 목록 실시간 가져오기 (Stream)
@@ -47,7 +80,7 @@ class AuthService {
     required String rank,
     required String role,
   }) async {
-    // [트릭] 현재 관리자 계정을 로그아웃 시키지 않기 위해 '임시 앱'을 만들어 계정 생성
+    // 현재 관리자 계정을 로그아웃 시키지 않기 위해 '임시 앱'을 만들어 계정 생성
     FirebaseApp tempApp = await Firebase.initializeApp(
       name: 'tempRegisterApp',
       options: Firebase.app().options,
@@ -64,8 +97,8 @@ class AuthService {
       await _firestore.collection('users').doc(uid).set({
         'email': email,
         'name': name,
-        'rank': rank, // 직급
-        'role': role, // 권한 (admin / user)
+        'rank': rank,
+        'role': role,
         'createdAt': FieldValue.serverTimestamp(),
         'uid': uid,
       });
@@ -74,7 +107,7 @@ class AuthService {
       await tempApp.delete();
     } catch (e) {
       await tempApp.delete();
-      rethrow; // 에러 발생 시 상위로 전달
+      rethrow;
     }
   }
 

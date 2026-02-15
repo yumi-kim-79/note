@@ -1,21 +1,22 @@
 // [파일 위치: lib/main.dart]
 // [페이지 기능: SM 서비스 매니지먼트 통합 레이아웃 및 실시간 알림 관리]
 // 수정 내용:
-// 1. [UX 고도화] 메뉴 중복 클릭 시 해당 페이지 데이터 새로고침(Refresh) 기능 추가
-// 2. [레이아웃] IndexedStack을 Expanded로 감싸 페이지 하단 터짐 방지
-// 3. [로직] 미완료 업무 카운팅 및 배지 디자인(DeepOrange) 적용
+// 1. [고도화] 알림 팝업에 '읽은 알림 전체 삭제' 기능 추가 (일괄 삭제 로직)
+// 2. [기존 유지] 알림 배지, 팝업 목록(최신순), 네이버 지도, 메뉴 등 100% 동일
 
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:intl/intl.dart'; // 날짜 포맷팅용
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_naver_map/flutter_naver_map.dart';
 import 'firebase_options.dart';
 import 'package:flutter/foundation.dart';
 
 import 'theme/app_theme.dart';
+import 'services/notification_service.dart';
 
 // 페이지 임포트
 import 'pages/dashboard/dashboard_page.dart';
@@ -41,6 +42,9 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('ko_KR', null);
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // 알림 서비스 초기화
+  await NotificationService().init();
 
   if (!kIsWeb) {
     try {
@@ -101,7 +105,6 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
   late final Widget _permanentNaverMap;
   late final List<Widget> _pages;
 
-  // ✅ [고도화] 각 페이지의 새로고침 함수를 호출하기 위한 고유 키(Key) 정의
   final GlobalKey<FieldReportPageState> _reportPageKey = GlobalKey<FieldReportPageState>();
   final GlobalKey<FieldSchedulePageState> _schedulePageKey = GlobalKey<FieldSchedulePageState>();
   final GlobalKey<FieldRoutePageState> _routePageKey = GlobalKey<FieldRoutePageState>();
@@ -122,14 +125,13 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
       );
     }
 
-    // ✅ [고도화] 페이지 생성 시 정의한 Key를 전달합니다. (나중에 각 페이지 파일 수정 필요)
     _pages = [
       DashboardPage(key: _dashboardKey),
       SalesWritePage(onSaved: () => _onMenuSelected(2)),
       SalesListPage(),
       const AdminPage(),
       const ChecklistPage(),
-      const ChatPage(),
+      ChatPage(isVisible: _selectedIndex == 5),
       const SettingsPage(),
       FieldRoutePage(key: _routePageKey),
       const BuildingInfoPage(),
@@ -138,18 +140,15 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
     ];
   }
 
-  // ✅ [핵심 고도화] 메뉴 선택 로직 수정
   void _onMenuSelected(int index) async {
     final isMobile = MediaQuery.of(context).size.width < 900;
 
-    // 1. 이미 같은 메뉴가 선택된 상태에서 또 눌렀을 때 (새로고침 로직)
     if (_selectedIndex == index) {
-      _triggerPageRefresh(index); // 새로고침 신호 발생
-      if (isMobile) Navigator.pop(context); // 모바일은 메뉴 닫기
+      _triggerPageRefresh(index);
+      if (isMobile) Navigator.pop(context);
       return;
     }
 
-    // 2. 다른 메뉴로 이동할 때
     if (_selectedIndex == 5 && index != 5) {
       await _salesService.updateLastReadTime();
     }
@@ -164,7 +163,6 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
     if (index == 5) {
       await _salesService.updateLastReadTime();
     } else if (index == 7) {
-      // 경로 관리 페이지는 진입 시 자동 갱신
       Future.delayed(const Duration(milliseconds: 100), () {
         if (_routePageKey.currentState?.mounted == true) {
           _routePageKey.currentState?.refreshRoute();
@@ -177,13 +175,11 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
     }
   }
 
-  // ✅ [신규] 특정 페이지의 새로고침(Refresh) 명령을 내리는 함수
   void _triggerPageRefresh(int index) {
     switch (index) {
-      case 0: _dashboardKey.currentState?.refreshData(); break; // 대시보드
-      case 9: _schedulePageKey.currentState?.refreshData(); break; // 일정관리
-      case 10: _reportPageKey.currentState?.refreshData(); break; // 업무보고
-    // 필요에 따라 다른 페이지 키도 추가 가능
+      case 0: _dashboardKey.currentState?.refreshData(); break;
+      case 9: _schedulePageKey.currentState?.refreshData(); break;
+      case 10: _reportPageKey.currentState?.refreshData(); break;
     }
   }
 
@@ -206,6 +202,154 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
     }
   }
 
+  // 배지 카운트용 (정렬 없음 - 에러 방지)
+  Stream<int> _getUnreadNotificationCountStream() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return Stream.value(0);
+
+    return FirebaseFirestore.instance
+        .collection('notifications')
+        .where('targetUid', isEqualTo: user.uid)
+        .where('isRead', isEqualTo: false)
+        .snapshots()
+        .map((snapshot) => snapshot.docs.length);
+  }
+
+  // ✅ [신규] 읽은 알림 일괄 삭제 함수
+  Future<void> _deleteReadNotifications(BuildContext context) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      // 1. 내 알림 중 '읽음(true)' 처리된 것만 가져오기
+      final snapshot = await FirebaseFirestore.instance
+          .collection('notifications')
+          .where('targetUid', isEqualTo: user.uid)
+          .where('isRead', isEqualTo: true)
+          .get();
+
+      if (snapshot.docs.isEmpty) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("삭제할 읽은 알림이 없습니다.")));
+        }
+        return;
+      }
+
+      // 2. 일괄 삭제 (Batch) 실행
+      WriteBatch batch = FirebaseFirestore.instance.batch();
+      for (var doc in snapshot.docs) {
+        batch.delete(doc.reference);
+      }
+      await batch.commit();
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("읽은 알림을 모두 삭제했습니다.")));
+      }
+    } catch (e) {
+      print("알림 삭제 중 오류: $e");
+    }
+  }
+
+  // 알림 목록 팝업 (정렬 없음 - 즉시 표시)
+  void _showNotificationList(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text("최신 알림", style: TextStyle(fontWeight: FontWeight.bold)),
+            // 카운트 표시 (선택 사항)
+          ],
+        ),
+        content: SizedBox(
+          width: 400,
+          height: 450,
+          child: StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('notifications')
+                .where('targetUid', isEqualTo: user.uid)
+                .limit(20) // 최신 20개만 로드 (정렬은 메모리에서)
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+              final docs = snapshot.data?.docs ?? [];
+
+              // 메모리상 최신순 정렬
+              docs.sort((a, b) {
+                Timestamp t1 = a['createdAt'] ?? Timestamp.now();
+                Timestamp t2 = b['createdAt'] ?? Timestamp.now();
+                return t2.compareTo(t1);
+              });
+
+              if (docs.isEmpty) return const Center(child: Text("새로운 알림이 없습니다.", style: TextStyle(color: Colors.grey)));
+
+              return ListView.separated(
+                itemCount: docs.length,
+                separatorBuilder: (context, index) => const Divider(height: 1),
+                itemBuilder: (context, index) {
+                  final data = docs[index].data() as Map<String, dynamic>;
+                  final bool isRead = data['isRead'] ?? false;
+                  final DateTime time = (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
+
+                  return ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: isRead ? Colors.grey[100] : AppTheme.primaryLight,
+                      child: Icon(Icons.notifications_active, color: isRead ? Colors.grey : AppTheme.primaryColor, size: 20),
+                    ),
+                    title: Text(data['title'] ?? '알림', style: TextStyle(fontWeight: isRead ? FontWeight.normal : FontWeight.bold, fontSize: 14)),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(data['body'] ?? '', style: const TextStyle(fontSize: 13), maxLines: 2, overflow: TextOverflow.ellipsis),
+                        const SizedBox(height: 4),
+                        Text(DateFormat('MM.dd HH:mm').format(time), style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                      ],
+                    ),
+                    onTap: () async {
+                      // 1. 읽음 처리
+                      await docs[index].reference.update({'isRead': true});
+                      if (!mounted) return;
+                      Navigator.pop(ctx);
+
+                      // 2. 페이지 이동
+                      _handleNotificationClick(data['type']);
+                    },
+                  );
+                },
+              );
+            },
+          ),
+        ),
+        actions: [
+          // ✅ [추가됨] 읽은 알림 삭제 버튼
+          TextButton(
+            onPressed: () async {
+              await _deleteReadNotifications(context);
+              // 삭제 후 팝업 유지 (목록이 갱신됨)
+            },
+            style: TextButton.styleFrom(foregroundColor: AppTheme.errorColor),
+            child: const Text("읽은 알림 삭제"),
+          ),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("닫기"))
+        ],
+      ),
+    );
+  }
+
+  void _handleNotificationClick(String? type) {
+    switch (type) {
+      case 'schedule': _onMenuSelected(9); break;
+      case 'chat': _onMenuSelected(5); break;
+      case 'report': _onMenuSelected(10); break;
+      default: break;
+    }
+  }
+
   Stream<int> _getOverdueWorkCountStream() {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return Stream.value(0);
@@ -220,9 +364,7 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
 
       return snapshot.docs.where((doc) {
         final data = doc.data();
-        DateTime start = (data['startDate'] as Timestamp?)?.toDate() ??
-            (data['date'] as Timestamp?)?.toDate() ??
-            DateTime.now();
+        DateTime start = (data['startDate'] as Timestamp?)?.toDate() ?? (data['date'] as Timestamp?)?.toDate() ?? DateTime.now();
         DateTime end = (data['endDate'] as Timestamp?)?.toDate() ?? start;
         DateTime endDateBase = DateTime(end.year, end.month, end.day);
         return endDateBase.isBefore(todayBase) && data['status'] != 'completed';
@@ -230,8 +372,12 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
     });
   }
 
+  // [파일 위치: lib/main.dart]
+// _MainLayoutPageState 클래스 내부
+
   @override
   Widget build(BuildContext context) {
+    // 반응형 기준점 설정 (900px 기준)
     final bool isWideScreen = MediaQuery.of(context).size.width > 900;
     final user = FirebaseAuth.instance.currentUser;
 
@@ -239,32 +385,83 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
       stream: FirebaseFirestore.instance.collection('users').doc(user?.uid).snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+
+        // 유저 정보 가져오기
         var userData = snapshot.data!.data() as Map<String, dynamic>?;
         String userName = userData?['name'] ?? '사용자';
         String userRank = userData?['rank'] ?? '';
         bool isAdmin = (userData?['role'] ?? 'user') == 'admin';
 
+        // 관리자가 아닌데 관리자 페이지 접속 시 대시보드로 이동
         if (!isAdmin && _selectedIndex == 3) {
           WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) _onMenuSelected(0); });
         }
 
+        // ---------------------------------------------------------------
+        // ✅ [1. 공통 위젯 분리] 알림 버튼 (배지 포함)
+        // ---------------------------------------------------------------
+        Widget notificationButton = StreamBuilder<int>(
+          stream: _getUnreadNotificationCountStream(),
+          builder: (context, snap) {
+            int count = snap.data ?? 0;
+            return Stack(
+              alignment: Alignment.center,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.notifications_none, color: AppTheme.textMain),
+                  onPressed: () => _showNotificationList(context),
+                  tooltip: "알림 확인",
+                ),
+                if (count > 0)
+                  Positioned(
+                    right: 8,
+                    top: 8,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+                      constraints: const BoxConstraints(minWidth: 10, minHeight: 10),
+                    ),
+                  )
+              ],
+            );
+          },
+        );
+
+        // ---------------------------------------------------------------
+        // ✅ [2. 공통 위젯 분리] 유저 정보 (이름 + 직급)
+        // ---------------------------------------------------------------
+        Widget userInfoWidget = Row(
+          children: [
+            CircleAvatar(
+              backgroundColor: AppTheme.primaryLight,
+              radius: 16,
+              child: Text(userName.isNotEmpty ? userName[0] : 'U', style: const TextStyle(color: AppTheme.primaryColor, fontSize: 14)),
+            ),
+            const SizedBox(width: 8),
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(userName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppTheme.textMain)),
+                if (userRank.isNotEmpty)
+                  Text(userRank, style: const TextStyle(color: AppTheme.textSub, fontSize: 11))
+              ],
+            )
+          ],
+        );
+
+        // 사이드 메뉴 컨텐츠
         Widget menuContent = Container(
           color: AppTheme.surfaceColor,
           child: Column(
             children: [
               Container(
                   height: 110,
-                  alignment: Alignment.centerLeft, // 왼쪽 정렬
+                  alignment: Alignment.centerLeft,
                   padding: const EdgeInsets.symmetric(horizontal: 24),
-                  // ✅ [수정] 로고 이미지로 교체
-                  child: Image.asset(
-                    'assets/images/sm_logo.png',
-                    height: 65, // 로고 높이 (적절한 크기로 조절하세요)
-                    fit: BoxFit.contain, // 비율 유지
-                  )
+                  child: Image.asset('assets/images/sm_logo.png', height: 65, fit: BoxFit.contain)
               ),
               const Divider(height: 1, color: AppTheme.borderColor),
-
               Expanded(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.symmetric(vertical: 12),
@@ -274,7 +471,6 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
                       _buildMenuItem(icon: Icons.edit_note, title: '새 노트작성', index: 1),
                       _buildMenuItem(icon: Icons.article_outlined, title: '노트관리', index: 2),
                       _buildMenuItem(icon: Icons.playlist_add_check_circle_outlined, title: '체크리스트', index: 4),
-
                       StreamBuilder<int>(
                         stream: _salesService.getUnreadMessageCountStream(),
                         builder: (context, snap) => _buildMenuItem(
@@ -284,7 +480,6 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
                             badgeCount: _selectedIndex == 5 ? 0 : (snap.data ?? 0)
                         ),
                       ),
-
                       Theme(
                         data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
                         child: ExpansionTile(
@@ -292,11 +487,7 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
                           leading: const Icon(Icons.map_outlined, size: 22),
                           title: const Text("현장팀 업무지원", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
                           initiallyExpanded: _isFieldSupportExpanded,
-                          onExpansionChanged: (expanded) {
-                            setState(() {
-                              _isFieldSupportExpanded = expanded;
-                            });
-                          },
+                          onExpansionChanged: (expanded) => setState(() => _isFieldSupportExpanded = expanded),
                           iconColor: AppTheme.primaryColor,
                           collapsedIconColor: AppTheme.textSub,
                           children: [
@@ -314,7 +505,6 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
                           ],
                         ),
                       ),
-
                       const Divider(height: 32, indent: 24, endIndent: 24, color: AppTheme.borderColor),
                       _buildMenuItem(icon: Icons.business, title: '건물 DB 정보', index: 8),
                       _buildMenuItem(icon: Icons.settings_outlined, title: '설정', index: 6),
@@ -334,7 +524,30 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
         );
 
         return Scaffold(
-          appBar: isWideScreen ? null : AppBar(title: Text(_getTitleByIndex(_selectedIndex))),
+          // ---------------------------------------------------------------
+          // ✅ [3. 모바일/태블릿 상단바 고도화] 좌측 상단에 알림+유저정보 배치
+          // ---------------------------------------------------------------
+          appBar: isWideScreen
+              ? null // PC 화면에서는 AppBar 제거 (Body에 통합)
+              : AppBar(
+            backgroundColor: Colors.white,
+            elevation: 1,
+            iconTheme: const IconThemeData(color: AppTheme.textMain),
+            titleSpacing: 0, // 메뉴 아이콘과 타이틀 사이 간격 좁힘
+            centerTitle: false, // 왼쪽 정렬 강제
+            title: Row(
+              children: [
+                // 요청하신 대로: 종모양 -> 유저 정보 순서로 좌측 상단 배치
+                notificationButton,
+                const SizedBox(width: 4),
+                userInfoWidget,
+              ],
+            ),
+            actions: [
+              // 우측 공간이 비어보이면 로고 등을 넣을 수 있음 (현재는 비워둠)
+              const SizedBox(width: 16),
+            ],
+          ),
           drawer: isWideScreen ? null : Drawer(child: menuContent),
           body: Row(
             children: [
@@ -347,31 +560,33 @@ class _MainLayoutPageState extends State<MainLayoutPage> {
                       color: (_selectedIndex == 7 && !kIsWeb) ? Colors.transparent : AppTheme.backgroundColor,
                       child: Column(
                         children: [
-                          if (isWideScreen)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                              color: AppTheme.surfaceColor,
-                              child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(_getTitleByIndex(_selectedIndex), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                          // ---------------------------------------------------------------
+                          // ✅ [4. 헤더 반응형 처리]
+                          // PC: 페이지 제목 + (알림+유저정보) 우측 배치
+                          // 모바일: 페이지 제목만 표시 (알림+유저정보는 앱바에 있음)
+                          // ---------------------------------------------------------------
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                            color: AppTheme.surfaceColor,
+                            child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  // 페이지 제목
+                                  Text(_getTitleByIndex(_selectedIndex), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+
+                                  // PC 환경일 때만 우측에 알림+유저정보 표시 (모바일은 앱바에 있으므로 숨김)
+                                  if (isWideScreen)
                                     Row(
                                       children: [
-                                        CircleAvatar(backgroundColor: AppTheme.primaryLight, radius: 16, child: Text(userName.isNotEmpty ? userName[0] : 'U', style: const TextStyle(color: AppTheme.primaryColor, fontSize: 14))),
-                                        const SizedBox(width: 8),
-                                        Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(userName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                                            Text(userRank, style: const TextStyle(color: AppTheme.textSub, fontSize: 12))
-                                          ],
-                                        )
+                                        notificationButton,
+                                        const SizedBox(width: 20),
+                                        userInfoWidget,
                                       ],
                                     )
-                                  ]
-                              ),
+                                ]
                             ),
-                          if (isWideScreen) const Divider(height: 1, color: AppTheme.borderColor),
+                          ),
+                          const Divider(height: 1, color: AppTheme.borderColor),
 
                           Expanded(
                             child: IndexedStack(

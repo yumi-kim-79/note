@@ -15,6 +15,7 @@ import 'package:flutter/services.dart';
 import 'dart:math'; // min 함수
 import 'dart:io'; // 파일 처리
 import 'package:flutter/foundation.dart';// ✅ kIsWeb을 사용하기 위해 반드시 필요합니다.
+import '../../services/notification_service.dart';
 
 // ✅ [추가] 아래 4줄을 import 목록에 추가하세요
 import '../../services/sales_service.dart';
@@ -368,6 +369,25 @@ class FieldReportPageState extends State<FieldReportPage> with SingleTickerProvi
       'completedAt': isNowComplete ? FieldValue.delete() : FieldValue.serverTimestamp(),
       'completerName': isNowComplete ? FieldValue.delete() : _myName, // 완료한 사람 이름 저장
     });
+    // -------------------------------------------------------------
+    // ✅ [추가] 완료/취소 알림 발송
+    // -------------------------------------------------------------
+    String ownerUid = data['uid'] ?? '';
+    if (ownerUid.isNotEmpty && ownerUid != _myUid) {
+      DocumentSnapshot ownerDoc = await _firestore.collection('users').doc(ownerUid).get();
+      if (ownerDoc.exists) {
+        String? token = (ownerDoc.data() as Map<String, dynamic>)['fcmToken'];
+        if (token != null) {
+          await NotificationService().sendNotification(
+            targetToken: token,
+            targetUid: ownerUid,
+            title: "업무 상태 변경",
+            body: "$_myName 님이 '${data['title']}' 업무를 ${isNowComplete ? '완료 취소' : '처리 완료'}했습니다.",
+            type: 'report',
+          );
+        }
+      }
+    }
   }
 
   // ====================================================
@@ -608,6 +628,25 @@ class FieldReportPageState extends State<FieldReportPage> with SingleTickerProvi
                                   'lastModifiedAt': FieldValue.serverTimestamp(),
                                   'imageUrls': finalImageUrls, // ✅ 최종 리스트로 교체
                                 });
+                                // -------------------------------------------------------------
+                                // ✅ [추가] 보고서 수정 알림 발송
+                                // -------------------------------------------------------------
+                                String ownerUid = data['uid'] ?? '';
+                                if (ownerUid.isNotEmpty && ownerUid != _myUid) {
+                                  DocumentSnapshot ownerDoc = await _firestore.collection('users').doc(ownerUid).get();
+                                  if (ownerDoc.exists) {
+                                    String? token = (ownerDoc.data() as Map<String, dynamic>)['fcmToken'];
+                                    if (token != null) {
+                                      await NotificationService().sendNotification(
+                                        targetToken: token,
+                                        targetUid: ownerUid,
+                                        title: "업무 보고 수정",
+                                        body: "$_myName 님이 '${data['title']}' 보고 내용을 수정했습니다.",
+                                        type: 'report',
+                                      );
+                                    }
+                                  }
+                                }
 
                                 if (!context.mounted) return;
                                 Navigator.pop(context);

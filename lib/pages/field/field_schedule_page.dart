@@ -11,6 +11,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'dart:math'; // ✅ [추가] 반응형 UI 계산용
+import '../../services/notification_service.dart'; // ✅ 추가
 
 // ✅ [핵심 수정] TextSpan 충돌 방지를 위해 hide에 TextSpan 추가
 import 'package:excel/excel.dart' hide Border, TextSpan;
@@ -963,6 +964,42 @@ class _AddScheduleDialogState extends State<_AddScheduleDialog> {
     try {
       if (isEditMode) {
         await FirebaseFirestore.instance.collection('schedules').doc(widget.existingData!['id']).update(scheduleData);
+        // =============================================================
+        // ✅ [알림 로직 추가] 남의 글을 수정했을 때 알림 발송
+        // =============================================================
+        String ownerUid = widget.existingData!['uid'] ?? ''; // 글 쓴 사람 ID
+        String modifierUid = user.uid; // 지금 수정하는 사람(나) ID
+
+        // "주인이 내가 아닐 때"만 실행
+        if (ownerUid.isNotEmpty && ownerUid != modifierUid) {
+          print("🚀 타인 일정 수정 감지! 알림 발송 시도...");
+
+          // 1) 주인(작성자)의 정보를 DB에서 가져옴 (토큰을 알기 위해)
+          DocumentSnapshot ownerDoc = await FirebaseFirestore.instance.collection('users').doc(ownerUid).get();
+
+          if (ownerDoc.exists) {
+            Map<String, dynamic> ownerData = ownerDoc.data() as Map<String, dynamic>;
+            String? targetToken = ownerData['fcmToken']; // 주인의 토큰
+
+            // 2) 주인이 토큰을 가지고 있다면 알림 발송
+            if (targetToken != null && targetToken.isNotEmpty) {
+              // 알림 문구: "홍길동 님이 '현장미팅' 일정을 수정했습니다."
+              String notiTitle = "일정 수정 알림";
+              String notiBody = "$myName 님이 '${_titleCtrl.text}' 일정을 수정했습니다.";
+
+              // 발송!
+              await NotificationService().sendNotification(
+                targetToken: targetToken,
+                targetUid: ownerUid,      // ✅ 추가
+                title: "일정 수정 알림",
+                body: "$myName 님이 '${_titleCtrl.text}' 일정을 수정했습니다.",
+                type: 'schedule',         // ✅ 추가
+              );
+            } else {
+              print("⚠️ 작성자의 알림 토큰이 없습니다. (로그인 안 한 듯)");
+            }
+          }
+        }
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("일정이 업데이트되었습니다.")));
       } else {
         scheduleData['uid'] = user.uid;
