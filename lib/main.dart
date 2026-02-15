@@ -334,17 +334,6 @@ class MainLayoutPageState extends State<MainLayoutPage> {
           final String type = data['type'] ?? '';
 
           if (kIsWeb) {
-            // ✅ [Web] 웹에서는 브라우저 하단 스낵바(Toast)로 알림 표시
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text("${data['title']}: ${data['body']}"),
-                    action: SnackBarAction(label: '보기', onPressed: () => handleNotificationClick(type)),
-                    duration: const Duration(seconds: 4),
-                  )
-              );
-            }
-          } else {
             // ✅ [App] 모바일 앱에서는 네이티브 알림(상단 배너 + 소리/진동)
             if (canVibrate) {
               Vibration.hasVibrator().then((has) { if (has == true) Vibration.vibrate(); });
