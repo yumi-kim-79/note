@@ -5,6 +5,7 @@
 
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart'; // ✅ [추가] 현재 사용자 확인용
 import 'package:flutter/foundation.dart';
 
 class NotificationService {
@@ -63,6 +64,46 @@ class NotificationService {
 
     } catch (e) {
       debugPrint("❌ 알림 저장 실패: $e");
+    }
+  }
+  // ✅ [여기에 추가] 나를 제외한 모든 담당자에게 알림을 생성하는 함수
+  Future<void> sendBroadcastNotification({
+    required String title,
+    required String body,
+    required String type,
+  }) async {
+    try {
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser == null) return;
+
+      // 1. 모든 유저 목록 가져오기
+      QuerySnapshot usersSnapshot = await FirebaseFirestore.instance.collection('users').get();
+
+      WriteBatch batch = FirebaseFirestore.instance.batch();
+      int count = 0;
+
+      for (var doc in usersSnapshot.docs) {
+        // 2. 나를 제외한 모든 유저에게 알림 문서 생성
+        if (doc.id != currentUser.uid) {
+          DocumentReference notifyRef = FirebaseFirestore.instance.collection('notifications').doc();
+          batch.set(notifyRef, {
+            'targetUid': doc.id,
+            'title': title,
+            'body': body,
+            'type': type,
+            'createdAt': FieldValue.serverTimestamp(),
+            'isRead': false,
+          });
+          count++;
+        }
+      }
+
+      if (count > 0) {
+        await batch.commit(); // 한 번에 효율적으로 저장
+        debugPrint("✅ [Broadcast] $count명의 담당자에게 알림 생성 완료");
+      }
+    } catch (e) {
+      debugPrint("❌ [Broadcast] 알림 생성 실패: $e");
     }
   }
 }

@@ -218,6 +218,29 @@ class MainLayoutPageState extends State<MainLayoutPage> {
 
   bool _isFieldSupportExpanded = false;
 
+  // ✅ [여기에 추가] 담당자 기기 토큰을 DB에 자동 등록하는 함수
+  Future<void> _syncFCMToken() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      // 현재 기기의 최신 토큰을 가져옵니다
+      String? token = await NotificationService().getToken();
+
+      if (token != null) {
+        // users 컬렉션에 토큰을 저장하여 서버가 알림 보낼 주소를 알게 합니다
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+          'fcmToken': token,
+          'lastLogin': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true)); // 기존 이름, 직급 정보는 유지하고 토큰만 업데이트
+
+        debugPrint("📡 [FCM] 기기 토큰 동기화 성공");
+      }
+    } catch (e) {
+      debugPrint("❌ [FCM] 토큰 동기화 실패: $e");
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -247,6 +270,8 @@ class MainLayoutPageState extends State<MainLayoutPage> {
 
     _listenToNotifications(); // 포그라운드 처리
     _setupInteractedMessage(); // 백그라운드 처리
+    // ✅ [여기에 추가] 앱이 켜질 때마다 내 토큰 정보를 서버에 보냅니다.
+    _syncFCMToken();
   }
 
   @override

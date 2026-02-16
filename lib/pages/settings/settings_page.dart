@@ -22,6 +22,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _isLoading = true; // 데이터 로딩 중 상태
   bool _pushEnabled = true;
   bool _schedulePushEnabled = true;
+  bool _noticePushEnabled = true; // ✅ [추가] 공지사항 알림 상태 변수
   bool _soundEnabled = true;
   bool _vibrationEnabled = true;
 
@@ -48,6 +49,7 @@ class _SettingsPageState extends State<SettingsPage> {
         setState(() {
           _pushEnabled = data['allowChatPush'] ?? true;
           _schedulePushEnabled = data['allowSchedulePush'] ?? true;
+          _noticePushEnabled = data['allowNoticePush'] ?? true; // ✅ [추가] 공지사항 설정 로드
           _soundEnabled = data['isSound'] ?? true;
           _vibrationEnabled = data['isVibrate'] ?? true;
         });
@@ -124,6 +126,20 @@ class _SettingsPageState extends State<SettingsPage> {
                       onChanged: (val) {
                         setState(() => _schedulePushEnabled = val);
                         _updateSetting('allowSchedulePush', val);
+                      },
+                    ),
+                    // ✅ [추가] 공지사항 알림 스위치 UI
+                    SwitchListTile(
+                      title: const Text("공지사항 알림 받기"),
+                      subtitle: const Text("새로운 공지사항이 등록되면 알림을 받습니다."),
+                      value: _noticePushEnabled,
+                      activeColor: Colors.white,
+                      activeTrackColor: Colors.green,
+                      inactiveThumbColor: Colors.white,
+                      inactiveTrackColor: Colors.grey,
+                      onChanged: (val) {
+                        setState(() => _noticePushEnabled = val);
+                        _updateSetting('allowNoticePush', val);
                       },
                     ),
                     const Divider(),
