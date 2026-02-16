@@ -1,8 +1,8 @@
 // [파일 위치: lib/main.dart]
-// [최종 수정 완료] 컴파일 에러 해결 버전 (2026-02-15)
+// [최종 수정 완료] 2026-02-15
 // 1. [Fix] 'const' 에러 해결 -> 'final'로 변경하여 변수 할당 허용
 // 2. [Fix] 네이버 지도 -> 기존 'NaverMapSdk'로 원복하여 빨간 에러 해결
-// 3. [Feature] Data-Only 메시지 처리: 백그라운드/포그라운드 알림 로직 일원화
+// 3. [Logic] 웹(PWA) 포그라운드 충돌 해결 (초기화 안 된 FLN 호출 방지)
 
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -17,7 +17,7 @@ import 'firebase_options.dart';
 import 'package:flutter/foundation.dart'; // kIsWeb 사용을 위해 필수
 import 'dart:async';
 
-// ✅ 알림/진동 패키지 (웹이 아닐 때만 작동하도록 코드에서 제어)
+// ✅ 알림/진동 패키지
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:vibration/vibration.dart';
 
@@ -80,7 +80,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
   final data = message.data;
 
-  // 🔴 [수정 완료 1] const 제거 -> final 사용 (에러 해결)
+  // 알림 채널 세부 설정
   final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
       channel.id,
       channel.name,
@@ -106,7 +106,7 @@ void main() async {
 
   await NotificationService().init();
 
-  // ✅ [Web 호환성] 웹이 아닐 때만 네이티브 알림 설정
+  // ✅ [Web 호환성] 웹이 아닐 때만 네이티브 알림 플러그인 초기화
   if (!kIsWeb) {
     const AndroidInitializationSettings initializationSettingsAndroid =
     AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -139,7 +139,7 @@ void main() async {
 
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
   } else {
-    // 웹일 경우 권한 요청
+    // 웹일 경우 권한 요청만 수행
     await FirebaseMessaging.instance.requestPermission();
   }
 
@@ -148,7 +148,7 @@ void main() async {
     debugPrint("📱 [FCM] 포그라운드 수신: ${message.data}");
   });
 
-  // 🔴 [수정 완료 2] 네이버 지도 초기화 (기존 NaverMapSdk 사용)
+  // ✅ 네이버 지도 초기화 (웹 제외)
   if (!kIsWeb) {
     try {
       // ignore: deprecated_member_use
@@ -306,6 +306,7 @@ class MainLayoutPageState extends State<MainLayoutPage> {
     }
   }
 
+  // ✅ [수정] 포그라운드 알림 리스너 (DB 변경 감지)
   void _listenToNotifications() {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -333,8 +334,17 @@ class MainLayoutPageState extends State<MainLayoutPage> {
           final data = change.doc.data() as Map<String, dynamic>;
           final String type = data['type'] ?? '';
 
+          // 🚀 [중요 수정] 웹(Web)일 때와 앱(App)일 때 처리를 분리
           if (kIsWeb) {
-            // ✅ [App] 모바일 앱에서는 네이티브 알림(상단 배너 + 소리/진동)
+            // [Web] 하단 SnackBar 삭제됨 (요청사항 반영)
+            // [Web] 화면을 보고 있을 때는 알림 팝업 없음. (빨간 뱃지만 업데이트 됨)
+            // [Web] 진동은 가능하면 실행
+            if (canVibrate) {
+              // 웹 진동은 브라우저 정책에 따라 안 될 수도 있음 (무시해도 됨)
+              // Vibration.vibrate();
+            }
+          } else {
+            // [App] 모바일 앱에서는 네이티브 알림(상단 배너 + 소리/진동) 실행
             if (canVibrate) {
               Vibration.hasVibrator().then((has) { if (has == true) Vibration.vibrate(); });
             }
@@ -351,11 +361,12 @@ class MainLayoutPageState extends State<MainLayoutPage> {
     });
   }
 
-  // 🔴 [수정 완료 3] const 제거 -> final 사용 (컴파일 에러 해결)
   Future<void> _showLocalNotification(
       {required String title, required String body, String? payload}) async {
 
-    // channel.id는 상수(const)가 아니므로 final로 선언해야 함
+    // ⚠️ 웹에서는 이 함수를 호출하지 않도록 안전장치
+    if (kIsWeb) return;
+
     final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
       channel.id,
       channel.name,

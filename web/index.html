@@ -32,35 +32,70 @@
             align-items: center;
             flex-direction: column;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            overflow: hidden; /* 로고가 화면 밖으로 커져도 스크롤 안 생기게 처리 */
         }
         .loading-container {
             text-align: center;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
         }
-        .loader {
-            border: 5px solid #e0e0e0;
-            border-top: 5px solid #2C3E50;
-            border-radius: 50%;
-            width: 50px;
-            height: 50px;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 20px auto;
+
+        /* ✅ [수정됨] 로고 스타일 - 원본 비율 유지 & 크기 확대 */
+        .loading-logo {
+            /* 1. 크기를 키웁니다 (화면 가로폭의 60% 또는 최대 300px) */
+            width: 60%;
+            max-width: 350px;
+
+            /* 2. [핵심] 높이를 'auto'로 설정해야 찌그러지지 않고 원본 비율이 유지됩니다 */
+            height: auto;
+
+            margin-bottom: 30px;
+
+            /* 3. 멀리서 다가오는 애니메이션 (5초 동안 부드럽게) */
+            animation: zoomIn 5s ease-in-out infinite;
         }
+
         .loading-text {
             color: #2C3E50;
-            font-size: 16px;
+            font-size: 18px; /* 글자도 살짝 키움 */
             font-weight: bold;
+            line-height: 1.5;
+            z-index: 10; /* 글자가 로고 위에 보이도록 */
         }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+
+        /* ✅ [줌인 애니메이션] 멀리서(작게) -> 눈앞으로(크게) */
+        @keyframes zoomIn {
+            0% {
+                opacity: 0;          /* 안 보임 */
+                transform: scale(0.3); /* 아주 작게 시작 (30% 크기) */
+            }
+            50% {
+                opacity: 1;          /* 중간쯤 왔을 때 가장 잘 보임 */
+            }
+            100% {
+                opacity: 0;          /* 너무 가까워지면서 흐려짐 */
+                transform: scale(1.5); /* 원래 크기보다 1.5배 커짐 (화면 밖으로 나가는 느낌) */
+            }
         }
     </style>
 </head>
 <body>
-<div class="loading-container">
-    <div class="loader"></div>
-    <div class="loading-text">SM Service Management<br>로딩 중...</div>
+<div id="loading" class="loading-container">
+    <img src="sm_logo.png" class="loading-logo" alt="SM Logo">
+    <div class="loading-text">SM Service Management<br>시스템 접속 중...</div>
 </div>
+
+<script>
+    // 'flutter-first-frame'은 플러터가 첫 화면을 그렸을 때 발생하는 신호입니다.
+    window.addEventListener('flutter-first-frame', function() {
+        var loadingElement = document.getElementById('loading');
+        if (loadingElement) {
+            loadingElement.remove(); // 로딩 화면(div)을 아예 삭제해 버립니다.
+        }
+    });
+</script>
 
 <script src="flutter_bootstrap.js" async></script>
 </body>

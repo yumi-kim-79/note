@@ -1,7 +1,7 @@
 /**
- * [SM종합관리 서버 기능 정의서]
+ * [SM종합관리 서버 기능 정의서 - 최종 완성 버전]
  * 1. optimizeUploadedImage: 사진 업로드 시 800x800 리사이징 (기존 기능 100% 유지)
- * 2. sendPushNotification: Firestore 'notifications' 컬렉션에 데이터가 쌓이면 -> 앱으로 '데이터 메시지' 발송 (신규 고도화)
+ * 2. sendPushNotification: 사용자 설정(알림 켜기/끄기, 소리 등)을 확인하고 발송하는 똑똑한 알림 시스템
  */
 
 const { onObjectFinalized } = require("firebase-functions/v2/storage");
@@ -20,6 +20,7 @@ setGlobalOptions({ region: "asia-northeast3", memory: "1GiB" });
 
 // ============================================================
 // ✅ [기능 1] 사진 변환 비서 (기존 기능 100% 유지)
+// 코드를 건드리지 않았습니다. 기존과 동일하게 작동합니다.
 // ============================================================
 exports.optimizeUploadedImage = onObjectFinalized(async (event) => {
     const object = event.data;
@@ -68,13 +69,12 @@ exports.optimizeUploadedImage = onObjectFinalized(async (event) => {
 
 
 // ============================================================
-// ✅ [기능 2] 알림 중복 방지 및 클릭 이동 고도화 (새로 추가됨)
-// 설명: DB(notifications)에 알림이 저장되면 -> '데이터 전용 메시지'를 발송함
-// 효과: 시스템 알림(중복) 차단 + 클릭 시 type 정보 전달
+// ✅ [기능 2] 알림 중복 방지 및 사용자 설정 연동 (핵심 고도화)
+// 설명: DB에 알림이 생성되면 -> 사용자의 설정(알림 끄기 등)을 확인 후 -> 조건에 맞을 때만 발송
 // ============================================================
 exports.sendPushNotification = onDocumentCreated("notifications/{docId}", async (event) => {
     const snapshot = event.data;
-    if (!snapshot) return;
+    if (!snapshot) return; // 데이터가 없으면 종료
 
     const data = snapshot.data();
     const targetUid = data.targetUid; // 알림 받을 사람의 UID
@@ -85,39 +85,81 @@ exports.sendPushNotification = onDocumentCreated("notifications/{docId}", async 
     }
 
     try {
-        // 1. 받을 사람의 토큰 가져오기 (users 컬렉션에서 조회)
+        // 1. 받을 사람의 정보(토큰 + 설정값) 가져오기
         const userDoc = await admin.firestore().collection("users").doc(targetUid).get();
-        const userToken = userDoc.data().fcmToken;
 
-        if (!userToken) {
-            console.log(`유저(${targetUid})의 FCM 토큰이 없습니다.`);
+        // 유저 정보가 없으면 중단
+        if (!userDoc.exists) {
+            console.log(`유저(${targetUid}) 정보가 존재하지 않습니다.`);
             return;
         }
 
-        // 2. [핵심] 메시지 payload 구성 (notification 필드 삭제 -> data 필드로 통합)
+        const userData = userDoc.data();
+        const userToken = userData.fcmToken;
+
+        // 토큰이 없으면 중단
+        if (!userToken) {
+            console.log(`[PASS] 유저(${targetUid})의 FCM 토큰이 없습니다.`);
+            return;
+        }
+
+        // 🛑 [설정 검문소] 사용자가 알림을 껐는지 확인
+        // 값이 없으면(undefined) 기본적으로 '받음(true)'으로 처리합니다.
+        const allowChat = userData.allowChatPush !== false;      // 업무 톡톡 설정
+        const allowSchedule = userData.allowSchedulePush !== false; // 일정 관리 설정
+
+        // 메시지 타입 확인
+        const msgType = data.type || "default";
+
+        // 검문 1: '업무 톡톡' 알림인데, 사용자가 껐다면? -> 발송 중단
+        if (msgType === 'chat' && !allowChat) {
+            console.log(`🚫 [차단됨] 유저(${targetUid})가 업무 톡톡 알림을 거부했습니다.`);
+            return;
+        }
+
+        // 검문 2: '일정 관리' 알림인데, 사용자가 껐다면? -> 발송 중단
+        if (msgType === 'schedule' && !allowSchedule) {
+            console.log(`🚫 [차단됨] 유저(${targetUid})가 일정 알림을 거부했습니다.`);
+            return;
+        }
+
+        // 🔊 [소리 설정 확인]
+        // 사용자가 소리를 껐다면 false, 켰거나 설정이 없으면 true
+        const isSoundEnabled = userData.isSound !== false;
+
+        // 2. 메시지 Payload 구성 (웹 중복 방지를 위한 Data-Only 유지)
         const payload = {
             token: userToken,
+
+            // [데이터 필드] notification 필드 없이 data에만 담습니다. (웹 중복 방지 핵심)
             data: {
-                // 시각적 정보도 data에 숨겨서 보냅니다.
                 title: data.title || "알림",
                 body: data.body || "내용이 없습니다.",
-
-                // 클릭 시 이동할 페이지 정보 (Flutter에서 이 값을 읽습니다)
-                type: data.type || "default",
+                type: msgType,
                 click_action: "FLUTTER_NOTIFICATION_CLICK",
-
-                // 추가 정보
                 notificationId: event.params.docId
             },
-            // 안드로이드 우선순위 설정
+
+            // [안드로이드 설정] 우선순위 높임
             android: {
                 priority: "high",
             },
-            // iOS 설정 (백그라운드에서 깨어나게 함)
+
+            // [iOS 설정] 앱에서는 배너가 뜨도록 설정
             apns: {
                 payload: {
                     aps: {
-                        contentAvailable: true,
+                        contentAvailable: true, // 백그라운드 깨우기
+                        alert: {
+                            title: data.title,
+                            body: data.body
+                        },
+                        // 🔇 소리 설정 로직:
+                        // isSoundEnabled가 true일 때만 sound: "default"를 추가합니다.
+                        // false면 아예 sound 항목을 넣지 않아서 무음으로 처리합니다.
+                        ...(isSoundEnabled && { sound: "default" }),
+
+                        badge: 1
                     },
                 },
             },
@@ -125,7 +167,7 @@ exports.sendPushNotification = onDocumentCreated("notifications/{docId}", async 
 
         // 3. 발송
         await admin.messaging().send(payload);
-        console.log(`✅ [알림 발송 성공] 유저: ${targetUid}, 타입: ${data.type}`);
+        console.log(`✅ [발송 성공] ${targetUid} (타입: ${msgType}, 소리: ${isSoundEnabled ? 'ON' : 'OFF'})`);
 
     } catch (error) {
         console.error("❌ 알림 발송 실패:", error);
