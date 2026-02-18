@@ -102,7 +102,70 @@ class _ChatPageState extends State<ChatPage> {
 
 // --- 1. 헤더 위젯 ---
 class _ChatHeader extends StatelessWidget {
+  const _ChatHeader({super.key});
 
+  // 🗑️ [관리자 전용] 전체 대화 삭제 기능
+  Future<void> _deleteAllChats(BuildContext context) async {
+    // 1. 삭제 전 확인 팝업
+    bool? confirm = await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("⚠️ 전체 삭제 경고"),
+        content: const Text("채팅방의 모든 대화 내용이 영구적으로 삭제됩니다.\n정말 삭제하시겠습니까?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text("취소"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text("삭제하기"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      // 2. 모든 채팅 가져오기
+      var snapshot = await FirebaseFirestore.instance.collection('chats').get();
+
+      if (snapshot.docs.isEmpty) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("삭제할 대화가 없습니다.")));
+        }
+        return;
+      }
+
+      // 3. 일괄 삭제 (Batch: 500개씩 끊어서 처리)
+      WriteBatch batch = FirebaseFirestore.instance.batch();
+      int count = 0;
+
+      for (var doc in snapshot.docs) {
+        batch.delete(doc.reference);
+        count++;
+
+        if (count % 500 == 0) {
+          await batch.commit();
+          batch = FirebaseFirestore.instance.batch();
+        }
+      }
+      await batch.commit(); // 남은 것들 삭제
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("모든 대화 내용이 삭제되었습니다.")));
+      }
+    } catch (e) {
+      debugPrint("전체 삭제 오류: $e");
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("삭제 중 오류가 발생했습니다.")));
+      }
+    }
+  }
+
+  // 💾 기존 백업 기능 (100% 유지)
   Future<void> _backupChat(BuildContext context) async {
     try {
       var snapshot = await FirebaseFirestore.instance
@@ -151,6 +214,10 @@ class _ChatHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // ✅ 관리자 권한 확인
+    final user = FirebaseAuth.instance.currentUser;
+    final bool isAdmin = user?.email == 'yuseok8052@gmail.com';
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -159,14 +226,33 @@ class _ChatHeader extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           const Text("💬 업무 톡톡 (전체 대화방)", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          OutlinedButton.icon(
-            onPressed: () => _backupChat(context),
-            icon: const Icon(Icons.download_rounded, size: 16),
-            label: const Text("대화 백업"),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppTheme.textSub,
-              side: const BorderSide(color: AppTheme.borderColor),
-            ),
+          Row(
+            children: [
+              // 🔴 관리자일 때만 보이는 전체 삭제 버튼
+              if (isAdmin)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8.0),
+                  child: OutlinedButton.icon(
+                    onPressed: () => _deleteAllChats(context),
+                    icon: const Icon(Icons.delete_forever, size: 16, color: Colors.red),
+                    label: const Text("전체삭제"),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.red,
+                      side: const BorderSide(color: Colors.red),
+                    ),
+                  ),
+                ),
+              // 기존 백업 버튼
+              OutlinedButton.icon(
+                onPressed: () => _backupChat(context),
+                icon: const Icon(Icons.download_rounded, size: 16),
+                label: const Text("대화 백업"),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppTheme.textSub,
+                  side: const BorderSide(color: AppTheme.borderColor),
+                ),
+              )
+            ],
           )
         ],
       ),

@@ -338,9 +338,7 @@ class SalesService {
 
         // 2. 나(메시지 작성자)를 제외한 모든 담당자에게만 알림을 보냅니다.
         if (otherUid != user.uid) {
-          await NotificationService().sendNotification(
-            targetToken: '', // 서버가 DB에서 조회하므로 빈값 유지
-            targetUid: otherUid,
+          await NotificationService().sendBroadcastNotification(
             title: '업무 톡톡',
             body: '$authorName: ${imageUrl.isNotEmpty ? "사진을 보냈습니다." : message}',
             type: 'chat',

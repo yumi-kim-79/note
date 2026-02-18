@@ -44,9 +44,26 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  # ✅ [추가] 아이콘 생성 도구 (기존 dev_dependencies 유지하며 추가됨)
+  flutter_launcher_icons: "^0.13.1"
+
+# ✅ [추가] 아이콘 상세 설정 (PC웹, 안드로이드, iOS 통합)
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  # 웹(PC) 아이콘 생성 설정
+  web:
+    generate: true
+    image_path: "assets/images/app_icon.png"
+    background_color: "#F5F7FA"
+    theme_color: "#F5F7FA"
+  # 모바일 공통 아이콘 경로
+  image_path: "assets/images/app_icon.png"
+  min_sdk_android: 21
 
 flutter:
   uses-material-design: true
   assets:
     - assets/images/sm_logo.png
+    - assets/images/app_icon.png # ✅ 아이콘 원본 파일 경로 등록
     - assets/service-account.json

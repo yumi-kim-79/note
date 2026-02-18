@@ -6,6 +6,7 @@
     <meta charset="UTF-8">
     <meta content="IE=Edge" http-equiv="X-UA-Compatible">
     <meta name="description" content="영업 공유노트 앱">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
@@ -14,6 +15,8 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black">
     <meta name="apple-mobile-web-app-title" content="SM Service Management">
+    <meta name="theme-color" content="#F5F7FA">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
 
     <title>SM Service Management</title>
     <link rel="manifest" href="manifest.json">
@@ -27,7 +30,7 @@
 
     <style>
         body {
-            background-color: #F5F7FA;
+            background-color: #F5F7FA !important; /* 배경색 강제 고정 */
             margin: 0;
             overflow: hidden;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -65,11 +68,18 @@
 
             /* 🔥 3초 동안 아주 천천히, 부드럽게 움직이도록 설정 */
             animation: zoomIn 3s ease-in-out infinite;
+
+            /* ✅ [깜빡임 방지 핵심] GPU 가속 강제 활성화 */
+            -webkit-backface-visibility: hidden;
+            backface-visibility: hidden;
+            -webkit-transform: translate3d(0, 0, 0);
+            transform: translate3d(0, 0, 0);
+            will-change: transform, opacity;
         }
 
         .loading-text {
             color: #2C3E50;
-            font-size: 18px;
+            font-size: 12px;
             font-weight: bold;
             text-align: center;
         }
