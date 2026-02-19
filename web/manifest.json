@@ -1,6 +1,6 @@
 {
-    "name": "SM Service Management",
-    "short_name": "SM Service",
+    "name": "SM Note",
+    "short_name": "SM Note",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#F5F7FA",

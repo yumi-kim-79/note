@@ -3,6 +3,8 @@
 // 1. [UX 고도화] StatefulWidget으로 전환 및 메뉴 재클릭 시 refreshData() 기능 추가
 // 2. [구조 개선] PC 모드에서 Expanded 중첩으로 인한 하단 터짐 오류 해결 로직 유지
 // 3. [반응형] LayoutBuilder를 활용한 웹(Row) / 모바일(Column) 완벽 전환 로직 유지
+// 4. [Fix] PC 모드에서 부모 위젯이 무한대 높이(Infinity)를 줄 경우 화면이 하얗게 뻗는 렌더링 에러 완벽 방어
+// 5. [🌟핵심 Fix] 자식 위젯(notice_board, recent_sales)과 반응형(PC/모바일) 판별 기준을 통일하여 렌더링 충돌(하얀 화면) 영구 해결
 
 import 'package:flutter/material.dart';
 import 'widgets/notice_board.dart';
@@ -42,6 +44,11 @@ class DashboardPageState extends State<DashboardPage> {
 
   @override
   Widget build(BuildContext context) {
+    // 🌟 [핵심 변경 포인트]
+    // 자식 위젯들과 똑같이 '브라우저 전체 넓이'를 기준으로 PC/모바일을 판별합니다.
+    // 이전처럼 constraints.maxWidth를 쓰면 사이드바 너비 때문에 부모와 자식의 기준이 어긋나 화면이 터졌습니다.
+    final bool isWideScreen = MediaQuery.of(context).size.width >= 900;
+
     // ✅ 최상단에 Key를 연결하여 새로고침 시 모든 하위 위젯(공지사항, 달력 등)이 최신 데이터를 다시 불러오게 함
     return Container(
       key: _refreshKey,
@@ -49,10 +56,22 @@ class DashboardPageState extends State<DashboardPage> {
         padding: const EdgeInsets.all(24.0),
         child: LayoutBuilder(
           builder: (context, constraints) {
+            // =======================================================
+            // [에러 방어 코드] 부모가 무한대(Infinity) 높이를 줄 경우
+            // MediaQuery를 이용해 화면 사이즈 기반의 안전한 높이 계산
+            // =======================================================
+            double safeHeight = constraints.maxHeight;
+            if (safeHeight == double.infinity) {
+              // 상단 헤더나 여백을 고려해 브라우저 창 높이에서 약 120 픽셀을 뺌
+              safeHeight = MediaQuery.of(context).size.height - 120;
+              // 화면을 너무 작게 줄였을 때 위젯이 깨지지 않도록 최소 높이 600 보장
+              if (safeHeight < 600) safeHeight = 600;
+            }
+
             // -------------------------------------------------------
-            // [웹/PC 모드] 화면이 900px보다 넓을 때
+            // [웹/PC 모드] 전체 화면이 900px 이상일 때 (통일된 기준)
             // -------------------------------------------------------
-            if (constraints.maxWidth > 900) {
+            if (isWideScreen) {
               return Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -60,7 +79,8 @@ class DashboardPageState extends State<DashboardPage> {
                   Expanded(
                     flex: 4,
                     child: SizedBox(
-                      height: constraints.maxHeight,
+                      // 🚨 에러 원인이었던 constraints.maxHeight 대신 safeHeight 사용
+                      height: safeHeight,
                       child: Column(
                         children: [
                           const Expanded(flex: 5, child: NoticeBoard()),
@@ -76,7 +96,8 @@ class DashboardPageState extends State<DashboardPage> {
                   Expanded(
                     flex: 6,
                     child: SizedBox(
-                      height: constraints.maxHeight,
+                      // 🚨 동일하게 safeHeight 적용
+                      height: safeHeight,
                       child: const CustomCalendar(),
                     ),
                   ),
@@ -85,19 +106,20 @@ class DashboardPageState extends State<DashboardPage> {
             }
 
             // -------------------------------------------------------
-            // [모바일/태블릿 모드] 화면이 좁을 때 (위아래 배치)
+            // [모바일/태블릿 모드] 전체 화면이 900px 미만일 때 (위아래 배치)
             // -------------------------------------------------------
             else {
               return SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
+                // ✅ [스크롤 고도화 1] 메인 화면이 항상 스크롤 우선권을 가지도록 강력한 물리 엔진 장착
+                physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
                 child: Column(
                   children: [
                     // 1. 공지사항
-                    const SizedBox(height: 400, child: NoticeBoard()),
+                    const NoticeBoard(),
                     const SizedBox(height: 24),
 
                     // 2. 최근 영업 활동
-                    const SizedBox(height: 400, child: RecentSales()),
+                    const RecentSales(),
                     const SizedBox(height: 24),
 
                     // 3. 캘린더

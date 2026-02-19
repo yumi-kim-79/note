@@ -106,22 +106,14 @@ class _ChatHeader extends StatelessWidget {
 
   // 🗑️ [관리자 전용] 전체 대화 삭제 기능
   Future<void> _deleteAllChats(BuildContext context) async {
-    // 1. 삭제 전 확인 팝업
     bool? confirm = await showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text("⚠️ 전체 삭제 경고"),
         content: const Text("채팅방의 모든 대화 내용이 영구적으로 삭제됩니다.\n정말 삭제하시겠습니까?"),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text("취소"),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text("삭제하기"),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("취소")),
+          TextButton(onPressed: () => Navigator.pop(context, true), style: TextButton.styleFrom(foregroundColor: Colors.red), child: const Text("삭제하기")),
         ],
       ),
     );
@@ -129,49 +121,29 @@ class _ChatHeader extends StatelessWidget {
     if (confirm != true) return;
 
     try {
-      // 2. 모든 채팅 가져오기
       var snapshot = await FirebaseFirestore.instance.collection('chats').get();
-
       if (snapshot.docs.isEmpty) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("삭제할 대화가 없습니다.")));
-        }
+        if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("삭제할 대화가 없습니다.")));
         return;
       }
-
-      // 3. 일괄 삭제 (Batch: 500개씩 끊어서 처리)
       WriteBatch batch = FirebaseFirestore.instance.batch();
       int count = 0;
-
       for (var doc in snapshot.docs) {
         batch.delete(doc.reference);
         count++;
-
-        if (count % 500 == 0) {
-          await batch.commit();
-          batch = FirebaseFirestore.instance.batch();
-        }
+        if (count % 500 == 0) { await batch.commit(); batch = FirebaseFirestore.instance.batch(); }
       }
-      await batch.commit(); // 남은 것들 삭제
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("모든 대화 내용이 삭제되었습니다.")));
-      }
+      await batch.commit();
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("모든 대화 내용이 삭제되었습니다.")));
     } catch (e) {
-      debugPrint("전체 삭제 오류: $e");
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("삭제 중 오류가 발생했습니다.")));
-      }
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("삭제 중 오류가 발생했습니다.")));
     }
   }
 
-  // 💾 기존 백업 기능 (100% 유지)
+  // 💾 백업 기능
   Future<void> _backupChat(BuildContext context) async {
     try {
-      var snapshot = await FirebaseFirestore.instance
-          .collection('chats')
-          .orderBy('createdAt', descending: false)
-          .get();
+      var snapshot = await FirebaseFirestore.instance.collection('chats').orderBy('createdAt', descending: false).get();
       if (snapshot.docs.isEmpty) {
         if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("백업할 대화 내용이 없습니다.")));
@@ -195,14 +167,8 @@ class _ChatHeader extends StatelessWidget {
         final bytes = utf8.encode(content);
         final blob = html.Blob([bytes]);
         final url = html.Url.createObjectUrlFromBlob(blob);
-        final anchor = html.document.createElement('a') as html.AnchorElement
-          ..href = url
-          ..style.display = 'none'
-          ..download = 'SM_Talk_Backup_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.txt';
-        html.document.body!.children.add(anchor);
-        anchor.click();
-        html.document.body!.children.remove(anchor);
-        html.Url.revokeObjectUrl(url);
+        final anchor = html.document.createElement('a') as html.AnchorElement..href = url..style.display = 'none'..download = 'SM_Talk_Backup_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.txt';
+        html.document.body!.children.add(anchor); anchor.click(); html.document.body!.children.remove(anchor); html.Url.revokeObjectUrl(url);
       } else {
         await Share.share(content, subject: 'SM 업무 톡톡 백업');
       }
@@ -214,9 +180,12 @@ class _ChatHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // ✅ 관리자 권한 확인
+    // ✅ 1. 관리자 권한 확인 (이메일 체크)
     final user = FirebaseAuth.instance.currentUser;
     final bool isAdmin = user?.email == 'yuseok8052@gmail.com';
+
+    // ✅ 2. 화면 너비 확인 (600px 미만이면 좁은 화면)
+    final bool isCompact = MediaQuery.of(context).size.width < 600;
 
     return Container(
       width: double.infinity,
@@ -225,31 +194,58 @@ class _ChatHeader extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const Text("💬 업무 톡톡 (전체 대화방)", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          Expanded(
+            child: const Text(
+              "💬 업무 톡톡",
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+
           Row(
             children: [
-              // 🔴 관리자일 때만 보이는 전체 삭제 버튼
+              // 🔴 [관리자 전용] 전체 삭제 버튼 (isAdmin일 때만 보임)
               if (isAdmin)
                 Padding(
                   padding: const EdgeInsets.only(right: 8.0),
-                  child: OutlinedButton.icon(
+                  child: OutlinedButton(
                     onPressed: () => _deleteAllChats(context),
-                    icon: const Icon(Icons.delete_forever, size: 16, color: Colors.red),
-                    label: const Text("전체삭제"),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.red,
                       side: const BorderSide(color: Colors.red),
+                      padding: EdgeInsets.symmetric(horizontal: isCompact ? 8 : 16),
+                      minimumSize: Size(isCompact ? 40 : 64, 36),
+                    ),
+                    // 화면이 좁으면 아이콘만, 넓으면 글자까지
+                    child: isCompact
+                        ? const Icon(Icons.delete_forever, size: 20)
+                        : const Row(
+                      children: [
+                        Icon(Icons.delete_forever, size: 16),
+                        SizedBox(width: 8),
+                        Text("전체삭제"),
+                      ],
                     ),
                   ),
                 ),
-              // 기존 백업 버튼
-              OutlinedButton.icon(
+
+              // 💾 백업 버튼 (항상 보임)
+              OutlinedButton(
                 onPressed: () => _backupChat(context),
-                icon: const Icon(Icons.download_rounded, size: 16),
-                label: const Text("대화 백업"),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: AppTheme.textSub,
                   side: const BorderSide(color: AppTheme.borderColor),
+                  padding: EdgeInsets.symmetric(horizontal: isCompact ? 8 : 16),
+                  minimumSize: Size(isCompact ? 40 : 64, 36),
+                ),
+                child: isCompact
+                    ? const Icon(Icons.download_rounded, size: 20)
+                    : const Row(
+                  children: [
+                    Icon(Icons.download_rounded, size: 16),
+                    SizedBox(width: 8),
+                    Text("대화 백업"),
+                  ],
                 ),
               )
             ],
@@ -387,13 +383,12 @@ class _ChatInput extends StatefulWidget {
 
 class _ChatInputState extends State<_ChatInput> {
   final TextEditingController _msgController = TextEditingController();
-  final NotificationService _notificationService = NotificationService();
+  // ❌ [삭제] NotificationService는 이제 SalesService 내부에서 처리하므로 여기서 필요 없습니다.
   final FocusNode _focusNode = FocusNode();
 
   bool _isUploading = false;
   bool _isSending = false;
 
-  // ✅ [플랫폼 감지] 모바일 환경(Android/iOS)인지 확인
   bool get _isMobile => !kIsWeb && (Platform.isAndroid || Platform.isIOS);
 
   @override
@@ -424,26 +419,21 @@ class _ChatInputState extends State<_ChatInput> {
     _msgController.clear();
     _scrollToBottom();
 
-    // ✅ [키보드 고정 핵심 로직]
-    // 웹: 기존 한글 잔상 해결 로직 유지
-    // 모바일: 포커스를 강제로 잡아주어 키보드가 내려가는 것을 방지
     if (kIsWeb) {
       _focusNode.unfocus();
       Future.delayed(const Duration(milliseconds: 10), () {
         if (mounted) _focusNode.requestFocus();
       });
     } else {
-      // 모바일/PC(앱) 모두 포커스 유지하여 키보드 내려감 방지
       _focusNode.requestFocus();
     }
 
     try {
+      // ✅ [여기서 끝!] addChatMessage를 부르면 SalesService가 알아서 알림까지 다 보냅니다.
       await widget.salesService.addChatMessage(message: text);
       widget.salesService.updateLastReadTime();
 
-      DocumentSnapshot myDoc = await FirebaseFirestore.instance.collection('users').doc(currentUser.uid).get();
-      String myName = (myDoc.data() as Map<String, dynamic>?)?['name'] ?? '누군가';
-      _sendChatNotification(myName, text, currentUser.uid);
+      // ❌ [삭제됨] 여기서 또 _sendChatNotification을 호출하면 알림이 중복됩니다.
 
       Future.delayed(const Duration(milliseconds: 100), () => _scrollToBottom());
 
@@ -464,14 +454,16 @@ class _ChatInputState extends State<_ChatInput> {
       try {
         final bytes = await image.readAsBytes();
         String fileName = "chat/${DateTime.now().millisecondsSinceEpoch}_${image.name}";
+
+        // 업로드
         String downloadUrl = await widget.salesService.uploadImage(bytes, fileName);
+
+        // ✅ [여기서 끝!] 메시지 저장 및 알림 발송 자동 처리
         await widget.salesService.addChatMessage(message: "(사진)", imageUrl: downloadUrl);
         widget.salesService.updateLastReadTime();
 
-        final currentUser = FirebaseAuth.instance.currentUser;
-        DocumentSnapshot myDoc = await FirebaseFirestore.instance.collection('users').doc(currentUser?.uid).get();
-        String myName = (myDoc.data() as Map<String, dynamic>?)?['name'] ?? '누군가';
-        _sendChatNotification(myName, "📷 사진을 보냈습니다.", currentUser?.uid ?? "");
+        // ❌ [삭제됨] _sendChatNotification 호출 제거
+
       } catch (e) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("사진 전송 실패")));
       } finally {
@@ -480,29 +472,8 @@ class _ChatInputState extends State<_ChatInput> {
     }
   }
 
-  Future<void> _sendChatNotification(String senderName, String message, String myUid) async {
-    try {
-      QuerySnapshot userSnapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .where('fcmToken', isNotEqualTo: null)
-          .get();
-      for (var doc in userSnapshot.docs) {
-        String userUid = doc.id;
-        String? token = (doc.data() as Map<String, dynamic>)['fcmToken'];
-        if (token != null && token.isNotEmpty && userUid != myUid) {
-          await _notificationService.sendNotification(
-            targetToken: token,
-            targetUid: userUid,
-            title: "💬 업무 톡톡: $senderName",
-            body: message,
-            type: 'chat',
-          );
-        }
-      }
-    } catch (e) {
-      debugPrint("채팅 알림 발송 실패: $e");
-    }
-  }
+  // ❌ [삭제] _sendChatNotification 함수 전체 삭제
+  // 이유: SalesService.dart의 addChatMessage 함수 안에서 이미 전체 알림(Broadcast)을 수행하고 있습니다.
 
   @override
   Widget build(BuildContext context) {
@@ -529,11 +500,7 @@ class _ChatInputState extends State<_ChatInput> {
                       controller: _msgController,
                       maxLines: null,
                       keyboardType: TextInputType.multiline,
-                      // ✅ [핵심 변경] 모바일(카카오톡 방식): 줄바꿈 / PC: 전송
-                      // 모바일에서 TextInputAction.send를 쓰면 OS가 키보드를 강제로 내리려 합니다.
-                      // newline을 쓰면 키보드가 고정된 상태로 줄바꿈만 되고, 전송은 버튼으로 처리합니다.
                       textInputAction: _isMobile ? TextInputAction.newline : TextInputAction.send,
-                      // 모바일은 엔터 키가 줄바꿈 역할을 하므로 onSubmitted를 null로 처리 (시스템 개입 차단)
                       onSubmitted: _isMobile ? null : (_) => _sendMessage(),
                       decoration: InputDecoration(
                         hintText: _isMobile ? "메시지 입력" : "메시지 입력 (Enter:전송)",

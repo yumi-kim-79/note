@@ -328,23 +328,13 @@ class SalesService {
       'imageUrl': imageUrl,
       'createdAt': FieldValue.serverTimestamp(),
     });
-    // ✅ [여기에 추가] 메시지 저장 후 다른 모든 담당자에게 알림 발송
+    // ✅ [수정 완료] 반복문(for) 제거됨 -> 한 번만 호출하면 서버가 알아서 전체에게 뿌림
     try {
-      // 1. 모든 유저 목록을 가져옵니다.
-      QuerySnapshot usersSnapshot = await _firestore.collection('users').get();
-
-      for (var doc in usersSnapshot.docs) {
-        String otherUid = doc.id;
-
-        // 2. 나(메시지 작성자)를 제외한 모든 담당자에게만 알림을 보냅니다.
-        if (otherUid != user.uid) {
-          await NotificationService().sendBroadcastNotification(
-            title: '업무 톡톡',
-            body: '$authorName: ${imageUrl.isNotEmpty ? "사진을 보냈습니다." : message}',
-            type: 'chat',
-          );
-        }
-      }
+      await NotificationService().sendBroadcastNotification(
+        title: '업무 톡톡',
+        body: '$authorName: ${imageUrl.isNotEmpty ? "사진을 보냈습니다." : message}',
+        type: 'chat',
+      );
     } catch (e) {
       print("🔔 채팅 알림 생성 실패: $e");
     }
