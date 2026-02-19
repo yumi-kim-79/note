@@ -3,6 +3,8 @@
 // 1. [반응형 UI 강화] 다이얼로그 너비 및 높이를 화면 크기에 맞춰 유동적으로 조절 (Overflow 방지)
 // 2. [키보드 대응] 키보드가 올라올 때 입력창이 가려지지 않도록 스크롤 영역 최적화
 // 3. [기능 유지] 프린트, 복사, 엔터 줄바꿈, 체크리스트 등 기존 기능 100% 보존
+// 4. [🌟고도화] 작성자 '이름+직책' 추가 및 UI 표시
+// 5. [🌟고도화] 복사/공유/프린트 시 입주자대표 정보 및 메모가 누락되지 않도록 데이터 추출 로직 완벽 보완
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -70,7 +72,11 @@ class _ChecklistPageState extends State<ChecklistPage> {
       builder: (context, userSnapshot) {
         if (!userSnapshot.hasData) return const Center(child: CircularProgressIndicator());
         final userData = userSnapshot.data?.data() as Map<String, dynamic>?;
+
+        // ✅ [고도화] 작성자 이름뿐만 아니라 직책(rank)도 가져와서 합칩니다.
         final String myName = userData?['name'] ?? '담당자';
+        final String myRank = userData?['rank'] ?? '';
+        final String authorInfo = "$myName $myRank".trim(); // 예: "홍길동 과장"
 
         return Scaffold(
           backgroundColor: AppTheme.backgroundColor,
@@ -88,7 +94,8 @@ class _ChecklistPageState extends State<ChecklistPage> {
                     CommonButton(
                       text: "새 리스트 작성",
                       icon: Icons.add,
-                      onPressed: () => _showChecklistDialog(context, null, myName),
+                      // ✅ [고도화] 직책이 포함된 authorInfo 전달
+                      onPressed: () => _showChecklistDialog(context, null, authorInfo),
                     )
                   ],
                 ),
@@ -122,7 +129,8 @@ class _ChecklistPageState extends State<ChecklistPage> {
                         final double progress = items.isEmpty ? 0 : completed / items.length;
 
                         return GestureDetector(
-                          onTap: () => _showChecklistDialog(context, {...data, 'id': docId}, myName),
+                          // ✅ [고도화] 직책이 포함된 authorInfo 전달
+                          onTap: () => _showChecklistDialog(context, {...data, 'id': docId}, authorInfo),
                           child: CommonCard(
                             padding: const EdgeInsets.all(16),
                             child: Row(
@@ -253,10 +261,11 @@ class _HandoverDetailDialogState extends State<_HandoverDetailDialog> {
     }
   }
 
-  // 텍스트 포맷팅
+  // ✅ [고도화] 텍스트 포맷팅 (복사/공유 시 정보 누락 방지 완벽 적용)
   String _formatChecklistText() {
     String text = "[SM 인수인계 체크리스트]\n";
     text += "출력일: ${DateFormat('yyyy-MM-dd').format(DateTime.now())}\n";
+    // 작성자 직책 포함
     text += "작성자: ${widget.data?['author'] ?? widget.authorName}\n\n";
 
     text += "■ 1. 기본 정보\n";
@@ -266,38 +275,42 @@ class _HandoverDetailDialogState extends State<_HandoverDetailDialog> {
     text += "- 건물개요: 세대수 ${_householdCtrl.text} / 승강기 ${_elevatorCtrl.text} / 주차 ${_parkingCtrl.text}\n\n";
 
     text += "■ 2. 입주자대표 / 관리단\n";
-    if (_committeeList.isEmpty || (_committeeList.length == 1 && _committeeList[0]['name'] == '')) {
-      text += "(정보 없음)\n";
-    } else {
-      for (var m in _committeeList) {
+    // 정보 누락 방지 로직: 이름, 연락처, 동호수, 직책 중 하나라도 입력되어 있으면 출력
+    List<String> validMembers = [];
+    for (var m in _committeeList) {
+      if (m['name'].toString().trim().isNotEmpty ||
+          m['contact'].toString().trim().isNotEmpty ||
+          m['unit'].toString().trim().isNotEmpty ||
+          m['role'].toString().trim().isNotEmpty) {
         String info = "";
         if(m['unit'].toString().isNotEmpty) info += "[${m['unit']}] ";
         if(m['role'].toString().isNotEmpty) info += "${m['role']} ";
         if(m['name'].toString().isNotEmpty) info += "${m['name']} ";
         if(m['contact'].toString().isNotEmpty) info += "(${m['contact']})";
-        text += "$info\n";
+        validMembers.add(info);
       }
     }
+    text += validMembers.isEmpty ? "(정보 없음)\n" : validMembers.join("\n") + "\n";
     text += "\n";
 
     text += "■ 3. 기존 관리업체 정보\n";
-    text += "${_prevCompanyInfoCtrl.text.isEmpty ? '(정보 없음)' : _prevCompanyInfoCtrl.text}\n\n";
+    text += "${_prevCompanyInfoCtrl.text.trim().isEmpty ? '(정보 없음)' : _prevCompanyInfoCtrl.text}\n\n";
 
     text += "■ 4. 비고 (특이사항)\n";
-    text += "${_remarksCtrl.text.isEmpty ? '(내용 없음)' : _remarksCtrl.text}\n\n";
+    text += "${_remarksCtrl.text.trim().isEmpty ? '(내용 없음)' : _remarksCtrl.text}\n\n";
 
-    text += "■ 5. 체크 리스트 (완료 항목)\n";
-    bool hasChecked = false;
+    text += "■ 5. 체크 리스트 내역\n";
+    // 💡 수정: 작성 여부와 상관없이 25개 항목 전체를 무조건 출력합니다.
     for (var item in _currentCheckItems) {
-      if (item['isChecked'] == true) {
-        hasChecked = true;
-        text += "√ ${item['title']}\n";
-        if (item['memo'] != null && item['memo'].toString().isNotEmpty) {
-          text += "  └ ${item['memo']}\n";
-        }
-      }
+      String status = item['isChecked'] == true ? "[V]" : "[ ]";
+      text += "$status ${item['title']}\n";
+
+      // 메모가 있으면 출력하고, 없으면 빈칸(공란)으로 둡니다.
+      String memoText = (item['memo'] != null && item['memo'].toString().trim().isNotEmpty)
+          ? item['memo']
+          : "";
+      text += "   └ 메모: $memoText\n";
     }
-    if (!hasChecked) text += "(체크된 항목 없음)\n";
 
     return text;
   }
@@ -310,6 +323,7 @@ class _HandoverDetailDialogState extends State<_HandoverDetailDialog> {
     );
   }
 
+  // ✅ [고도화] 프린트(PDF) 출력 (데이터 누락 방지 및 직책 표시)
   Future<void> _printChecklist() async {
     final doc = pw.Document();
     final font = await PdfGoogleFonts.nanumGothicRegular();
@@ -341,6 +355,7 @@ class _HandoverDetailDialogState extends State<_HandoverDetailDialog> {
                     children: [
                       _buildPdfRow("건물명", _buildingNameCtrl.text),
                       _buildPdfRow("주소", _buildingAddressCtrl.text),
+                      // 직책까지 포함된 authorName 적용
                       _buildPdfRow("작성자", widget.data?['author'] ?? widget.authorName),
                       _buildPdfRow("관리시작일", DateFormat('yyyy-MM-dd').format(_startDate)),
                       _buildPdfRow("건물개요", "세대수: ${_householdCtrl.text} / 승강기: ${_elevatorCtrl.text} / 주차: ${_parkingCtrl.text}"),
@@ -357,20 +372,21 @@ class _HandoverDetailDialogState extends State<_HandoverDetailDialog> {
               child: pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
-                    if (_committeeList.isEmpty || (_committeeList.length == 1 && _committeeList[0]['name'] == ''))
+                    // 누락 방지 로직 적용
+                    ..._committeeList.where((m) => m['name'].toString().trim().isNotEmpty || m['contact'].toString().trim().isNotEmpty || m['role'].toString().trim().isNotEmpty).map((m) {
+                      String info = "";
+                      if(m['unit'].toString().isNotEmpty) info += "[${m['unit']}] ";
+                      if(m['role'].toString().isNotEmpty) info += "${m['role']} ";
+                      if(m['name'].toString().isNotEmpty) info += "${m['name']} ";
+                      if(m['contact'].toString().isNotEmpty) info += "(${m['contact']})";
+                      return pw.Padding(
+                          padding: const pw.EdgeInsets.only(bottom: 2),
+                          child: pw.Text(info, style: const pw.TextStyle(fontSize: 12))
+                      );
+                    }).toList(),
+                    // 입력된 위원이 아무도 없으면
+                    if (_committeeList.every((m) => m['name'].toString().trim().isEmpty && m['contact'].toString().trim().isEmpty && m['role'].toString().trim().isEmpty))
                       pw.Text("정보 없음", style: const pw.TextStyle(fontSize: 12))
-                    else
-                      ..._committeeList.map((m) {
-                        String info = "";
-                        if(m['unit'].toString().isNotEmpty) info += "[${m['unit']}] ";
-                        if(m['role'].toString().isNotEmpty) info += "${m['role']} ";
-                        if(m['name'].toString().isNotEmpty) info += "${m['name']} ";
-                        if(m['contact'].toString().isNotEmpty) info += "(${m['contact']})";
-                        return pw.Padding(
-                            padding: const pw.EdgeInsets.only(bottom: 2),
-                            child: pw.Text(info, style: const pw.TextStyle(fontSize: 12))
-                        );
-                      }).toList()
                   ]
               ),
             ),
@@ -381,7 +397,7 @@ class _HandoverDetailDialogState extends State<_HandoverDetailDialog> {
               width: double.infinity,
               padding: const pw.EdgeInsets.all(10),
               decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey300)),
-              child: pw.Text(_prevCompanyInfoCtrl.text.isEmpty ? '정보 없음' : _prevCompanyInfoCtrl.text, style: const pw.TextStyle(fontSize: 12)),
+              child: pw.Text(_prevCompanyInfoCtrl.text.trim().isEmpty ? '정보 없음' : _prevCompanyInfoCtrl.text, style: const pw.TextStyle(fontSize: 12)),
             ),
             pw.SizedBox(height: 16),
             pw.Text("■ 비고 (특이사항)", style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
@@ -390,13 +406,18 @@ class _HandoverDetailDialogState extends State<_HandoverDetailDialog> {
               width: double.infinity,
               padding: const pw.EdgeInsets.all(10),
               decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey300)),
-              child: pw.Text(_remarksCtrl.text.isEmpty ? '내용 없음' : _remarksCtrl.text, style: const pw.TextStyle(fontSize: 12)),
+              child: pw.Text(_remarksCtrl.text.trim().isEmpty ? '내용 없음' : _remarksCtrl.text, style: const pw.TextStyle(fontSize: 12)),
             ),
             pw.SizedBox(height: 24),
             pw.Text("■ 인수인계 세부 내역", style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
             pw.Divider(),
+            // 💡 수정: where 필터링 삭제. 체크 여부 상관없이 모든 항목을 출력합니다.
             ..._currentCheckItems.map((item) {
               bool isChecked = item['isChecked'] == true;
+              String memoText = (item['memo'] != null && item['memo'].toString().trim().isNotEmpty)
+                  ? item['memo']
+                  : ""; // 메모가 없으면 공란으로 처리
+
               return pw.Container(
                 margin: const pw.EdgeInsets.only(bottom: 8),
                 padding: const pw.EdgeInsets.all(5),
@@ -410,11 +431,10 @@ class _HandoverDetailDialogState extends State<_HandoverDetailDialog> {
                         crossAxisAlignment: pw.CrossAxisAlignment.start,
                         children: [
                           pw.Text(item['title'], style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
-                          if (item['memo'] != null && item['memo'].toString().isNotEmpty)
-                            pw.Padding(
-                              padding: const pw.EdgeInsets.only(top: 2, left: 4),
-                              child: pw.Text("└ ${item['memo']}", style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
-                            ),
+                          pw.Padding(
+                            padding: const pw.EdgeInsets.only(top: 2, left: 4),
+                            child: pw.Text("└ 메모: $memoText", style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+                          ),
                         ],
                       ),
                     ),
@@ -510,18 +530,14 @@ class _HandoverDetailDialogState extends State<_HandoverDetailDialog> {
 
   @override
   Widget build(BuildContext context) {
-    // 💡 화면 너비 확인 (800px 미만을 모바일/태블릿 세로 모드로 간주)
     final double screenWidth = MediaQuery.of(context).size.width;
     final bool isMobile = screenWidth < 800;
 
     return Dialog(
       backgroundColor: Colors.transparent,
-      // ✅ [수정] 모바일에서는 여백을 줄임
       insetPadding: EdgeInsets.all(isMobile ? 10 : 20),
       child: CommonCard(
-        // ✅ [수정] 화면 너비에 맞춰 유동적으로 조절 (최대 1000px)
         width: min(1000, screenWidth * 0.95),
-        // ✅ [수정] 높이 제한을 없애고 유동적으로 하되, 최대 높이만 지정
         height: MediaQuery.of(context).size.height * 0.9,
         padding: const EdgeInsets.all(0),
         child: Column(
@@ -532,10 +548,40 @@ class _HandoverDetailDialogState extends State<_HandoverDetailDialog> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text("인수인계 정보 입력", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black)),
+                  // 🌟 [UI 고도화] 제목 옆에 작성자 정보(직책 포함)를 깔끔한 배지 형태로 표시
+                  Expanded(
+                    child: Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 12,
+                      runSpacing: 8, // 모바일 화면이 좁아서 줄바꿈될 때의 간격
+                      children: [
+                        const Text("인수인계 정보 입력", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black)),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: AppTheme.primaryLight, // 테마의 연한 배경색 적용
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: AppTheme.primaryColor.withOpacity(0.3)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.person, size: 14, color: AppTheme.primaryColor),
+                              const SizedBox(width: 4),
+                              Text(
+                                  widget.data?['author'] ?? widget.authorName,
+                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppTheme.primaryColor)
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // 우측 버튼들 (복사/공유/프린트/닫기) 유지
                   Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      // 아이콘들 (모바일에서는 너무 많으면 좁아보일 수 있으므로 간격 조정)
                       IconButton(icon: const Icon(Icons.copy, size: 24), onPressed: _copyToClipboard, tooltip: "복사"),
                       IconButton(icon: const Icon(Icons.share_outlined, color: AppTheme.primaryColor, size: 26), onPressed: () => Share.share(_formatChecklistText()), tooltip: "공유"),
                       IconButton(icon: const Icon(Icons.print_outlined, size: 26), onPressed: _printChecklist, tooltip: "출력"),
@@ -550,10 +596,9 @@ class _HandoverDetailDialogState extends State<_HandoverDetailDialog> {
 
             // 내용 (스크롤)
             Expanded(
-              child: Scrollbar( // ✅ 스크롤바 추가
+              child: Scrollbar(
                 thumbVisibility: true,
                 child: SingleChildScrollView(
-                  // ✅ [수정] 모바일에서는 패딩을 줄여서 내용 확보
                   padding: EdgeInsets.all(isMobile ? 16 : 24),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -563,12 +608,12 @@ class _HandoverDetailDialogState extends State<_HandoverDetailDialog> {
 
                       // 1행: 건물명, 날짜
                       isMobile
-                          ? Column(children: [ // 모바일: 세로
+                          ? Column(children: [
                         _buildTextField("건물명", _buildingNameCtrl),
                         const SizedBox(height: 12),
                         _buildDatePicker("관리시작일"),
                       ])
-                          : Row(children: [ // PC: 가로
+                          : Row(children: [
                         Expanded(child: _buildTextField("건물명", _buildingNameCtrl)),
                         const SizedBox(width: 12),
                         Expanded(child: _buildDatePicker("관리시작일")),
@@ -753,7 +798,6 @@ class _HandoverDetailDialogState extends State<_HandoverDetailDialog> {
         labelText: label,
         border: const OutlineInputBorder(),
         alignLabelWithHint: true,
-        // ✅ [수정] 모바일에서 입력창 높이를 살짝 줄여서 공간 확보
         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       ),
     );
