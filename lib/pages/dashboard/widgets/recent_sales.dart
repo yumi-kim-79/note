@@ -4,6 +4,7 @@
 // 2. [UI 개선] 내가 쓴 비공개 글은 제목 옆과 팝업창에 자물쇠(🔒) 아이콘 표시
 // 3. [안정성 유지] PC/모바일 반응형 레이아웃 충돌 방지 로직(Expanded, MainAxisSize) 100% 유지
 // 4. [기존 기능 유지] 5개씩 보기(페이지네이션), 팝업창, 다중 이미지 뷰어 100% 유지
+// 5. [🌟 핵심 해결] 모바일(화면 좁음)일 때 ListView 대신 Column을 사용하여 내부 스크롤을 막고, 전체 화면 스크롤이 정상 작동하도록 개선
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -84,54 +85,110 @@ class _RecentSalesState extends State<RecentSales> {
 
             final currentDocs = allDocs.sublist(startIndex, endIndex);
 
-            // 리스트 위젯 빌드
-            Widget listWidget = ListView.separated(
-              shrinkWrap: isMobile,
-              physics: isMobile ? const NeverScrollableScrollPhysics() : const BouncingScrollPhysics(),
-              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-              itemCount: currentDocs.length,
-              separatorBuilder: (context, index) => const Divider(height: 1, color: AppTheme.borderColor),
-              itemBuilder: (context, index) {
-                final data = currentDocs[index].data() as Map<String, dynamic>;
-                DateTime date = (data['createdAt'] as Timestamp).toDate();
-                bool isPrivate = data['isPrivate'] ?? false;
+            // =======================================================
+            // 🌟 [대기업 렌더링 방식 적용] 모바일 스크롤 버그 원천 차단
+            // =======================================================
+            Widget listWidget;
 
-                return ListTile(
-                  visualDensity: const VisualDensity(horizontal: 0, vertical: -2),
-                  contentPadding: const EdgeInsets.symmetric(vertical: 4, horizontal: 0),
-                  dense: true,
-                  leading: const Icon(Icons.check_circle, color: AppTheme.primaryColor, size: 18),
-                  title: Row(
-                    children: [
-                      // =======================================================
-                      // ✅ [고도화 2] 비공개 글일 경우 자물쇠 아이콘 표시
-                      // =======================================================
-                      if (isPrivate)
-                        const Padding(
-                          padding: EdgeInsets.only(right: 6.0),
-                          child: Icon(Icons.lock, size: 14, color: Colors.grey),
-                        ),
-                      Expanded(
-                        child: Text(
-                          data['title'] ?? '(제목 없음)',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppTheme.textMain),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
+            if (isMobile) {
+              // 모바일 환경: ListView를 쓰지 않고 Column으로 렌더링하여 터치 가로채기 방지
+              listWidget = Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min, // 여백 최소화
+                  children: currentDocs.asMap().entries.map((entry) {
+                    int index = entry.key;
+                    var doc = entry.value;
+                    final data = doc.data() as Map<String, dynamic>;
+                    DateTime date = (data['createdAt'] as Timestamp).toDate();
+                    bool isPrivate = data['isPrivate'] ?? false;
+
+                    Widget item = ListTile(
+                      visualDensity: const VisualDensity(horizontal: 0, vertical: -2),
+                      contentPadding: const EdgeInsets.symmetric(vertical: 4, horizontal: 0),
+                      dense: true,
+                      leading: const Icon(Icons.check_circle, color: AppTheme.primaryColor, size: 18),
+                      title: Row(
+                        children: [
+                          if (isPrivate)
+                            const Padding(
+                              padding: EdgeInsets.only(right: 6.0),
+                              child: Icon(Icons.lock, size: 14, color: Colors.grey),
+                            ),
+                          Expanded(
+                            child: Text(
+                              data['title'] ?? '(제목 없음)',
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppTheme.textMain),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                  subtitle: Text(
-                    "${data['author']} • ${DateFormat('MM/dd HH:mm').format(date)}",
-                    style: const TextStyle(fontSize: 12, color: AppTheme.textSub),
-                  ),
-                  onTap: () => _showDetailPopup(context, data),
-                );
-              },
-            );
+                      subtitle: Text(
+                        "${data['author']} • ${DateFormat('MM/dd HH:mm').format(date)}",
+                        style: const TextStyle(fontSize: 12, color: AppTheme.textSub),
+                      ),
+                      onTap: () => _showDetailPopup(context, data),
+                    );
+
+                    // 마지막 항목이 아니면 밑줄 추가
+                    if (index < currentDocs.length - 1) {
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [item, const Divider(height: 1, color: AppTheme.borderColor)],
+                      );
+                    }
+                    return item;
+                  }).toList(),
+                ),
+              );
+            } else {
+              // PC 환경: 기존 방식대로 스크롤이 가능한 ListView 유지
+              listWidget = ListView.separated(
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                itemCount: currentDocs.length,
+                separatorBuilder: (context, index) => const Divider(height: 1, color: AppTheme.borderColor),
+                itemBuilder: (context, index) {
+                  final data = currentDocs[index].data() as Map<String, dynamic>;
+                  DateTime date = (data['createdAt'] as Timestamp).toDate();
+                  bool isPrivate = data['isPrivate'] ?? false;
+
+                  return ListTile(
+                    visualDensity: const VisualDensity(horizontal: 0, vertical: -2),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 4, horizontal: 0),
+                    dense: true,
+                    leading: const Icon(Icons.check_circle, color: AppTheme.primaryColor, size: 18),
+                    title: Row(
+                      children: [
+                        if (isPrivate)
+                          const Padding(
+                            padding: EdgeInsets.only(right: 6.0),
+                            child: Icon(Icons.lock, size: 14, color: Colors.grey),
+                          ),
+                        Expanded(
+                          child: Text(
+                            data['title'] ?? '(제목 없음)',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppTheme.textMain),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                    subtitle: Text(
+                      "${data['author']} • ${DateFormat('MM/dd HH:mm').format(date)}",
+                      style: const TextStyle(fontSize: 12, color: AppTheme.textSub),
+                    ),
+                    onTap: () => _showDetailPopup(context, data),
+                  );
+                },
+              );
+            }
 
             return Column(
-              // 🚨 [핵심 유지] 모바일/PC 렌더링 에러 방지 (절대 수정 금지)
+              // 🚨 [핵심 유지] 모바일/PC 렌더링 에러 방지
               mainAxisSize: isMobile ? MainAxisSize.min : MainAxisSize.max,
               children: [
                 isMobile ? listWidget : Expanded(child: listWidget),
@@ -190,7 +247,7 @@ class _RecentSalesState extends State<RecentSales> {
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      // 🚨 [핵심 유지] 모바일/PC 렌더링 에러 방지 (절대 수정 금지)
+      // 🚨 [핵심 유지] 모바일/PC 렌더링 에러 방지
       mainAxisSize: isMobile ? MainAxisSize.min : MainAxisSize.max,
       children: [
         const Text("🔥 최근 작성 노트", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.textMain)),

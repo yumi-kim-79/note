@@ -5,6 +5,7 @@
 // 3. [최적화] 함수 내부에 있던 위젯 빌드 로직을 깔끔하게 정리하여 렌더링 성능 최적화
 // 4. [기존 유지] 페이징, 상세 보기, 수정/삭제 등 기존 기능 100% 동일
 // 5. [안정성 유지] PC/모바일 반응형 레이아웃 충돌 방지 로직(Expanded, MainAxisSize) 완벽 보존
+// 6. [🌟 핵심] 모바일(화면 좁음)일 때 ListView 대신 Column을 사용하여 내부 스크롤을 막고, 전체 화면 스크롤이 정상 작동하도록 개선
 
 import 'dart:io';
 import 'package:flutter/foundation.dart'; // kIsWeb
@@ -78,7 +79,7 @@ class _NoticeBoardState extends State<NoticeBoard> {
   }
 
   // ==================================================================
-  // ✅ [고도화] 리스트 카드 빌드 위젯 분리 (렌더링 성능 최적화)
+  // ✅ [고도화] 리스트 카드 빌드 위젯 분리 (렌더링 성능 최적화 및 모바일 스크롤 버그 해결)
   // ==================================================================
   Widget _buildCard(bool isMobile, bool isAdmin) {
     return CommonCard(
@@ -114,37 +115,102 @@ class _NoticeBoardState extends State<NoticeBoard> {
 
           final currentDocs = allDocs.sublist(startIndex, endIndex);
 
-          Widget listWidget = ListView.separated(
-            shrinkWrap: isMobile,
-            physics: isMobile ? const NeverScrollableScrollPhysics() : const BouncingScrollPhysics(),
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-            itemCount: currentDocs.length,
-            separatorBuilder: (context, index) => const Divider(height: 1, color: AppTheme.borderColor),
-            itemBuilder: (context, index) {
-              final doc = currentDocs[index];
-              final data = doc.data() as Map<String, dynamic>;
-              DateTime date = (data['createdAt'] as Timestamp).toDate();
-              bool hasImage = (data['imageUrl'] != null && data['imageUrl'] != "");
+          // 🌟 [핵심 변경 포인트] 모바일 환경일 때 ListView 대신 Column 사용
+          Widget listWidget;
+          if (isMobile) {
+            // 모바일 환경: 스크롤 없는 Column으로 구성하여 전체 스크롤을 방해하지 않음
+            listWidget = Column(
+              mainAxisSize: MainAxisSize.min, // 내부 스크롤 공간 최소화
+              children: currentDocs.asMap().entries.map((entry) {
+                int idx = entry.key;
+                var doc = entry.value;
+                final data = doc.data() as Map<String, dynamic>;
+                DateTime date = (data['createdAt'] as Timestamp).toDate();
+                bool hasImage = (data['imageUrl'] != null && data['imageUrl'] != "");
 
-              return ListTile(
-                dense: true,
-                contentPadding: const EdgeInsets.symmetric(vertical: 4, horizontal: 0),
-                leading: Icon(Icons.campaign, color: hasImage ? AppTheme.primaryColor : Colors.orange, size: 20),
-                title: Text(
-                    data['title'] ?? '',
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppTheme.textMain),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis
-                ),
-                subtitle: Text(
-                    DateFormat('yyyy.MM.dd HH:mm').format(date),
-                    style: const TextStyle(fontSize: 12, color: AppTheme.textSub)
-                ),
-                trailing: hasImage ? const Icon(Icons.image, size: 16, color: AppTheme.textSub) : null,
-                onTap: () => _showDetailPopup(context, doc.id, data, isAdmin),
-              );
-            },
-          );
+                // 항목 (ListTile)을 Material로 감싸 InkWell(터치 피드백) 효과 부여
+                Widget item = Material(
+                  color: Colors.transparent, // 부모 컨테이너 배경색을 상속받도록 투명으로 설정
+                  child: InkWell(
+                    onTap: () => _showDetailPopup(context, doc.id, data, isAdmin),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                      child: Row(
+                        children: [
+                          Icon(Icons.campaign, color: hasImage ? AppTheme.primaryColor : Colors.orange, size: 20),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  data['title'] ?? '',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppTheme.textMain),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  DateFormat('yyyy.MM.dd HH:mm').format(date),
+                                  style: const TextStyle(fontSize: 12, color: AppTheme.textSub),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (hasImage) const Icon(Icons.image, size: 16, color: AppTheme.textSub),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+
+                // 항목 사이에 구분선 추가
+                if (idx < currentDocs.length - 1) {
+                  return Column(
+                    children: [
+                      item,
+                      const Divider(height: 1, color: AppTheme.borderColor),
+                    ],
+                  );
+                } else {
+                  return item;
+                }
+              }).toList(),
+            );
+          } else {
+            // PC 환경: 기존 방식 그대로 ListView 사용
+            listWidget = ListView.separated(
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+              itemCount: currentDocs.length,
+              separatorBuilder: (context, index) => const Divider(height: 1, color: AppTheme.borderColor),
+              itemBuilder: (context, index) {
+                final doc = currentDocs[index];
+                final data = doc.data() as Map<String, dynamic>;
+                DateTime date = (data['createdAt'] as Timestamp).toDate();
+                bool hasImage = (data['imageUrl'] != null && data['imageUrl'] != "");
+
+                return ListTile(
+                  dense: true,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 4, horizontal: 0),
+                  leading: Icon(Icons.campaign, color: hasImage ? AppTheme.primaryColor : Colors.orange, size: 20),
+                  title: Text(
+                      data['title'] ?? '',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppTheme.textMain),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis
+                  ),
+                  subtitle: Text(
+                      DateFormat('yyyy.MM.dd HH:mm').format(date),
+                      style: const TextStyle(fontSize: 12, color: AppTheme.textSub)
+                  ),
+                  trailing: hasImage ? const Icon(Icons.image, size: 16, color: AppTheme.textSub) : null,
+                  onTap: () => _showDetailPopup(context, doc.id, data, isAdmin),
+                );
+              },
+            );
+          }
+
 
           return Column(
             // 🚨 [핵심 유지] 모바일은 크기를 최소화(min), PC는 남은 공간을 다 쓰도록(max)
