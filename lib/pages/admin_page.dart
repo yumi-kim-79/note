@@ -21,7 +21,7 @@ class AdminPage extends StatefulWidget {
 
 class _AdminPageState extends State<AdminPage> {
   // 직급 목록
-  final List<String> _rankOptions = ['사원', '주임', '대리', '과장', '차장', '부장', '이사', '상무', '전무', '대표'];
+  final List<String> _rankOptions = ['사원', '주임', '대리', '과장', '차장', '팀장', '부장', '이사', '상무', '전무', '대표'];
 
   // [중요] 슈퍼 관리자 이메일 (정확해야 함)
   final String _superAdminEmail = "yuseok8052@gmail.com";
@@ -97,7 +97,7 @@ class _AdminPageState extends State<AdminPage> {
 
                     // DB에 저장된 비밀번호 가져오기
                     String? savedPw = data['password'];
-                    String role = data['role'] == 'admin' ? '관리자' : '일반 사원';
+                    String role = data['role'] == 'admin' ? '관리자모드' : '일반모드';
                     bool isAdminRole = data['role'] == 'admin';
 
                     // ✅ 디자인 시스템: 공통 카드 사용
@@ -226,13 +226,13 @@ class _AdminPageState extends State<AdminPage> {
 
                     const Align(alignment: Alignment.centerLeft, child: Text("권한 설정", style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.textMain))),
                     RadioListTile(
-                      title: const Text("일반 사원", style: TextStyle(fontSize: 14)), subtitle: const Text("본인 글만 관리", style: TextStyle(fontSize: 12)),
+                      title: const Text("일반모드", style: TextStyle(fontSize: 14)), subtitle: const Text("본인 글만 관리", style: TextStyle(fontSize: 12)),
                       value: 'user', groupValue: selectedRole,
                       activeColor: AppTheme.primaryColor,
                       onChanged: (val) => setStateDialog(() => selectedRole = val.toString()),
                     ),
                     RadioListTile(
-                      title: const Text("관리자", style: TextStyle(fontSize: 14)), subtitle: const Text("모든 권한 보유", style: TextStyle(fontSize: 12)),
+                      title: const Text("관리자모드", style: TextStyle(fontSize: 14)), subtitle: const Text("모든 권한 보유", style: TextStyle(fontSize: 12)),
                       value: 'admin', groupValue: selectedRole,
                       activeColor: AppTheme.primaryColor,
                       onChanged: (val) => setStateDialog(() => selectedRole = val.toString()),
@@ -322,13 +322,13 @@ class _AdminPageState extends State<AdminPage> {
 
                     const Align(alignment: Alignment.centerLeft, child: Text("권한 설정", style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.textMain))),
                     RadioListTile(
-                      title: const Text("일반 사원", style: TextStyle(fontSize: 14)),
+                      title: const Text("일반모드", style: TextStyle(fontSize: 14)),
                       value: 'user', groupValue: selectedRole,
                       activeColor: AppTheme.primaryColor,
                       onChanged: (val) => setStateDialog(() => selectedRole = val.toString()),
                     ),
                     RadioListTile(
-                      title: const Text("관리자", style: TextStyle(fontSize: 14)),
+                      title: const Text("관리자모드", style: TextStyle(fontSize: 14)),
                       value: 'admin', groupValue: selectedRole,
                       activeColor: AppTheme.primaryColor,
                       onChanged: (val) => setStateDialog(() => selectedRole = val.toString()),
