@@ -37,6 +37,7 @@ import 'pages/field/field_route_page.dart';
 import 'pages/building_info_page.dart';
 import 'pages/field/field_schedule_page.dart';
 import 'pages/field/field_report_page.dart';
+import 'pages/sales/tax_invoice_page.dart'; // 👈 추가해주세요
 
 import 'services/auth_service.dart';
 import 'services/sales_service.dart';
@@ -217,6 +218,9 @@ class MainLayoutPageState extends State<MainLayoutPage> {
   final GlobalKey<DashboardPageState> _dashboardKey = GlobalKey<DashboardPageState>();
 
   bool _isFieldSupportExpanded = false;
+  bool _isGeneralSupportExpanded = false; // ✅ 총무팀 메뉴 펼침 상태
+  bool _isAiSystemExpanded = false;       // ✅ AI 시스템 메뉴 펼침 상태
+  bool _isSettingsExpanded = false;       // ✅ 설정 메뉴 펼침 상태
 
   // ✅ [여기에 추가] 담당자 기기 토큰을 DB에 자동 등록하는 함수
   Future<void> _syncFCMToken() async {
@@ -266,6 +270,8 @@ class MainLayoutPageState extends State<MainLayoutPage> {
       const BuildingInfoPage(),
       FieldSchedulePage(key: _schedulePageKey),
       FieldReportPage(key: _reportPageKey),
+      const TaxInvoicePage(), // 👈 [변경] Index 11: 국세청(계산서) 대조 페이지 연결!
+      const Scaffold(body: Center(child: Text("공과금(지출) 대조 시스템 준비 중..."))), // Index 12
     ];
 
     _listenToNotifications(); // 포그라운드 처리
@@ -475,6 +481,8 @@ class MainLayoutPageState extends State<MainLayoutPage> {
       case 8: return '건물 DB 정보';
       case 9: return '일정 관리';
       case 10: return '업무 보고';
+      case 11: return '국세청(계산서) 대조';
+      case 12: return '공과금(지출) 대조';
       default: return '';
     }
   }
@@ -796,63 +804,91 @@ class MainLayoutPageState extends State<MainLayoutPage> {
                             badgeCount:
                             _selectedIndex == 5 ? 0 : (snap.data ?? 0)),
                       ),
+                      // 1. 현장팀 업무지원 (기존)
                       Theme(
-                        data: Theme.of(context)
-                            .copyWith(dividerColor: Colors.transparent),
+                        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
                         child: ExpansionTile(
                           key: const PageStorageKey('FieldSupportMenu'),
                           leading: const Icon(Icons.map_outlined, size: 22),
-                          title: const Text("현장팀 업무지원",
-                              style: TextStyle(
-                                  fontSize: 14, fontWeight: FontWeight.w500)),
+                          title: const Text("현장팀 업무지원", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
                           initiallyExpanded: _isFieldSupportExpanded,
-                          onExpansionChanged: (expanded) => setState(
-                                  () => _isFieldSupportExpanded = expanded),
+                          onExpansionChanged: (expanded) => setState(() => _isFieldSupportExpanded = expanded),
                           iconColor: AppTheme.primaryColor,
                           collapsedIconColor: AppTheme.textSub,
                           children: [
-                            _buildSubMenuItem(
-                                icon: Icons.calendar_today,
-                                title: "일정 관리",
-                                index: 9),
-                            _buildSubMenuItem(
-                                icon: Icons.alt_route,
-                                title: "경로 관리 (AI)",
-                                index: 7),
+                            _buildSubMenuItem(icon: Icons.calendar_today, title: "일정 관리", index: 9),
+                            _buildSubMenuItem(icon: Icons.alt_route, title: "경로 관리 (AI)", index: 7),
                             StreamBuilder<int>(
                               stream: _getOverdueWorkCountStream(),
                               builder: (context, snap) => _buildSubMenuItem(
-                                  icon: Icons.assignment_outlined,
-                                  title: "업무 보고",
-                                  index: 10,
-                                  badgeCount: snap.data ?? 0),
+                                  icon: Icons.assignment_outlined, title: "업무 보고", index: 10, badgeCount: snap.data ?? 0),
                             ),
                           ],
                         ),
                       ),
-                      const Divider(
-                          height: 32,
-                          indent: 24,
-                          endIndent: 24,
-                          color: AppTheme.borderColor),
-                      _buildMenuItem(
-                          icon: Icons.business, title: '건물 DB 정보', index: 8),
-                      _buildMenuItem(
-                          icon: Icons.settings_outlined, title: '설정', index: 6),
-                      if (isAdmin)
-                        _buildMenuItem(
-                            icon: Icons.admin_panel_settings_outlined,
-                            title: '관리자 설정',
-                            index: 3),
-                      ListTile(
-                        leading:
-                        const Icon(Icons.logout, color: AppTheme.textSub),
-                        title: const Text("로그아웃",
-                            style: TextStyle(
-                                color: AppTheme.textSub, fontSize: 14)),
-                        onTap: _logout,
-                        contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 24),
+
+                      // 🌟 2. 총무팀 업무지원 (새로 추가된 대메뉴)
+                      Theme(
+                        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                        child: ExpansionTile(
+                          key: const PageStorageKey('GeneralSupportMenu'),
+                          leading: const Icon(Icons.business_center_outlined, size: 22),
+                          title: const Text("총무팀 업무지원", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                          initiallyExpanded: _isGeneralSupportExpanded,
+                          onExpansionChanged: (expanded) => setState(() => _isGeneralSupportExpanded = expanded),
+                          iconColor: AppTheme.primaryColor,
+                          collapsedIconColor: AppTheme.textSub,
+                          children: [
+                            // 🌟 2-1. AI 스마트 시스템 (하위 메뉴)
+                            Theme(
+                              data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                              child: ExpansionTile(
+                                key: const PageStorageKey('AiSystemMenu'),
+                                tilePadding: const EdgeInsets.only(left: 40, right: 16), // 안쪽으로 들여쓰기
+                                leading: const Icon(Icons.smart_toy_outlined, size: 20),
+                                title: const Text("AI 스마트 시스템", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                                initiallyExpanded: _isAiSystemExpanded,
+                                onExpansionChanged: (expanded) => setState(() => _isAiSystemExpanded = expanded),
+                                iconColor: AppTheme.primaryColor,
+                                collapsedIconColor: AppTheme.textSub,
+                                children: [
+                                  _buildSubSubMenuItem(icon: Icons.receipt_long, title: "국세청(계산서) 대조", index: 11),
+                                  _buildSubSubMenuItem(icon: Icons.payments_outlined, title: "공과금(지출) 대조", index: 12),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const Divider(height: 32, indent: 24, endIndent: 24, color: AppTheme.borderColor),
+
+                      // 3. 건물 DB 정보 (기존 위치 유지)
+                      _buildMenuItem(icon: Icons.business, title: '건물 DB 정보', index: 8),
+
+                      // 🌟 4. 설정 (새로 묶은 대메뉴)
+                      Theme(
+                        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                        child: ExpansionTile(
+                          key: const PageStorageKey('SettingsMenu'),
+                          leading: const Icon(Icons.settings_outlined, size: 22),
+                          title: const Text("설정", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                          initiallyExpanded: _isSettingsExpanded,
+                          onExpansionChanged: (expanded) => setState(() => _isSettingsExpanded = expanded),
+                          iconColor: AppTheme.primaryColor,
+                          collapsedIconColor: AppTheme.textSub,
+                          children: [
+                            _buildSubMenuItem(icon: Icons.notifications_active_outlined, title: '알림 설정', index: 6), // 기존 설정 페이지
+                            if (isAdmin)
+                              _buildSubMenuItem(icon: Icons.admin_panel_settings_outlined, title: '관리자 설정', index: 3),
+                            ListTile(
+                              leading: const Icon(Icons.logout, color: AppTheme.textSub, size: 18),
+                              title: const Text("로그아웃", style: TextStyle(color: AppTheme.textMain, fontSize: 14)),
+                              onTap: _logout,
+                              contentPadding: const EdgeInsets.only(left: 56, right: 16), // 소메뉴 들여쓰기 맞춤
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
@@ -1033,6 +1069,40 @@ class MainLayoutPageState extends State<MainLayoutPage> {
                           fontSize: 10,
                           fontWeight: FontWeight.bold)),
                 )
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+  // 🌟 AI 시스템 등 3단계 깊이를 위한 전용 메뉴 빌더
+  Widget _buildSubSubMenuItem(
+      {required IconData icon,
+        required String title,
+        required int index,
+        int badgeCount = 0}) {
+    final bool isSelected = _selectedIndex == index;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      child: InkWell(
+        onTap: () => _onMenuSelected(index),
+        borderRadius: BorderRadius.circular(50),
+        child: Container(
+          // left를 72로 주어서 기존 소메뉴(56)보다 더 안쪽으로 들여쓰기
+          padding: const EdgeInsets.only(left: 72, top: 10, bottom: 10, right: 16),
+          decoration: BoxDecoration(
+              color: isSelected ? AppTheme.primaryLight : Colors.transparent,
+              borderRadius: BorderRadius.circular(50)),
+          child: Row(
+            children: [
+              Icon(icon, size: 16, color: isSelected ? AppTheme.primaryColor : AppTheme.textSub),
+              const SizedBox(width: 12),
+              Expanded(
+                  child: Text(title,
+                      style: TextStyle(
+                          color: isSelected ? AppTheme.primaryColor : AppTheme.textMain,
+                          fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                          fontSize: 13))),
             ],
           ),
         ),
