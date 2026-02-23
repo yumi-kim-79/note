@@ -322,17 +322,24 @@ class MainLayoutPageState extends State<MainLayoutPage> {
   void handleNotificationClick(String? type) {
     if (type == null) return;
 
+    // 🌟 [안전 장치 추가] 소문자로 변환하고 공백을 제거하여 오타를 방지합니다.
+    String safeType = type.trim().toLowerCase();
+
     int pageIndex = -1;
-    switch (type) {
+    switch (safeType) {
       case 'chat': pageIndex = 5; break;
       case 'schedule': pageIndex = 9; break;
       case 'report': pageIndex = 10; break;
-      default: debugPrint("알 수 없는 알림 타입: $type");
+      default: debugPrint("알 수 없는 알림 타입: $safeType");
     }
 
     if (pageIndex != -1) {
       Future.delayed(const Duration(milliseconds: 500), () {
-        if(mounted) _onMenuSelected(pageIndex, isDrawerClick: false);
+        if(mounted) {
+          // 🌟 [고도화 반영] 1. 페이지 인덱스를 맞추고, 2. 해당 페이지 강제 새로고침(Refresh)을 호출하여 먹통 현상을 막습니다.
+          _onMenuSelected(pageIndex, isDrawerClick: false);
+          _triggerPageRefresh(pageIndex);
+        }
       });
     }
   }
@@ -878,14 +885,27 @@ class MainLayoutPageState extends State<MainLayoutPage> {
                           iconColor: AppTheme.primaryColor,
                           collapsedIconColor: AppTheme.textSub,
                           children: [
-                            _buildSubMenuItem(icon: Icons.notifications_active_outlined, title: '알림 설정', index: 6), // 기존 설정 페이지
+                            _buildSubMenuItem(icon: Icons.notifications_active_outlined, title: '알림 설정', index: 6),
                             if (isAdmin)
                               _buildSubMenuItem(icon: Icons.admin_panel_settings_outlined, title: '관리자 설정', index: 3),
-                            ListTile(
-                              leading: const Icon(Icons.logout, color: AppTheme.textSub, size: 18),
-                              title: const Text("로그아웃", style: TextStyle(color: AppTheme.textMain, fontSize: 14)),
-                              onTap: _logout,
-                              contentPadding: const EdgeInsets.only(left: 56, right: 16), // 소메뉴 들여쓰기 맞춤
+                            // 🌟 [수정] 로그아웃도 InkWell로 감싸서 다른 메뉴들과 UI/터치감을 동일하게 맞춤!
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              child: InkWell(
+                                onTap: _logout,
+                                borderRadius: BorderRadius.circular(50),
+                                child: Container(
+                                  padding: const EdgeInsets.only(left: 56, top: 10, bottom: 10, right: 16),
+                                  decoration: BoxDecoration(color: Colors.transparent, borderRadius: BorderRadius.circular(50)),
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.logout, size: 18, color: AppTheme.textSub),
+                                      const SizedBox(width: 12),
+                                      const Expanded(child: Text("로그아웃", style: TextStyle(color: AppTheme.textMain, fontSize: 14))),
+                                    ],
+                                  ),
+                                ),
+                              ),
                             ),
                           ],
                         ),

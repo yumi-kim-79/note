@@ -12,6 +12,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'dart:math'; // ✅ [추가] 반응형 UI 계산용
 import '../../services/notification_service.dart'; // ✅ 추가
+import 'dart:async'; // ✅ [추가] StreamSubscription(수도꼭지 잠금) 사용을 위해 추가
 
 // ✅ [핵심 수정] TextSpan 충돌 방지를 위해 hide에 TextSpan 추가
 import 'package:excel/excel.dart' hide Border, TextSpan;
@@ -49,11 +50,20 @@ class FieldSchedulePageState extends State<FieldSchedulePage> { // ✅ 여기 _ 
   Map<DateTime, List<dynamic>> _events = {};
   bool _isTeamView = false;
 
+  StreamSubscription<QuerySnapshot>? _scheduleSubscription; // 🌟 [버그 수정] 켜져있는 스트림(수도꼭지)을 기억할 변수
+
   @override
   void initState() {
     super.initState();
     _selectedDay = _focusedDay;
     _fetchSchedules();
+  }
+
+  // 🌟 [버그 수정] 화면이 꺼질 때 수도꼭지도 완벽히 잠가줍니다.
+  @override
+  void dispose() {
+    _scheduleSubscription?.cancel();
+    super.dispose();
   }
 
   void _fetchSchedules() {
@@ -66,22 +76,37 @@ class FieldSchedulePageState extends State<FieldSchedulePage> { // ✅ 여기 _ 
       query = query.where('uid', isEqualTo: user.uid);
     }
 
-    query.snapshots().listen((snapshot) {
+    // 🌟 [핵심 버그 수정] 기존에 켜져있던 수도꼭지가 있다면 반드시 먼저 잠급니다! (탭 전환 꼬임 방지)
+    _scheduleSubscription?.cancel();
+
+    _scheduleSubscription = query.snapshots().listen((snapshot) {
       Map<DateTime, List<dynamic>> newEvents = {};
       for (var doc in snapshot.docs) {
         var data = doc.data() as Map<String, dynamic>;
 
-        DateTime date;
+        DateTime start;
         if (data['startDate'] != null) {
-          date = (data['startDate'] as Timestamp).toDate();
+          start = (data['startDate'] as Timestamp).toDate();
         } else {
-          date = (data['date'] as Timestamp).toDate();
+          start = (data['date'] as Timestamp).toDate();
         }
 
-        DateTime dateKey = DateTime.utc(date.year, date.month, date.day);
+        DateTime end;
+        if (data['endDate'] != null) {
+          end = (data['endDate'] as Timestamp).toDate();
+        } else {
+          end = start;
+        }
 
-        if (newEvents[dateKey] == null) newEvents[dateKey] = [];
-        newEvents[dateKey]!.add({...data, 'id': doc.id});
+        DateTime currentDay = DateTime.utc(start.year, start.month, start.day);
+        DateTime lastDay = DateTime.utc(end.year, end.month, end.day);
+
+        // 기간만큼 반복하며 모든 날짜에 일정 꽂아주기
+        while (!currentDay.isAfter(lastDay)) {
+          if (newEvents[currentDay] == null) newEvents[currentDay] = [];
+          newEvents[currentDay]!.add({...data, 'id': doc.id});
+          currentDay = currentDay.add(const Duration(days: 1));
+        }
       }
       if (mounted) setState(() => _events = newEvents);
     });
@@ -594,6 +619,9 @@ class _AddScheduleDialogState extends State<_AddScheduleDialog> {
   Map<String, String>? _selectedBuilding;
   bool _isBuildingSelected = false;
 
+  // 🌟 [고도화 2차] 경로 관리 포함 방식 (all: 매일, first: 첫날만, none: 안 함)
+  String _routeIncludeType = 'all';
+
   List<Map<String, dynamic>> _workLogs = [];
 
   bool get isEditMode => widget.existingData != null;
@@ -627,6 +655,16 @@ class _AddScheduleDialogState extends State<_AddScheduleDialog> {
       _startTime = TimeOfDay.fromDateTime((data['startTime'] as Timestamp).toDate());
       _endTime = TimeOfDay.fromDateTime((data['endTime'] as Timestamp).toDate());
       _selectedColor = data['colorCode'] ?? 0xFF1E88E5;
+
+      // 🌟 [고도화 2차] DB에서 옵션 불러오기 (기존 스위치 데이터 호환 처리 포함)
+      if (data['routeIncludeType'] != null) {
+        _routeIncludeType = data['routeIncludeType'];
+      } else if (data['isRouteIncluded'] != null) {
+        // 예전 스위치 방식(true/false)으로 저장된 데이터 호환
+        _routeIncludeType = data['isRouteIncluded'] ? 'all' : 'none';
+      } else {
+        _routeIncludeType = 'all'; // 기본값
+      }
 
       if (data['buildingName'] != null) {
         _isBuildingSelected = true;
@@ -745,6 +783,41 @@ class _AddScheduleDialogState extends State<_AddScheduleDialog> {
                       child: _buildColorPicker(),
                     ),
                     const SizedBox(height: 24),
+
+                    // 🌟 [고도화 2차] 기간 일정일 때만 '경로 관리 표시 방식' 드롭다운 노출
+                    if (!DateUtils.isSameDay(_startDate, _endDate)) ...[
+                      const Text("경로 관리(지도) 표시 설정", style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.textSub)),
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: AppTheme.borderColor),
+                        ),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            value: _routeIncludeType,
+                            isExpanded: true,
+                            icon: const Icon(Icons.arrow_drop_down, color: AppTheme.textSub),
+                            items: const [
+                              DropdownMenuItem(value: 'all', child: Text("매일 방문 (기간 내내 지도에 표시)")),
+                              DropdownMenuItem(value: 'first', child: Text("첫날만 방문 (시작일에만 지도에 표시)")),
+                              DropdownMenuItem(value: 'none', child: Text("방문 안 함 (지도에 표시 안 함)")),
+                            ],
+                            onChanged: (String? newValue) {
+                              if (newValue != null) {
+                                setState(() {
+                                  _routeIncludeType = newValue;
+                                  _hasChanges = true;
+                                });
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                    ],
 
                     const Divider(thickness: 1, color: AppTheme.borderColor),
                     const SizedBox(height: 12),
@@ -956,6 +1029,7 @@ class _AddScheduleDialogState extends State<_AddScheduleDialog> {
       'buildingName': _isBuildingSelected ? _selectedBuilding!['name'] : null,
       'buildingAddress': _isBuildingSelected ? _selectedBuilding!['address'] : null,
       'buildingId': _isBuildingSelected ? _selectedBuilding!['docId'] : null,
+      'routeIncludeType': _routeIncludeType, // 🌟 [고도화 2차] 표시 방식 옵션 저장
     };
 
     scheduleData['lastModifierUid'] = user.uid;

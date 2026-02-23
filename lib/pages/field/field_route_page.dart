@@ -55,6 +55,8 @@ class FieldRoutePageState extends State<FieldRoutePage> with AutomaticKeepAliveC
   );
 
   List<BuildingLoc> visitList = [];
+  List<BuildingLoc> _originalList = [];
+  int _currentOptMode = 0;
   bool _isLoading = false;
   final String _webMapId = "naver-map-view-unique";
 
@@ -332,28 +334,31 @@ class FieldRoutePageState extends State<FieldRoutePage> with AutomaticKeepAliveC
       for (var doc in snapshot.docs) {
         var data = doc.data() as Map<String, dynamic>;
 
-        // [수정] 업무보고 상태(완료 여부)는 체크하지 않음 (대표님 요청사항 반영)
-        // String status = data['status'] ?? 'pending';
-        // if (status == 'completed' || status == 'canceled') continue;
-
-        // 날짜 데이터 가져오기
         DateTime? startDate = (data['startDate'] as Timestamp?)?.toDate();
-        // 기간 설정이 없는 구 데이터 호환
         DateTime? date = (data['date'] as Timestamp?)?.toDate();
-
-        // startDate가 없으면 date(단일 날짜) 사용
         startDate ??= date;
 
         if (startDate == null) continue;
 
-        // 시간 정보 제거 (년, 월, 일만 비교하기 위함)
+        DateTime endDate = (data['endDate'] as Timestamp?)?.toDate() ?? startDate;
+
         DateTime today = DateTime.now();
         DateTime checkDay = DateTime(today.year, today.month, today.day);
         DateTime startDay = DateTime(startDate.year, startDate.month, startDate.day);
+        DateTime endDay = DateTime(endDate.year, endDate.month, endDate.day);
 
-        // ✅ [핵심 수정] "기간(Start~End)"이 아니라 "시작일(StartDay)"이 오늘과 같은지만 확인!
-        // 이렇게 하면 일정관리(달력)와 똑같이 시작하는 날에만 경로에 뜹니다.
-        if (!checkDay.isAtSameMomentAs(startDay)) continue;
+        // 🌟 [고도화 2차] 경로 관리 표시 방식 (all, first, none) 검사!
+        String routeIncludeType = data['routeIncludeType'] ?? (data['isRouteIncluded'] == false ? 'none' : 'all');
+
+        if (routeIncludeType == 'none') {
+          continue; // "방문 안 함"이면 무조건 패스
+        } else if (routeIncludeType == 'first') {
+          // "첫날만 방문"인데, 오늘이 시작일(startDay)이 아니면 패스
+          if (!checkDay.isAtSameMomentAs(startDay)) continue;
+        }
+
+        // 오늘이 '시작일 ~ 종료일' 사이에 포함되는지 완벽 검사
+        if (checkDay.isBefore(startDay) || checkDay.isAfter(endDay)) continue;
 
         int? savedOrder = data['visitOrder'];
         if (savedOrder != null) {
@@ -386,9 +391,24 @@ class FieldRoutePageState extends State<FieldRoutePage> with AutomaticKeepAliveC
 
       if (mounted) {
         if (checkDiffOnly) {
-          Set<String> currentIds = visitList.map((e) => e.docId).toSet();
-          Set<String> newIds = fetchedList.map((e) => e.docId).toSet();
-          bool hasChanges = currentIds.length != newIds.length || !currentIds.containsAll(newIds);
+          bool hasChanges = false;
+          Set<String> currentIds = visitList.map((e) => e.docId ?? '').toSet();
+          Set<String> newIds = fetchedList.map((e) => e.docId ?? '').toSet();
+
+          if (currentIds.length != newIds.length || !currentIds.containsAll(newIds)) {
+            hasChanges = true;
+          } else {
+            for (var newLoc in fetchedList) {
+              var existing = visitList.firstWhere(
+                      (e) => e.docId == newLoc.docId,
+                  orElse: () => BuildingLoc(name: 'dummy', address: '', lat: 0, lng: 0, docId: 'dummy') // 에러 났던 부분 수정 완료
+              );
+              if (existing.name != newLoc.name || existing.address != newLoc.address) {
+                hasChanges = true;
+                break;
+              }
+            }
+          }
 
           if (hasChanges) {
             showDialog(
@@ -432,6 +452,7 @@ class FieldRoutePageState extends State<FieldRoutePage> with AutomaticKeepAliveC
         } else {
           setState(() {
             visitList = fetchedList;
+            _originalList = List.from(fetchedList);
             if (isUnlockAction) {
               _isRouteLocked = false;
             } else if (hasSavedRoute) {
@@ -463,31 +484,39 @@ class FieldRoutePageState extends State<FieldRoutePage> with AutomaticKeepAliveC
     return null;
   }
 
-  Future<void> _optimizeRoute() async {
+  // =======================================================
+  // 🌟 [경로 최적화 엔진 고도화] 핵심 3가지 모드만 지원
+  // =======================================================
+  Future<void> _runOptimization(int mode) async {
     if (visitList.isEmpty) return;
 
-    BuildingLoc startPoint;
+    // 🌟 [옵션 3] 초기화(원상복구) 모드
+    if (mode == 3) {
+      setState(() {
+        visitList = List.from(_originalList);
+        _currentOptMode = 0;
+      });
+      if (kIsWeb) _injectWebMapAndMarkers(); else _updateAppMarkers();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("초기 경로로 복구되었습니다. ↩️")));
+      return;
+    }
 
+    // 내 위치(출발지) 가져오기
+    BuildingLoc startPoint;
     if (kIsWeb) {
       startPoint = company;
     } else {
       try {
         LocationPermission permission = await Geolocator.checkPermission();
-        if (permission == LocationPermission.denied) {
-          permission = await Geolocator.requestPermission();
-        }
-        if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
-          startPoint = company;
-          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("위치 권한이 없어 본사 기준으로 계산합니다.")));
-        } else {
-          Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
-          startPoint = BuildingLoc(name: '내 위치', address: '', lat: position.latitude, lng: position.longitude, docId: 'current');
-        }
-      } catch (e) {
-        startPoint = company;
-      }
+        if (permission == LocationPermission.denied) permission = await Geolocator.requestPermission();
+        Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+        startPoint = BuildingLoc(name: '내 위치', address: '', lat: position.latitude, lng: position.longitude, docId: 'current');
+      } catch (e) { startPoint = company; }
     }
 
+    List<BuildingLoc> optimizedPath = [];
+
+    // 🌟 [옵션 1 & 2] AI 둥글게 돌기 (시계 / 반시계)
     List<BuildingLoc> draftPath = List.from(visitList);
     draftPath.sort((a, b) {
       double angleA = atan2(a.lat - startPoint.lat, a.lng - startPoint.lng);
@@ -495,13 +524,25 @@ class FieldRoutePageState extends State<FieldRoutePage> with AutomaticKeepAliveC
       return angleA.compareTo(angleB);
     });
 
-    List<BuildingLoc> optimizedPath = _applyTwoOpt(draftPath, startPoint);
+    optimizedPath = _applyTwoOpt(draftPath, startPoint);
 
-    setState(() => visitList = optimizedPath);
+    if (mode == 2) {
+      optimizedPath = optimizedPath.reversed.toList();
+    }
+
+    setState(() {
+      visitList = optimizedPath;
+      _currentOptMode = mode;
+    });
     if (kIsWeb) _injectWebMapAndMarkers(); else _updateAppMarkers();
 
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("이상적인 경로로 재정렬되었습니다! (원형) 🚀")));
+    String msg = mode == 1 ? "AI 최적화 (시계방향) 완료! 🔄" : "AI 최적화 (반시계방향) 완료! 🔄";
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
+
+  // =======================================================
+  // --- 최적화용 수학 계산 함수들 ---
+  // =======================================================
 
   List<BuildingLoc> _applyTwoOpt(List<BuildingLoc> path, BuildingLoc startNode) {
     List<BuildingLoc> newPath = List.from(path);
@@ -526,24 +567,18 @@ class FieldRoutePageState extends State<FieldRoutePage> with AutomaticKeepAliveC
     BuildingLoc pC = path[k];
     BuildingLoc pD = (k == path.length - 1) ? path[k] : path[k + 1];
 
-    double currentDist = _calcDist(pA.lat, pA.lng, pB.lat, pB.lng) + _calcDist(pC.lat, pC.lng, pD.lat, pD.lng);
-    double newDist = _calcDist(pA.lat, pA.lng, pC.lat, pC.lng) + _calcDist(pB.lat, pB.lng, pD.lat, pD.lng);
-    return newDist < currentDist;
+    return (_calcDist(pA.lat, pA.lng, pC.lat, pC.lng) + _calcDist(pB.lat, pB.lng, pD.lat, pD.lng)) <
+        (_calcDist(pA.lat, pA.lng, pB.lat, pB.lng) + _calcDist(pC.lat, pC.lng, pD.lat, pD.lng));
   }
 
   void _swapSegments(List<BuildingLoc> path, int i, int k) {
     List<BuildingLoc> subList = path.sublist(i, k + 1);
-    List<BuildingLoc> reversedSub = subList.reversed.toList();
-    for (int idx = 0; idx < reversedSub.length; idx++) {
-      path[i + idx] = reversedSub[idx];
-    }
+    path.replaceRange(i, k + 1, subList.reversed.toList());
   }
 
   double _calcDist(double lat1, double lon1, double lat2, double lon2) {
     var p = 0.017453292519943295;
-    var c = cos;
-    var a = 0.5 - c((lat2 - lat1) * p) / 2 + c(lat1 * p) * c(lat2 * p) * (1 - c((lon2 - lon1) * p)) / 2;
-    return 12742 * asin(sqrt(a));
+    return 12742 * asin(sqrt(0.5 - cos((lat2 - lat1) * p) / 2 + cos(lat1 * p) * cos(lat2 * p) * (1 - cos((lon2 - lon1) * p)) / 2));
   }
 
   Future<void> _launchMultiStopNavi() async {
@@ -771,13 +806,46 @@ class FieldRoutePageState extends State<FieldRoutePage> with AutomaticKeepAliveC
             },
           ),
 
-          // 경로 최적화 버튼
+          // 🌟 [고도화] 경로 최적화 드롭다운 팝업 버튼 (상태 표시 연동)
           if (!_isRouteLocked)
-            TextButton.icon(
-              onPressed: visitList.length < 2 ? null : _optimizeRoute,
-              icon: const Icon(Icons.auto_awesome, size: 18),
-              label: const Text("경로최적화"),
-              style: TextButton.styleFrom(foregroundColor: AppTheme.primaryColor),
+            Builder(
+                builder: (context) {
+                  String btnText = "경로최적화";
+                  IconData btnIcon = Icons.auto_awesome;
+                  Color btnColor = AppTheme.primaryColor;
+
+                  // 가까운 순이 빠졌으므로 1과 2만 체크합니다.
+                  if (_currentOptMode == 1) { btnText = "시계방향"; btnIcon = Icons.rotate_right; btnColor = Colors.blue; }
+                  else if (_currentOptMode == 2) { btnText = "반시계"; btnIcon = Icons.rotate_left; btnColor = Colors.blue; }
+
+                  bool isEnabled = visitList.length >= 2;
+                  if (!isEnabled) btnColor = Colors.grey;
+
+                  return PopupMenuButton<int>(
+                    tooltip: "경로 최적화 옵션",
+                    enabled: isEnabled,
+                    onSelected: (int mode) => _runOptimization(mode),
+                    position: PopupMenuPosition.under,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      child: Row(
+                        children: [
+                          Icon(btnIcon, size: 18, color: btnColor),
+                          const SizedBox(width: 4),
+                          Text(btnText, style: TextStyle(color: btnColor, fontWeight: FontWeight.bold)),
+                          Icon(Icons.arrow_drop_down, size: 18, color: btnColor),
+                        ],
+                      ),
+                    ),
+                    itemBuilder: (context) => [
+                      const PopupMenuItem(value: 1, child: Row(children: [Icon(Icons.rotate_right, color: Colors.blue, size: 20), SizedBox(width: 10), Text("AI 최적화 (시계방향)", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600))])),
+                      const PopupMenuItem(value: 2, child: Row(children: [Icon(Icons.rotate_left, color: Colors.blue, size: 20), SizedBox(width: 10), Text("AI 최적화 (반시계방향)", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600))])),
+                      const PopupMenuDivider(),
+                      const PopupMenuItem(value: 3, child: Row(children: [Icon(Icons.restore, color: Colors.redAccent, size: 20), SizedBox(width: 10), Text("초기화 (최초 경로 복구)", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.redAccent))])),
+                    ],
+                  );
+                }
             ),
 
           // 경로 저장/해제 버튼

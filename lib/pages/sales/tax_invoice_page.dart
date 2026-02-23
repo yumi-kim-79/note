@@ -302,6 +302,12 @@ class _TaxInvoicePageState extends State<TaxInvoicePage> {
           if (pDate != null) {
             if (fileDetectedYear == -1) { fileDetectedYear = pDate.year; fileDetectedMonth = pDate.month; }
             if (pDate.isBefore(targetStart) || pDate.isAfter(targetEnd)) continue;
+
+            // 🌟 [고도화] 날짜를 YYYY-MM-DD 형태로 예쁘게 만들고, 다음 달이면 [익월] 태그를 붙입니다!
+            publishDate = "${pDate.year}-${pDate.month.toString().padLeft(2, '0')}-${pDate.day.toString().padLeft(2, '0')}";
+            if (pDate.month != _selectedMonth) {
+              publishDate = "[익월] $publishDate";
+            }
           } else { continue; }
 
           String amountStr = cols[amountIdx].replaceAll(RegExp(r'[",원\s]'), '');
@@ -596,16 +602,13 @@ class _TaxInvoicePageState extends State<TaxInvoicePage> {
           }
 
           if (matchedSubset.length >= 2) {
-            // 🌟 4. 찾은 조각들을 하나의 가상 영수증으로 예쁘게 뭉쳐줍니다.
-            String combinedDates = matchedSubset.map((e) => e.publishDate.length >= 8 ? e.publishDate.substring(4) : e.publishDate).toSet().join(', ');
-            if (combinedDates.length > 20) combinedDates = "${combinedDates.substring(0, 18)}...";
+            // 🌟 4. 합산된 가상 영수증 생성 (글자 수 제한을 없애서 날짜 짤림 현상 완벽 제거!)
+            String combinedDates = matchedSubset.map((e) => e.publishDate).toSet().join(', ');
 
-            // 🌟 [최종 고도화] 날짜를 2025-12-15 형태로 변환하고, 엑셀 출력을 고려해 상세히 기록합니다.
             String detailedRemark = matchedSubset.map((e) {
-              String d = e.publishDate.replaceAll(RegExp(r'[^0-9]'), ''); // 숫자만 추출
-              String dateFormatted = d.length >= 8 ? "${d.substring(0,4)}-${d.substring(4,6)}-${d.substring(6,8)}" : e.publishDate;
-              return "[$dateFormatted] ${_formatCurrency(e.amount)}원 (승인:${e.authNum})";
-            }).join('\n\n'); // 팝업용으로는 줄바꿈 유지 (엑셀용은 다운로드 시 변환)
+              // 🌟 이미 정제된 publishDate를 그대로 사용하여 [익월] 태그가 유지되게 합니다.
+              return "[${e.publishDate}] ${_formatCurrency(e.amount)}원 (승인:${e.authNum})";
+            }).join('\n\n');
 
             InvoiceData virtualNts = InvoiceData(
               category: '국세청자료',
@@ -767,6 +770,8 @@ class _TaxInvoicePageState extends State<TaxInvoicePage> {
   }
 
   void _showNtsDetails(InvoiceData data) {
+    bool hasNextMonth = data.publishDate.contains('[익월]'); // 🌟 팝업에서도 익월 감지
+
     showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -776,11 +781,12 @@ class _TaxInvoicePageState extends State<TaxInvoicePage> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 _buildDetailRow("상호명", data.companyName),
-                _buildDetailRow("승인번호", data.authNum), // 🌟 [추가됨] 승인번호 줄 추가
+                _buildDetailRow("승인번호", data.authNum),
                 _buildDetailRow("사업자번호", data.bizNum),
                 _buildDetailRow("대표자명", data.repName),
                 _buildDetailRow("주소", data.address), _buildDetailRow("이메일", data.email), _buildDetailRow("구분", data.receiptType),
-                _buildDetailRow("발행일자", data.publishDate), _buildDetailRow("품목명", data.itemName), _buildDetailRow("비고", data.remark),
+                _buildDetailRow("발행일자", data.publishDate, valueColor: hasNextMonth ? Colors.redAccent : null), // 🌟 익월이면 발행일자를 빨간색으로!
+                _buildDetailRow("품목명", data.itemName), _buildDetailRow("비고", data.remark),
                 const Divider(height: 24), _buildDetailRow("발행금액(합계)", "${_formatCurrency(data.amount)}원", isHighlight: true),
               ],
             ),
@@ -791,12 +797,13 @@ class _TaxInvoicePageState extends State<TaxInvoicePage> {
     );
   }
 
-  Widget _buildDetailRow(String label, String value, {bool isHighlight = false}) {
+  Widget _buildDetailRow(String label, String value, {bool isHighlight = false, Color? valueColor}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         SizedBox(width: 90, child: Text(label, style: const TextStyle(color: Colors.grey, fontSize: 13))),
-        Expanded(child: Text(value, style: TextStyle(fontWeight: isHighlight ? FontWeight.bold : FontWeight.w500, color: isHighlight ? Colors.blue : Colors.black87, fontSize: 14))),
+        // 🌟 valueColor 옵션을 추가하여 특정 글자를 빨갛게 칠할 수 있도록 확장
+        Expanded(child: Text(value, style: TextStyle(fontWeight: isHighlight || valueColor != null ? FontWeight.bold : FontWeight.w500, color: valueColor ?? (isHighlight ? Colors.blue : Colors.black87), fontSize: 14))),
       ]),
     );
   }
@@ -1167,10 +1174,27 @@ class _TaxInvoicePageState extends State<TaxInvoicePage> {
 
   Widget _buildCompanyNameCell(MatchResult result) {
     bool isNameDiff = (result.internalData?.companyName != result.ntsData?.companyName);
+    bool hasNextMonth = result.ntsData?.publishDate.contains('[익월]') ?? false; // 🌟 익월 태그 감지
+
     return Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
       Row(children: [Container(padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2), color: Colors.blue.withValues(alpha:0.1), child: const Text("우리", style: TextStyle(fontSize: 11, color: Colors.blue, fontWeight: FontWeight.bold))), const SizedBox(width: 8), Expanded(child: Text(result.internalData?.companyName ?? '(없음)', style: const TextStyle(fontWeight: FontWeight.w500, height: 1.5), overflow: TextOverflow.ellipsis))]),
       const SizedBox(height: 6),
-      Row(children: [Container(padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2), color: Colors.red.withValues(alpha:0.1), child: const Text("국세", style: TextStyle(fontSize: 11, color: Colors.red, fontWeight: FontWeight.bold))), const SizedBox(width: 8), Expanded(child: RichText(overflow: TextOverflow.ellipsis, text: TextSpan(children: [TextSpan(text: result.ntsData?.companyName ?? '(없음)', style: TextStyle(fontSize: 14, height: 1.5, color: (isNameDiff && result.ntsData != null) ? Colors.red : Colors.black87)), if (result.ntsData != null) TextSpan(text: "  [작성일: ${result.ntsData!.publishDate}]", style: const TextStyle(fontSize: 12, color: Colors.black54))])))]),
+      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [ // 🌟 여러 줄을 대비해 위쪽 정렬
+        Container(padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2), color: Colors.red.withValues(alpha:0.1), child: const Text("국세", style: TextStyle(fontSize: 11, color: Colors.red, fontWeight: FontWeight.bold))),
+        const SizedBox(width: 8),
+        Expanded(
+            child: RichText(
+              // 🌟 overflow: TextOverflow.ellipsis 속성을 과감히 지워서 4건 이상 합쳐져도 글자가 아랫줄로 넘어가며 전부 보이게 만듭니다!
+                text: TextSpan(children: [
+                  TextSpan(text: result.ntsData?.companyName ?? '(없음)', style: TextStyle(fontSize: 14, height: 1.5, color: (isNameDiff && result.ntsData != null) ? Colors.red : Colors.black87)),
+                  if (result.ntsData != null) TextSpan(
+                      text: "  [작성일: ${result.ntsData!.publishDate}]",
+                      style: TextStyle(fontSize: 12, color: hasNextMonth ? Colors.redAccent : Colors.black54, fontWeight: hasNextMonth ? FontWeight.bold : FontWeight.normal) // 🌟 익월이면 빨간색 굵은 글씨로 강조
+                  )
+                ])
+            )
+        )
+      ]),
     ]);
   }
 
