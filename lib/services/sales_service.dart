@@ -12,7 +12,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart'; // kIsWeb 체크용
 import 'package:image_picker/image_picker.dart'; // XFile 사용
-import 'notification_service.dart';  // ✅ [추가] 알림 기능을 쓰기 위해 가져옵니다.
+import 'notification_service.dart'; // ✅ [추가] 알림 기능을 쓰기 위해 가져옵니다.
+import '../../main.dart';           // 🌟 [고도화 추가] GlobalUserState(스마트 캐싱)를 가져옵니다.
 
 class SalesService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -121,12 +122,8 @@ class SalesService {
     final user = _auth.currentUser;
     if (user == null) return;
 
-    DocumentSnapshot userDoc = await _firestore.collection('users').doc(user.uid).get();
-    Map<String, dynamic> userData = userDoc.data() as Map<String, dynamic>? ?? {};
-
-    String name = userData['name'] ?? '사용자';
-    String rank = userData['rank'] ?? '';
-    String authorDisplayName = rank.isNotEmpty ? "$name $rank" : name;
+    // 🌟 [핵심 고도화] DB를 뒤지지 않고(0초 딜레이), 앱이 켜질 때 쥐고 있던 내 이름을 바로 꺼내 씁니다.
+    String authorDisplayName = GlobalUserState.fullName;
 
     await _firestore.collection('sales_notes').add({
       'uid': user.uid,
@@ -206,13 +203,24 @@ class SalesService {
   }
 
   // ===============================================================
-  // [3] 공지사항 (Notice) - 100% 기존 유지
+  // [3] 공지사항 (Notice) - 100% 기존 유지 + 전체 알림 고도화
   // ===============================================================
   Future<void> addNotice({required String title, required String content, String imageUrl = ""}) async {
     await _firestore.collection('notices').add({
       'title': title, 'content': content, 'imageUrl': imageUrl,
       'createdAt': FieldValue.serverTimestamp(),
     });
+
+    // 🌟 [고도화 추가] 공지사항 등록 시 전체 직원에게 강력한 알림 발송!
+    try {
+      await NotificationService().sendBroadcastNotification(
+        title: '📢 새로운 공지사항',
+        body: title,
+        type: 'notice', // 뱃지 및 클릭 시 공지사항 탭으로 이동
+      );
+    } catch (e) {
+      print("🔔 공지사항 알림 생성 실패: $e");
+    }
   }
 
   Stream<QuerySnapshot> getNoticesStream() {
@@ -308,18 +316,9 @@ class SalesService {
     final user = _auth.currentUser;
     if (user == null) return;
 
-    String authorName = "직원";
-    try {
-      DocumentSnapshot userDoc = await _firestore.collection('users').doc(user.uid).get();
-      if (userDoc.exists) {
-        Map<String, dynamic> userData = userDoc.data() as Map<String, dynamic>;
-        String name = userData['name'] ?? '사용자';
-        String rank = userData['rank'] ?? '';
-        authorName = rank.isNotEmpty ? "$name $rank" : name;
-      }
-    } catch (e) {
-      print("작성자 정보 로드 실패: $e");
-    }
+    // 🌟 [핵심 고도화] 통신 불량 시 '직원'으로 뜨던 현상의 원흉(try-catch)을 아예 제거했습니다.
+    // 무조건 폰 메모리에 있는 내 정확한 이름을 가져옵니다.
+    String authorName = GlobalUserState.fullName;
 
     await _firestore.collection('chats').add({
       'uid': user.uid,

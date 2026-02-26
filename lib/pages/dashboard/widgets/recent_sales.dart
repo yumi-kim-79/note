@@ -11,6 +11,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart'; // ✅ 인증 정보 확인용
 import 'package:intl/intl.dart';
 import '../../../services/sales_service.dart';
+import '../../../main.dart'; // 🌟 [고도화 추가] GlobalUserState(스마트 캐싱)를 가져옵니다.
 
 // ✅ 디자인 시스템 import
 import '../../../theme/app_theme.dart';
@@ -32,8 +33,8 @@ class _RecentSalesState extends State<RecentSales> {
 
   @override
   Widget build(BuildContext context) {
-    // ✅ 현재 로그인한 사용자 정보 가져오기 (비공개 글 필터링용)
-    final user = FirebaseAuth.instance.currentUser;
+    // 🌟 [핵심 고도화] 매번 Auth 모듈을 깨우는 대신, 폰 메모리에 있는 내 UID를 0초 만에 꺼내옵니다.
+    final String myUid = GlobalUserState.uid;
     // ✅ PC/모바일 환경 구분 (에러 방지용 핵심 변수)
     final bool isMobile = MediaQuery.of(context).size.width < 900;
 
@@ -59,8 +60,8 @@ class _RecentSalesState extends State<RecentSales> {
 
               // 공개 글이면 무조건 통과
               if (!isPrivate) return true;
-              // 비공개 글이면 작성자(uid)와 현재 접속자(user.uid)가 같을 때만 통과
-              return authorUid == user?.uid;
+              // 🌟 [고도화 적용] 비공개 글이면 작성자와 내 메모리 속 UID가 같을 때만 통과
+              return authorUid == myUid;
             }).toList();
 
             if (allDocs.isEmpty) {

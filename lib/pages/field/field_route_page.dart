@@ -18,6 +18,7 @@ import 'package:intl/intl.dart';
 import 'package:geolocator/geolocator.dart';
 import 'dart:async'; // Completer 사용
 import 'package:flutter/services.dart'; // 📋 클립보드 복사 기능용
+import '../../main.dart'; // 🌟 [고도화 추가] GlobalUserState(스마트 캐싱)를 가져옵니다.
 
 // 네이버 지도 패키지 (앱용)
 import 'package:flutter_naver_map/flutter_naver_map.dart';
@@ -34,6 +35,9 @@ import 'package:universal_html/html.dart' as html;
 
 class FieldRoutePage extends StatefulWidget {
   const FieldRoutePage({super.key});
+
+  // 🌟 [핵심 고도화] 외부(하단 메뉴바)에서도 경로 변경 상태를 확인할 수 있도록 전역 변수(static)로 격상!
+  static bool globalHasUnsavedChanges = false;
 
   @override
   State<FieldRoutePage> createState() => FieldRoutePageState();
@@ -62,6 +66,40 @@ class FieldRoutePageState extends State<FieldRoutePage> with AutomaticKeepAliveC
 
   bool _isRouteLocked = false;
   bool _returnToOffice = true;
+
+  // ✅ _hasUnsavedChanges 대신 이제 FieldRoutePage.globalHasUnsavedChanges 를 사용합니다.
+  bool get _hasUnsavedChanges => FieldRoutePage.globalHasUnsavedChanges;
+  set _hasUnsavedChanges(bool value) => FieldRoutePage.globalHasUnsavedChanges = value; // ✅ [추가] 저장되지 않은 변경사항이 있는지 확인하는 변수
+
+  // ✅ [추가] 뒤로 가기 시 띄울 경고 팝업 함수
+  Future<bool> _showExitWarningDialog() async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.white,
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.orange),
+            SizedBox(width: 8),
+            Text("저장되지 않은 변경사항", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          ],
+        ),
+        content: const Text("경로가 변경되었지만 저장되지 않았습니다.\n저장하지 않고 그냥 나가시겠습니까?", style: TextStyle(height: 1.4)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false), // 안 나감
+            child: const Text("아니오 (저장할게요)", style: TextStyle(color: AppTheme.primaryColor, fontWeight: FontWeight.bold)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true), // 나감
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text("예 (그냥 나감)"),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
 
   // 외부에서 호출 가능한 새로고침 함수
   void refreshRoute() {
@@ -453,6 +491,7 @@ class FieldRoutePageState extends State<FieldRoutePage> with AutomaticKeepAliveC
           setState(() {
             visitList = fetchedList;
             _originalList = List.from(fetchedList);
+            _hasUnsavedChanges = false; // ✅ 데이터 로드 시 변경사항 초기화
             if (isUnlockAction) {
               _isRouteLocked = false;
             } else if (hasSavedRoute) {
@@ -533,6 +572,7 @@ class FieldRoutePageState extends State<FieldRoutePage> with AutomaticKeepAliveC
     setState(() {
       visitList = optimizedPath;
       _currentOptMode = mode;
+      _hasUnsavedChanges = true; // ✅ AI 최적화 시 변경 발생
     });
     if (kIsWeb) _injectWebMapAndMarkers(); else _updateAppMarkers();
 
@@ -646,16 +686,9 @@ class FieldRoutePageState extends State<FieldRoutePage> with AutomaticKeepAliveC
     DateTime now = DateTime.now();
     DateTime todayStart = DateTime(now.year, now.month, now.day);
 
-    String authorName = "직원";
-    try {
-      var userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-      if (userDoc.exists) {
-        var userData = userDoc.data()!;
-        authorName = "${userData['name']} ${userData['rank']}".trim();
-      }
-    } catch(e) {
-      print("사용자 정보 로드 실패: $e");
-    }
+    // 🌟 [핵심 고도화] DB 조회 지연 및 '직원' 닉네임 에러 원인 제거!
+    // 폰 메모리에서 내 이름을 0초 만에 가져옵니다.
+    String authorName = GlobalUserState.fullName;
 
     List<BuildingLoc> updatedList = List.from(visitList);
 
@@ -708,6 +741,7 @@ class FieldRoutePageState extends State<FieldRoutePage> with AutomaticKeepAliveC
 
     setState(() {
       visitList = updatedList;
+      _hasUnsavedChanges = false; // ✅ 경로 저장 완료 시 변경사항 초기화
     });
 
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("경로 및 추가 방문지가 저장되었습니다.")));
@@ -750,6 +784,7 @@ class FieldRoutePageState extends State<FieldRoutePage> with AutomaticKeepAliveC
             if (coord != null) {
               setState(() {
                 visitList.add(BuildingLoc(name: name, address: address, lat: coord['lat']!, lng: coord['lng']!, docId: docId));
+                _hasUnsavedChanges = true; // ✅ 방문지 추가 시 변경 발생
               });
               if (kIsWeb) _injectWebMapAndMarkers(); else _updateAppMarkers();
               Navigator.pop(context);
@@ -784,277 +819,306 @@ class FieldRoutePageState extends State<FieldRoutePage> with AutomaticKeepAliveC
       );
     }
 
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        title: const Text("경로 관리 (AI)", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black)), // 텍스트도 검은색 강제
+    // ✅ [수정완료] PopScope 괄호 닫기 완벽 적용
+    return PopScope(
+      canPop: !_hasUnsavedChanges, // 변경사항이 없으면 바로 나갈 수 있음
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return; // 이미 나갔으면 무시
+
+        if (_hasUnsavedChanges) {
+          final bool shouldLeave = await _showExitWarningDialog();
+          if (shouldLeave && context.mounted) {
+            // "예(그냥 나감)"을 선택한 경우: 강제로 나갈 수 있게 상태 변경 후 pop 실행
+            setState(() => _hasUnsavedChanges = false);
+            Navigator.pop(context);
+          }
+        }
+      },
+      child: Scaffold(
         backgroundColor: Colors.white,
-        elevation: 1,
-        iconTheme: const IconThemeData(color: Colors.black), // 뒤로가기 버튼 등 기본 아이콘 검은색
-        actions: [
-          // 🔄 [수정됨] 새로고침 버튼: 크기 30, 색상 검정색(Colors.black) 강제 적용
-          IconButton(
-            icon: const Icon(Icons.refresh, color: Colors.black, size: 30),
-            onPressed: () {
-              if (kIsWeb) {
-                // 웹인 경우 JS 지도 재주입
-                _injectWebMapAndMarkers();
-              } else {
-                // 앱인 경우 데이터 리로드 및 마커 갱신
-                refreshRoute();
-              }
-            },
-          ),
-
-          // 🌟 [고도화] 경로 최적화 드롭다운 팝업 버튼 (상태 표시 연동)
-          if (!_isRouteLocked)
-            Builder(
-                builder: (context) {
-                  String btnText = "경로최적화";
-                  IconData btnIcon = Icons.auto_awesome;
-                  Color btnColor = AppTheme.primaryColor;
-
-                  // 가까운 순이 빠졌으므로 1과 2만 체크합니다.
-                  if (_currentOptMode == 1) { btnText = "시계방향"; btnIcon = Icons.rotate_right; btnColor = Colors.blue; }
-                  else if (_currentOptMode == 2) { btnText = "반시계"; btnIcon = Icons.rotate_left; btnColor = Colors.blue; }
-
-                  bool isEnabled = visitList.length >= 2;
-                  if (!isEnabled) btnColor = Colors.grey;
-
-                  return PopupMenuButton<int>(
-                    tooltip: "경로 최적화 옵션",
-                    enabled: isEnabled,
-                    onSelected: (int mode) => _runOptimization(mode),
-                    position: PopupMenuPosition.under,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      child: Row(
-                        children: [
-                          Icon(btnIcon, size: 18, color: btnColor),
-                          const SizedBox(width: 4),
-                          Text(btnText, style: TextStyle(color: btnColor, fontWeight: FontWeight.bold)),
-                          Icon(Icons.arrow_drop_down, size: 18, color: btnColor),
-                        ],
-                      ),
-                    ),
-                    itemBuilder: (context) => [
-                      const PopupMenuItem(value: 1, child: Row(children: [Icon(Icons.rotate_right, color: Colors.blue, size: 20), SizedBox(width: 10), Text("AI 최적화 (시계방향)", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600))])),
-                      const PopupMenuItem(value: 2, child: Row(children: [Icon(Icons.rotate_left, color: Colors.blue, size: 20), SizedBox(width: 10), Text("AI 최적화 (반시계방향)", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600))])),
-                      const PopupMenuDivider(),
-                      const PopupMenuItem(value: 3, child: Row(children: [Icon(Icons.restore, color: Colors.redAccent, size: 20), SizedBox(width: 10), Text("초기화 (최초 경로 복구)", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.redAccent))])),
-                    ],
-                  );
+        appBar: AppBar(
+          title: const Text("경로 관리 (AI)", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black)), // 텍스트도 검은색 강제
+          backgroundColor: Colors.white,
+          elevation: 1,
+          iconTheme: const IconThemeData(color: Colors.black), // 뒤로가기 버튼 등 기본 아이콘 검은색
+          actions: [
+            // 🔄 새로고침 버튼: 크기 30, 색상 검정색(Colors.black) 강제 적용
+            IconButton(
+              icon: const Icon(Icons.refresh, color: Colors.black, size: 30),
+              onPressed: () {
+                if (kIsWeb) {
+                  // 웹인 경우 JS 지도 재주입
+                  _injectWebMapAndMarkers();
+                } else {
+                  // 앱인 경우 데이터 리로드 및 마커 갱신
+                  refreshRoute();
                 }
+              },
             ),
 
-          // 경로 저장/해제 버튼
-          if (!_isRouteLocked)
-            TextButton.icon(
-              onPressed: visitList.isEmpty ? null : _lockRoute,
-              icon: const Icon(Icons.lock_outline, size: 18),
-              label: const Text("경로저장"),
-              style: TextButton.styleFrom(foregroundColor: Colors.grey), // 명확한 회색
-            )
-          else
-            TextButton.icon(
-              onPressed: _unlockRoute,
-              icon: const Icon(Icons.lock_open, size: 18),
-              label: const Text("잠금해제"),
-              style: TextButton.styleFrom(foregroundColor: AppTheme.errorColor),
-            ),
-        ],
-      ),
-      body: Column(
-        children: [
-          // 1. 지도 영역 (화면의 40%)
-          Expanded(
-            flex: 4,
-            child: mapWidget,
-          ),
+            // 🌟 [고도화] 경로 최적화 드롭다운 팝업 버튼 (상태 표시 연동)
+            if (!_isRouteLocked)
+              Builder(
+                  builder: (context) {
+                    String btnText = "경로최적화";
+                    IconData btnIcon = Icons.auto_awesome;
+                    Color btnColor = AppTheme.primaryColor;
 
-          // 2. 하단 리스트 영역 (화면의 60%)
-          Expanded(
-            flex: 6,
-            child: Container(
-              color: const Color(0xFFF5F7FA),
-              child: Column(
-                children: [
-                  // (1) 출발지 정보 + 방문지 추가 버튼
-                  InkWell(
-                    onTap: () => _moveMapTo(company.lat, company.lng),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                      color: Colors.white,
-                      child: Row(
-                        children: [
-                          const Text("🏢", style: TextStyle(fontSize: 28)),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text("출발: ${company.name}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppTheme.textMain)),
-                                Text(company.address, style: const TextStyle(color: AppTheme.textSub, fontSize: 13), overflow: TextOverflow.ellipsis),
-                              ],
-                            ),
-                          ),
-                          // 방문지 추가 버튼 (본사 옆)
-                          ElevatedButton.icon(
-                            onPressed: _showBuildingSearchSheet,
-                            icon: const Icon(Icons.add_location_alt, size: 16),
-                            label: const Text("방문지 추가"),
-                            style: ElevatedButton.styleFrom(
-                                backgroundColor: _isRouteLocked ? Colors.grey : const Color(0xFF1A233A),
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8)
-                            ),
-                          ),
-                        ],
+                    if (_currentOptMode == 1) { btnText = "시계방향"; btnIcon = Icons.rotate_right; btnColor = Colors.blue; }
+                    else if (_currentOptMode == 2) { btnText = "반시계"; btnIcon = Icons.rotate_left; btnColor = Colors.blue; }
+
+                    bool isEnabled = visitList.length >= 2;
+                    if (!isEnabled) btnColor = Colors.grey;
+
+                    return PopupMenuButton<int>(
+                      tooltip: "경로 최적화 옵션",
+                      enabled: isEnabled,
+                      onSelected: (int mode) => _runOptimization(mode),
+                      position: PopupMenuPosition.under,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        child: Row(
+                          children: [
+                            Icon(btnIcon, size: 18, color: btnColor),
+                            const SizedBox(width: 4),
+                            Text(btnText, style: TextStyle(color: btnColor, fontWeight: FontWeight.bold)),
+                            Icon(Icons.arrow_drop_down, size: 18, color: btnColor),
+                          ],
+                        ),
                       ),
-                    ),
+                      itemBuilder: (context) => [
+                        const PopupMenuItem(value: 1, child: Row(children: [Icon(Icons.rotate_right, color: Colors.blue, size: 20), SizedBox(width: 10), Text("AI 최적화 (시계방향)", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600))])),
+                        const PopupMenuItem(value: 2, child: Row(children: [Icon(Icons.rotate_left, color: Colors.blue, size: 20), SizedBox(width: 10), Text("AI 최적화 (반시계방향)", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600))])),
+                        const PopupMenuDivider(),
+                        const PopupMenuItem(value: 3, child: Row(children: [Icon(Icons.restore, color: Colors.redAccent, size: 20), SizedBox(width: 10), Text("초기화 (최초 경로 복구)", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.redAccent))])),
+                      ],
+                    );
+                  }
+              ),
+
+            // 경로 저장/해제 버튼
+            if (!_isRouteLocked)
+              Padding(
+                padding: const EdgeInsets.only(right: 8.0),
+                child: ElevatedButton.icon(
+                  onPressed: visitList.isEmpty ? null : _lockRoute,
+                  icon: const Icon(Icons.lock_outline, size: 16),
+                  label: const Text("경로저장", style: TextStyle(fontWeight: FontWeight.bold)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF03C75A), // ✅ 네이버 시그니처 초록색으로 강조
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
                   ),
+                ),
+              )
+            else
+              TextButton.icon(
+                onPressed: _unlockRoute,
+                icon: const Icon(Icons.lock_open, size: 18),
+                label: const Text("잠금해제"),
+                style: TextButton.styleFrom(foregroundColor: AppTheme.errorColor),
+              ),
+          ],
+        ),
+        body: Column(
+          children: [
+            // 1. 지도 영역 (화면의 40%)
+            Expanded(
+              flex: 4,
+              child: mapWidget,
+            ),
 
-                  if (_isLoading) const LinearProgressIndicator(),
-
-                  // (2) 방문 리스트
-                  Expanded(
-                    child: ReorderableListView.builder(
-                      padding: const EdgeInsets.all(16),
-                      // ✅ [수정됨] 햄버거 버튼이 안 보이는 문제 해결을 위해 buildDefaultDragHandles를 false로 설정하고 직접 핸들을 그림
-                      buildDefaultDragHandles: false,
-                      onReorder: (oldIdx, newIdx) {
-                        if (_isRouteLocked) return;
-                        if (oldIdx < newIdx) newIdx -= 1;
-                        setState(() {
-                          final item = visitList.removeAt(oldIdx);
-                          visitList.insert(newIdx, item);
-                        });
-                        if (kIsWeb) _injectWebMapAndMarkers(); else _updateAppMarkers();
-                      },
-                      itemCount: visitList.length,
-                      itemBuilder: (context, index) {
-                        final building = visitList[index];
-                        return Container(
-                          key: ValueKey(building.uuid),
-                          margin: const EdgeInsets.only(bottom: 8),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: AppTheme.borderColor),
-                            boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 2, offset: Offset(0, 1))],
-                          ),
-                          child: ListTile(
-                            contentPadding: const EdgeInsets.only(left: 16, right: 8, top: 4, bottom: 4),
-                            leading: GestureDetector(
-                              onTap: () => _moveMapTo(building.lat, building.lng),
-                              child: CircleAvatar(
-                                  backgroundColor: AppTheme.errorColor,
-                                  foregroundColor: Colors.white,
-                                  child: Text("${index + 1}", style: const TextStyle(fontWeight: FontWeight.bold))
-                              ),
-                            ),
-                            title: Text(building.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                            subtitle: GestureDetector(
-                              onTap: () {
-                                Clipboard.setData(ClipboardData(text: building.address));
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text("주소가 복사되었습니다. 📋"),
-                                    duration: Duration(seconds: 1),
-                                  ),
-                                );
-                              },
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min, // ⭐️ 핵심: 텍스트 길이만큼만 공간 차지
+            // 2. 하단 리스트 영역 (화면의 60%)
+            Expanded(
+              flex: 6,
+              child: Container(
+                color: const Color(0xFFF5F7FA),
+                child: Column(
+                  children: [
+                    // (1) 출발지 정보 + 방문지 추가 버튼
+                    InkWell(
+                      onTap: () => _moveMapTo(company.lat, company.lng),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                        color: Colors.white,
+                        child: Row(
+                          children: [
+                            const Text("🏢", style: TextStyle(fontSize: 28)),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Flexible( // ⭐️ 핵심: 주소가 길면 말줄임표(...) 처리, 짧으면 딱 그만큼만
-                                    child: Text(
-                                      building.address,
-                                      style: const TextStyle(fontSize: 13, color: AppTheme.textSub),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 4), // 글자와 아이콘 사이 간격 (4px)
-                                  const Icon(Icons.copy, size: 14, color: AppTheme.primaryColor),
+                                  Text("출발: ${company.name}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppTheme.textMain)),
+                                  Text(company.address, style: const TextStyle(color: AppTheme.textSub, fontSize: 13), overflow: TextOverflow.ellipsis),
                                 ],
                               ),
                             ),
+                            // 방문지 추가 버튼 (본사 옆)
+                            ElevatedButton.icon(
+                              onPressed: _showBuildingSearchSheet,
+                              icon: const Icon(Icons.add_location_alt, size: 16),
+                              label: const Text("방문지 추가"),
+                              style: ElevatedButton.styleFrom(
+                                  backgroundColor: _isRouteLocked ? Colors.grey : const Color(0xFF1A233A),
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8)
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
 
-                            // ✅ [수정됨] 우측 끝에 '삭제 버튼'과 '햄버거(드래그) 핸들' 배치
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                // 삭제 버튼 (잠금 상태가 아닐 때만)
-                                if (!_isRouteLocked)
-                                  IconButton(
-                                    icon: const Icon(Icons.close, color: Colors.grey, size: 20),
-                                    onPressed: () {
-                                      setState(() => visitList.removeAt(index));
-                                      if (kIsWeb) _injectWebMapAndMarkers(); else _updateAppMarkers();
-                                    },
-                                  ),
+                    if (_isLoading) const LinearProgressIndicator(),
 
-                                // 🍔 [추가됨] 드래그 핸들 (햄버거 버튼) - 색상 강제 지정 (Colors.black)
-                                if (!_isRouteLocked)
-                                  ReorderableDragStartListener(
-                                    index: index,
-                                    child: const Padding(
-                                      padding: EdgeInsets.only(left: 8.0, right: 8.0),
-                                      child: Icon(Icons.drag_handle, color: Colors.black), // 검은색 햄버거 버튼 강제
+                    // (2) 방문 리스트
+                    Expanded(
+                      child: ReorderableListView.builder(
+                        padding: const EdgeInsets.all(16),
+                        buildDefaultDragHandles: false,
+                        onReorder: (oldIdx, newIdx) {
+                          if (_isRouteLocked) return;
+                          if (oldIdx < newIdx) newIdx -= 1;
+                          setState(() {
+                            final item = visitList.removeAt(oldIdx);
+                            visitList.insert(newIdx, item);
+                            _hasUnsavedChanges = true; // ✅ 순서 바꿨을 때도 저장 경고 켜기
+                          });
+                          if (kIsWeb) _injectWebMapAndMarkers(); else _updateAppMarkers();
+                        },
+                        itemCount: visitList.length,
+                        itemBuilder: (context, index) {
+                          final building = visitList[index];
+                          return Container(
+                            key: ValueKey(building.uuid),
+                            margin: const EdgeInsets.only(bottom: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: AppTheme.borderColor),
+                              boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 2, offset: Offset(0, 1))],
+                            ),
+                            child: ListTile(
+                              contentPadding: const EdgeInsets.only(left: 16, right: 8, top: 4, bottom: 4),
+                              leading: GestureDetector(
+                                onTap: () => _moveMapTo(building.lat, building.lng),
+                                child: CircleAvatar(
+                                    backgroundColor: AppTheme.errorColor,
+                                    foregroundColor: Colors.white,
+                                    child: Text("${index + 1}", style: const TextStyle(fontWeight: FontWeight.bold))
+                                ),
+                              ),
+                              title: Text(building.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                              subtitle: GestureDetector(
+                                onTap: () {
+                                  Clipboard.setData(ClipboardData(text: building.address));
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text("주소가 복사되었습니다. 📋"),
+                                      duration: Duration(seconds: 1),
                                     ),
-                                  ),
+                                  );
+                                },
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Flexible(
+                                      child: Text(
+                                        building.address,
+                                        style: const TextStyle(fontSize: 13, color: AppTheme.textSub),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    const Icon(Icons.copy, size: 14, color: AppTheme.primaryColor),
+                                  ],
+                                ),
+                              ),
+
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  // 삭제 버튼 (잠금 상태가 아닐 때만)
+                                  if (!_isRouteLocked)
+                                    IconButton(
+                                      icon: const Icon(Icons.close, color: Colors.grey, size: 20),
+                                      onPressed: () {
+                                        setState(() {
+                                          visitList.removeAt(index);
+                                          _hasUnsavedChanges = true; // ✅ 삭제했을 때도 저장 경고 켜기
+                                        });
+                                        if (kIsWeb) _injectWebMapAndMarkers(); else _updateAppMarkers();
+                                      },
+                                    ),
+
+                                  // 🍔 드래그 핸들 (햄버거 버튼) - 색상 강제 지정 (Colors.black)
+                                  if (!_isRouteLocked)
+                                    ReorderableDragStartListener(
+                                      index: index,
+                                      child: const Padding(
+                                        padding: EdgeInsets.only(left: 8.0, right: 8.0),
+                                        child: Icon(Icons.drag_handle, color: Colors.black), // 검은색 강제
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+
+                    // (3) 하단 옵션 (복귀 스위치 + 네비 버튼) - 앱에서만 보이도록 처리
+                    if (!kIsWeb)
+                      Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, -5))],
+                        ),
+                        child: Column(
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text("마지막 현장 퇴근", style: TextStyle(color: _returnToOffice ? AppTheme.textSub : AppTheme.textMain, fontWeight: _returnToOffice ? FontWeight.normal : FontWeight.bold)),
+                                Switch(
+                                  value: _returnToOffice,
+                                  activeColor: AppTheme.primaryColor,
+                                  onChanged: (val) => setState(() {
+                                    _returnToOffice = val;
+                                    _hasUnsavedChanges = true; // ✅ 옵션 바꿨을 때도 저장 경고 켜기
+                                  }),
+                                ),
+                                Text("사무실 복귀", style: TextStyle(color: _returnToOffice ? AppTheme.textMain : AppTheme.textSub, fontWeight: _returnToOffice ? FontWeight.bold : FontWeight.normal)),
                               ],
                             ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
+                            const SizedBox(height: 12),
 
-                  // (3) ✅ [수정됨] 하단 옵션 (복귀 스위치 + 네비 버튼) - 앱에서만 보이도록 처리
-                  if (!kIsWeb)
-                    Container(
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, -5))],
+                            CommonButton(
+                              onPressed: (_isRouteLocked && visitList.isNotEmpty) ? _launchMultiStopNavi : null,
+                              text: _isRouteLocked ? "네이버 지도 안내 시작 (TBT)" : "경로를 저장해야 안내 가능",
+                              icon: Icons.navigation,
+                              backgroundColor: _isRouteLocked ? const Color(0xFF03C75A) : Colors.grey[400],
+                              width: double.infinity,
+                            ),
+                          ],
+                        ),
                       ),
-                      child: Column(
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text("마지막 현장 퇴근", style: TextStyle(color: _returnToOffice ? AppTheme.textSub : AppTheme.textMain, fontWeight: _returnToOffice ? FontWeight.normal : FontWeight.bold)),
-                              Switch(
-                                value: _returnToOffice,
-                                activeColor: AppTheme.primaryColor,
-                                onChanged: (val) => setState(() => _returnToOffice = val),
-                              ),
-                              Text("사무실 복귀", style: TextStyle(color: _returnToOffice ? AppTheme.textMain : AppTheme.textSub, fontWeight: _returnToOffice ? FontWeight.bold : FontWeight.normal)),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-
-                          CommonButton(
-                            onPressed: (_isRouteLocked && visitList.isNotEmpty) ? _launchMultiStopNavi : null,
-                            text: _isRouteLocked ? "네이버 지도 안내 시작 (TBT)" : "경로를 저장해야 안내 가능",
-                            icon: Icons.navigation,
-                            backgroundColor: _isRouteLocked ? const Color(0xFF03C75A) : Colors.grey[400],
-                            width: double.infinity,
-                          ),
-                        ],
-                      ),
-                    ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
-    );
+    ); // ✅ 여기가 PopScope를 닫아주는 진짜 괄호입니다!
   }
 }
 

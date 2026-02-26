@@ -16,6 +16,7 @@ import 'dart:math'; // min 함수
 import 'dart:io'; // 파일 처리
 import 'package:flutter/foundation.dart';// ✅ kIsWeb을 사용하기 위해 반드시 필요합니다.
 import '../../services/notification_service.dart';
+import '../../main.dart'; // 🌟 [고도화 추가] GlobalUserState(스마트 캐싱)를 가져옵니다.
 
 // ✅ [추가] 아래 4줄을 import 목록에 추가하세요
 import '../../services/sales_service.dart';
@@ -93,29 +94,21 @@ class FieldReportPageState extends State<FieldReportPage> with SingleTickerProvi
     });
   }
 
-  // ✅ [고도화] 내 정보 로드 함수
+  // ✅ [고도화] 내 정보 로드 함수 (스마트 캐싱 적용)
   Future<void> _fetchMyInfo() async {
     final user = _auth.currentUser;
     if (user == null) return;
 
     _myUid = user.uid;
 
-    try {
-      DocumentSnapshot userDoc = await _firestore.collection('users').doc(user.uid).get();
-      if (userDoc.exists) {
-        final data = userDoc.data() as Map<String, dynamic>;
-        if (mounted) {
-          setState(() {
-            // role이 'admin'이면 관리자 권한 부여
-            _isAdmin = (data['role'] == 'admin');
-            // 이름 + 직급 조합 (예: 김철수 팀장)
-            _myName = "${data['name'] ?? ''} ${data['rank'] ?? ''}".trim();
-            if (_myName.isEmpty) _myName = "직원";
-          });
-        }
-      }
-    } catch (e) {
-      print("내 정보 로드 실패: $e");
+    // 🌟 [핵심 고도화] 통신 불량 시 먹통이 되던 DB 조회(try-catch)를 싹 날려버립니다.
+    // 폰 메모리에 있는 내 권한과 정확한 이름을 0초 만에 즉시 가져옵니다.
+    if (mounted) {
+      setState(() {
+        _isAdmin = GlobalUserState.isAdmin;
+        _myName = GlobalUserState.fullName;
+        if (_myName.isEmpty) _myName = "직원";
+      });
     }
   }
 
@@ -734,13 +727,45 @@ class FieldReportPageState extends State<FieldReportPage> with SingleTickerProvi
                                 DateTime dt = (log['createdAt'] as Timestamp).toDate();
                                 dateStr = DateFormat('yyyy.MM.dd HH:mm').format(dt);
                               }
+
+                              // ✅ 타인(지시자) 작성 여부 판별
+                              String ownerUid = data['uid'] ?? '';
+                              String ownerName = data['author'] ?? '';
+                              String logUid = log['uid'] ?? '';
+                              bool isOther = (logUid.isNotEmpty && ownerUid.isNotEmpty) ? (logUid != ownerUid) : (authorName != ownerName);
+
                               return Padding(
                                 padding: const EdgeInsets.only(bottom: 8.0),
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text("• [$authorName] ${log['text'] ?? ''}", style: const TextStyle(fontSize: 13, color: AppTheme.textMain, height: 1.3)),
-                                    if (dateStr.isNotEmpty) Padding(padding: const EdgeInsets.only(left: 10.0, top: 2.0), child: Text(dateStr, style: const TextStyle(fontSize: 11, color: Colors.grey))),
+                                    RichText(
+                                      text: TextSpan(
+                                        style: const TextStyle(fontSize: 13, height: 1.3),
+                                        children: [
+                                          TextSpan(text: "• ", style: TextStyle(color: isOther ? Colors.red : AppTheme.textMain)),
+                                          TextSpan(
+                                            text: "[$authorName] ",
+                                            style: TextStyle(
+                                              color: isOther ? Colors.blue : AppTheme.textMain, // ✅ 이름은 파란색
+                                              fontWeight: isOther ? FontWeight.bold : FontWeight.normal,
+                                            ),
+                                          ),
+                                          TextSpan(
+                                            text: "${log['text'] ?? ''}",
+                                            style: TextStyle(
+                                              color: isOther ? Colors.red : AppTheme.textMain, // ✅ 내용은 빨간색
+                                              fontWeight: isOther ? FontWeight.bold : FontWeight.normal,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    if (dateStr.isNotEmpty)
+                                      Padding(
+                                          padding: const EdgeInsets.only(left: 10.0, top: 2.0),
+                                          child: Text(dateStr, style: TextStyle(fontSize: 11, color: isOther ? Colors.redAccent : Colors.grey))
+                                      ),
                                   ],
                                 ),
                               );
@@ -1078,18 +1103,27 @@ class FieldReportPageState extends State<FieldReportPage> with SingleTickerProvi
     if (logs.isNotEmpty) {
       sb.writeln("\n[업무내용 및 히스토리]");
 
+      String ownerUid = item['uid'] ?? '';
+      String ownerName = item['author'] ?? '';
+
       for (var log in logs) {
         String author = log['author'] ?? '알수없음';
         String text = log['text'] ?? '';
         String logTime = "";
 
-        // ✅ [추가] 날짜/시간 포맷팅 (년.월.일 시:분)
+        String logUid = log['uid'] ?? '';
+        bool isOther = (logUid.isNotEmpty && ownerUid.isNotEmpty) ? (logUid != ownerUid) : (author != ownerName);
+
         if (log['createdAt'] != null && log['createdAt'] is Timestamp) {
           logTime = DateFormat('yyyy.MM.dd HH:mm').format((log['createdAt'] as Timestamp).toDate());
         }
 
-        // 결과: - [홍길동] 특이사항 확인했습니다 (2026.02.14 14:30)
-        sb.writeln("- [$author] $text ($logTime)");
+        // ✅ 타인(지시자) 피드백은 텍스트(카톡/복사) 공유 시 파란점 기호 추가
+        if (isOther) {
+          sb.writeln("🔵 [$author] $text ($logTime)");
+        } else {
+          sb.writeln("- [$author] $text ($logTime)");
+        }
       }
     }
 
@@ -1239,14 +1273,41 @@ class FieldReportPageState extends State<FieldReportPage> with SingleTickerProvi
                   String author = log['author'] ?? '알수없음';
                   String text = log['text'] ?? '';
                   String dateStr = "";
-                  // ✅ [추가] PDF용 날짜/시간 변환
+
                   if (log['createdAt'] != null && log['createdAt'] is Timestamp) {
                     dateStr = DateFormat('yyyy.MM.dd HH:mm').format((log['createdAt'] as Timestamp).toDate());
                   }
-                  // 결과: • [홍길동] 내용... (2026.02.14 14:30)
+
+                  // ✅ 타인(지시자) 작성 여부 판별 (PDF용)
+                  String ownerUid = item['uid'] ?? '';
+                  String ownerName = item['author'] ?? '';
+                  String logUid = log['uid'] ?? '';
+                  bool isOther = (logUid.isNotEmpty && ownerUid.isNotEmpty) ? (logUid != ownerUid) : (author != ownerName);
+
                   return pw.Padding(
                     padding: const pw.EdgeInsets.only(bottom: 1),
-                    child: pw.Text("• [$author] $text ($dateStr)", style: const pw.TextStyle(fontSize: 9)),
+                    child: pw.RichText(
+                      text: pw.TextSpan(
+                        style: const pw.TextStyle(fontSize: 9),
+                        children: [
+                          pw.TextSpan(text: "• ", style: pw.TextStyle(color: isOther ? PdfColors.red : PdfColors.black)),
+                          pw.TextSpan(
+                            text: "[$author] ",
+                            style: pw.TextStyle(
+                              color: isOther ? PdfColors.blue : PdfColors.black, // ✅ 이름은 파란색
+                              fontWeight: isOther ? pw.FontWeight.bold : pw.FontWeight.normal,
+                            ),
+                          ),
+                          pw.TextSpan(
+                            text: "$text ($dateStr)",
+                            style: pw.TextStyle(
+                              color: isOther ? PdfColors.red : PdfColors.black, // ✅ 내용은 빨간색
+                              fontWeight: isOther ? pw.FontWeight.bold : pw.FontWeight.normal,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   );
                 }).toList(),
               ],
@@ -1770,26 +1831,58 @@ class FieldReportPageState extends State<FieldReportPage> with SingleTickerProvi
                 Text(data['content'], style: const TextStyle(color: AppTheme.textSub, fontSize: 13), maxLines: 2, overflow: TextOverflow.ellipsis),
 
               if (latestLog != null) ...[
-                const SizedBox(height: 6),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(4)),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.chat_bubble_outline, size: 12, color: AppTheme.textSub),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                            "${latestLog['author'] ?? '알수없음'}: ${latestLog['text']}",
-                            style: const TextStyle(fontSize: 12, color: AppTheme.textMain),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis
+                Builder(
+                    builder: (context) {
+                      // ✅ 타인(지시자) 작성 여부 판별
+                      String ownerUid = data['uid'] ?? '';
+                      String ownerName = data['author'] ?? '';
+                      String logUid = latestLog['uid'] ?? '';
+                      String logAuthor = latestLog['author'] ?? '알수없음';
+                      bool isOther = (logUid.isNotEmpty && ownerUid.isNotEmpty) ? (logUid != ownerUid) : (logAuthor != ownerName);
+
+                      return Container(
+                        width: double.infinity,
+                        margin: const EdgeInsets.only(top: 6),
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: isOther ? Colors.red.withOpacity(0.05) : Colors.grey[100],
+                          borderRadius: BorderRadius.circular(4),
+                          border: isOther ? Border.all(color: Colors.red.withOpacity(0.3)) : null,
                         ),
-                      ),
-                    ],
-                  ),
-                )
+                        child: Row(
+                          children: [
+                            Icon(Icons.chat_bubble_outline, size: 12, color: isOther ? Colors.red : AppTheme.textSub),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: RichText(
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                text: TextSpan(
+                                  style: const TextStyle(fontSize: 12),
+                                  children: [
+                                    TextSpan(
+                                      text: "$logAuthor: ",
+                                      style: TextStyle(
+                                        color: isOther ? Colors.blue : AppTheme.textMain, // 이름 파란색
+                                        fontWeight: isOther ? FontWeight.bold : FontWeight.normal,
+                                      ),
+                                    ),
+                                    TextSpan(
+                                      text: "${latestLog['text']}",
+                                      style: TextStyle(
+                                        color: isOther ? Colors.red : AppTheme.textMain, // 내용 빨간색
+                                        fontWeight: isOther ? FontWeight.bold : FontWeight.normal,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+                ),
               ],
 
               const Divider(height: 24, color: AppTheme.borderColor),

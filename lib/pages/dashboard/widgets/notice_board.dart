@@ -16,6 +16,7 @@ import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import '../../../services/sales_service.dart';
+import '../../../main.dart'; // 🌟 [고도화 추가] GlobalUserState(스마트 캐싱)를 가져옵니다.
 
 // ✅ 디자인 시스템 import
 import '../../../theme/app_theme.dart';
@@ -37,44 +38,36 @@ class _NoticeBoardState extends State<NoticeBoard> {
 
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
     final bool isMobile = MediaQuery.of(context).size.width < 900;
 
-    return StreamBuilder<DocumentSnapshot>(
-      stream: FirebaseFirestore.instance.collection('users').doc(user?.uid).snapshots(),
-      builder: (context, userSnapshot) {
-        bool isAdmin = false;
-        if (userSnapshot.hasData && userSnapshot.data!.data() != null) {
-          final userData = userSnapshot.data!.data() as Map<String, dynamic>;
-          isAdmin = (userData['role'] == 'admin');
-        }
+    // 🌟 [핵심 고도화] 대시보드 진입 시 매번 발생하던 DB 조회(StreamBuilder) 싹둑!
+    // 폰 메모리(GlobalUserState)에서 0초 만에 관리자 권한을 즉시 꺼내옵니다.
+    bool isAdmin = GlobalUserState.isAdmin;
 
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          // 🚨 [핵심 유지] 모바일/PC 렌더링 에러 방지 (절대 수정 금지)
-          mainAxisSize: isMobile ? MainAxisSize.min : MainAxisSize.max,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      // 🚨 [핵심 유지] 모바일/PC 렌더링 에러 방지 (절대 수정 금지)
+      mainAxisSize: isMobile ? MainAxisSize.min : MainAxisSize.max,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                    "📢 사내 공지사항",
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.textMain)
-                ),
-                if (isAdmin)
-                  IconButton(
-                    onPressed: () => _showNoticeDialog(context),
-                    icon: const Icon(Icons.add_circle, color: AppTheme.primaryColor),
-                    tooltip: "공지사항 등록",
-                  )
-              ],
+            const Text(
+                "📢 사내 공지사항",
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.textMain)
             ),
-            const SizedBox(height: 12),
-            // ✅ 위젯 분리 로직 유지
-            isMobile ? _buildCard(isMobile, isAdmin) : Expanded(child: _buildCard(isMobile, isAdmin)),
+            if (isAdmin)
+              IconButton(
+                onPressed: () => _showNoticeDialog(context),
+                icon: const Icon(Icons.add_circle, color: AppTheme.primaryColor),
+                tooltip: "공지사항 등록",
+              )
           ],
-        );
-      },
+        ),
+        const SizedBox(height: 12),
+        // ✅ 위젯 분리 로직 유지
+        isMobile ? _buildCard(isMobile, isAdmin) : Expanded(child: _buildCard(isMobile, isAdmin)),
+      ],
     );
   }
 

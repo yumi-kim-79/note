@@ -19,6 +19,7 @@ import 'package:universal_html/html.dart' as html;
 
 import '../../../theme/app_theme.dart';
 import '../../../widgets/common_widgets.dart';
+import '../../../main.dart'; // 🌟 [고도화 추가] 스마트 캐싱(GlobalUserState) 사용을 위한 준비
 
 class CustomCalendar extends StatefulWidget {
   const CustomCalendar({super.key});
@@ -52,13 +53,14 @@ class _CustomCalendarState extends State<CustomCalendar> {
 
   // ✅ [데이터 로드] 다중일(기간) 로직 완벽 적용
   void _fetchSchedules() {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
+    // 🌟 [핵심 고도화] 매번 Auth 모듈을 깨우는 대신, 이미 메모리에 있는 내 UID를 0초 만에 즉시 가져옵니다.
+    String myUid = GlobalUserState.uid;
+    if (myUid.isEmpty) return;
 
     Query query = FirebaseFirestore.instance.collection('schedules');
 
     if (!_isTeamView) {
-      query = query.where('uid', isEqualTo: user.uid);
+      query = query.where('uid', isEqualTo: myUid);
     }
 
     _scheduleSubscription?.cancel(); // 기존 스트림 닫기

@@ -2,6 +2,8 @@
  * [SM종합관리 서버 기능 정의서 - 최적화 완료 버전]
  * 1. optimizeUploadedImage: 사진 업로드 시 800x800 리사이징 (기존 기능 100% 유지)
  * 2. sendPushNotification: 다중 사용자 환경 대응 및 유효하지 않은 토큰 자동 청소 고도화
+ * 🌟 [핵심 고도화] PWA(웹) 및 안드로이드 절전모드 완벽 돌파 (소리/진동 강제 적용)
+ * 🌟 [경로 고도화] 공지사항, 업무보고 클릭 시 해당 페이지로 정확히 꽂히도록 라우팅 추가
  */
 
 const { onObjectFinalized } = require("firebase-functions/v2/storage");
@@ -61,7 +63,7 @@ exports.optimizeUploadedImage = onObjectFinalized(async (event) => {
 
 
 // ============================================================
-// ✅ [기능 2] 알림 발송 및 자동 토큰 청소 (고도화 버전)
+// ✅ [기능 2] 알림 발송 및 자동 토큰 청소 (WebPush & Android 고도화 버전)
 // ============================================================
 exports.sendPushNotification = onDocumentCreated("notifications/{docId}", async (event) => {
     const snapshot = event.data;
@@ -105,32 +107,70 @@ exports.sendPushNotification = onDocumentCreated("notifications/{docId}", async 
         if (msgType === 'schedule' && !allowSchedule) return console.log(`🚫 일정알림 거부: ${targetUid}`);
         if (msgType === 'notice' && !allowNotice) return console.log(`🚫 공지사항 거부: ${targetUid}`);
 
-        // 2. 메시지 구성 (Data-Only로 웹 중복 방지)
+        // 🌟 [핵심 고도화] 클릭 시 이동할 URL 경로 설정 (공지사항, 업무보고 등 전체 확장)
+        let targetUrl = '/#/'; // 기본 홈 화면
+        if (msgType === 'chat') targetUrl = '/#/chat';
+        else if (msgType === 'schedule') targetUrl = '/#/schedule';
+        else if (msgType === 'notice') targetUrl = '/#/notice';
+        else if (msgType === 'report') targetUrl = '/#/report';
+
+        // 2. 메시지 구성 (🌟 PWA 및 안드로이드 절전모드 완벽 대응)
         const payload = {
             token: userToken,
-            data: {
+            // 🌟 [핵심 1] 브라우저/OS가 시스템 권한으로 직접 알림을 띄우게 함 (Data-Only 탈피)
+            notification: {
                 title: data.title || "알림",
-                body: data.body || "내용이 없습니다.",
-                type: msgType,
-                click_action: "FLUTTER_NOTIFICATION_CLICK",
-                notificationId: event.params.docId
+                body: data.body || "내용이 없습니다."
             },
-            android: { priority: "high" },
+            // 기존 Data 유지 (클릭 시 이동 등 내부 처리용)
+            data: {
+                type: msgType,
+                notificationId: event.params.docId,
+                url: targetUrl
+            },
+            // 🌟 [핵심 2] 안드로이드 절전모드(Doze) 격파 및 소리 강제 설정
+            android: {
+                priority: "high",
+                notification: {
+                    channelId: "high_importance_channel", // (선택) 앱 개발 시 사용할 채널
+                    sound: isSoundEnabled ? "default" : undefined,
+                    clickAction: "FLUTTER_NOTIFICATION_CLICK"
+                }
+            },
+            // [기존 유지] iOS 네이티브 앱용 (추후 앱 출시 대비)
             apns: {
                 payload: {
                     aps: {
                         contentAvailable: true,
-                        alert: { title: data.title, body: data.body },
                         ...(isSoundEnabled && { sound: "default" }),
                         badge: 1
                     },
                 },
             },
+            // 🌟 [핵심 3] 웹 브라우저(PWA) 전용 강제 진동, 소리, 깨우기 세팅
+            webpush: {
+                headers: {
+                    Urgency: "high" // 브라우저 배터리 최적화 무시하고 즉시 발송
+                },
+                notification: {
+                    icon: "/icons/Icon-192.png", // PWA 알림 아이콘
+                    badge: "/icons/Icon-192.png",
+                    requireInteraction: true, // 사용자가 닫기 전까지 화면에 남겨둠
+                    // 사용자가 소리 알림을 켜두었을 때만 진동/소리 적용
+                    ...(isSoundEnabled && {
+                        sound: "default",
+                        vibrate: [200, 100, 200, 100, 200] // 징- 징- 징- 패턴
+                    }),
+                    data: {
+                        url: targetUrl // 서비스 워커에서 클릭 시 이동할 주소
+                    }
+                }
+            }
         };
 
         // 3. 발송 및 성공 로그
         await admin.messaging().send(payload);
-        console.log(`✅ 발송 성공: ${targetUid} (Type: ${msgType})`);
+        console.log(`✅ 발송 성공: ${targetUid} (Type: ${msgType}, Sound: ${isSoundEnabled})`);
 
     } catch (error) {
         console.error("❌ 발송 실패 상세:", error);

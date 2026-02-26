@@ -13,6 +13,7 @@ import 'package:intl/intl.dart';
 import 'dart:math'; // ✅ [추가] 반응형 UI 계산용
 import '../../services/notification_service.dart'; // ✅ 추가
 import 'dart:async'; // ✅ [추가] StreamSubscription(수도꼭지 잠금) 사용을 위해 추가
+import '../../main.dart'; // 🌟 [고도화 추가] GlobalUserState(스마트 캐싱)를 가져옵니다.
 
 // ✅ [핵심 수정] TextSpan 충돌 방지를 위해 hide에 TextSpan 추가
 import 'package:excel/excel.dart' hide Border, TextSpan;
@@ -994,15 +995,9 @@ class _AddScheduleDialogState extends State<_AddScheduleDialog> {
     if (user == null) return;
     if (_titleCtrl.text.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("일정 제목을 입력해주세요."))); return; }
 
-    String myName = '직원';
-    try {
-      DocumentSnapshot userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-      if (userDoc.exists) {
-        final userData = userDoc.data() as Map<String, dynamic>;
-        myName = "${userData['name'] ?? ''} ${userData['rank'] ?? ''}".trim();
-        if (myName.isEmpty) myName = "직원";
-      }
-    } catch(e) { print("이름 실패: $e"); }
+    // 🌟 [핵심 고도화] 통신 불량 시 '직원'으로 뜨던 try-catch 로직 완전 삭제!
+    // 폰 메모리에 있는 내 정확한 이름을 0초 만에 즉시 가져옵니다.
+    String myName = GlobalUserState.fullName;
 
     DateTime startDateTime = DateTime(_startDate.year, _startDate.month, _startDate.day, _startTime.hour, _startTime.minute);
     DateTime endDateTime = DateTime(_endDate.year, _endDate.month, _endDate.day, _endTime.hour, _endTime.minute);
@@ -1039,40 +1034,24 @@ class _AddScheduleDialogState extends State<_AddScheduleDialog> {
       if (isEditMode) {
         await FirebaseFirestore.instance.collection('schedules').doc(widget.existingData!['id']).update(scheduleData);
         // =============================================================
-        // ✅ [알림 로직 추가] 남의 글을 수정했을 때 알림 발송
+        // ✅ [알림 로직 수정] 남의 글을 수정했을 때 알림 발송 (서버 위임 방식)
         // =============================================================
         String ownerUid = widget.existingData!['uid'] ?? ''; // 글 쓴 사람 ID
         String modifierUid = user.uid; // 지금 수정하는 사람(나) ID
 
         // "주인이 내가 아닐 때"만 실행
         if (ownerUid.isNotEmpty && ownerUid != modifierUid) {
-          print("🚀 타인 일정 수정 감지! 알림 발송 시도...");
+          print("🚀 타인 일정 수정 감지! 서버에 알림 발송 요청...");
 
-          // 1) 주인(작성자)의 정보를 DB에서 가져옴 (토큰을 알기 위해)
-          DocumentSnapshot ownerDoc = await FirebaseFirestore.instance.collection('users').doc(ownerUid).get();
-
-          if (ownerDoc.exists) {
-            Map<String, dynamic> ownerData = ownerDoc.data() as Map<String, dynamic>;
-            String? targetToken = ownerData['fcmToken']; // 주인의 토큰
-
-            // 2) 주인이 토큰을 가지고 있다면 알림 발송
-            if (targetToken != null && targetToken.isNotEmpty) {
-              // 알림 문구: "홍길동 님이 '현장미팅' 일정을 수정했습니다."
-              String notiTitle = "일정 수정 알림";
-              String notiBody = "$myName 님이 '${_titleCtrl.text}' 일정을 수정했습니다.";
-
-              // 발송!
-              await NotificationService().sendNotification(
-                targetToken: targetToken,
-                targetUid: ownerUid,      // ✅ 추가
-                title: "일정 수정 알림",
-                body: "$myName 님이 '${_titleCtrl.text}' 일정을 수정했습니다.",
-                type: 'schedule',         // ✅ 추가
-              );
-            } else {
-              print("⚠️ 작성자의 알림 토큰이 없습니다. (로그인 안 한 듯)");
-            }
-          }
+          // 🌟 [핵심 수정] 앱에서 토큰을 검사하지 않습니다!
+          // 무조건 DB(notifications)에 남기면, 발송과 토큰 검사는 서버(index.js)가 알아서 합니다.
+          await NotificationService().sendNotification(
+            targetToken: "",          // 더 이상 쓰지 않는 값이지만 인터페이스 유지를 위해 빈 문자열 전달
+            targetUid: ownerUid,      // 알림 받을 원작성자 UID
+            title: "일정 수정 알림",
+            body: "$myName 님이 '${_titleCtrl.text}' 일정을 수정/댓글을 남겼습니다.",
+            type: 'schedule',
+          );
         }
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("일정이 업데이트되었습니다.")));
       } else {

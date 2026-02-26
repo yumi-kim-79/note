@@ -16,6 +16,7 @@ import 'package:flutter_naver_map/flutter_naver_map.dart';
 import 'firebase_options.dart';
 import 'package:flutter/foundation.dart'; // kIsWeb 사용을 위해 필수
 import 'dart:async';
+import 'dart:html' as html; // 🌟 [추가됨] 웹(PWA) 뒤로가기 종료를 위한 패키지
 
 // ✅ 알림/진동 패키지
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -38,6 +39,7 @@ import 'pages/building_info_page.dart';
 import 'pages/field/field_schedule_page.dart';
 import 'pages/field/field_report_page.dart';
 import 'pages/sales/tax_invoice_page.dart'; // 👈 추가해주세요
+import 'pages/it_support/ai_payment_page.dart'; // 🌟 [추가] 전산팀 페이지 연결
 
 import 'services/auth_service.dart';
 import 'services/sales_service.dart';
@@ -98,6 +100,21 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       NotificationDetails(android: androidDetails, iOS: const DarwinNotificationDetails()),
       payload: data['type']
   );
+}
+
+// =======================================================
+// 🌟 [고도화 추가] 스마트 캐싱 (전역 사용자 정보 보관함)
+// 앱 어디서든 DB 조회 없이 내 이름/직급을 즉시 꺼내 쓸 수 있습니다.
+// =======================================================
+class GlobalUserState {
+  static String uid = '';
+  static String name = '직원';
+  static String rank = '';
+  static String role = 'user';
+
+  // 이름+직급 조합 (예: 홍길동 대리)을 바로 꺼내쓰는 마법의 헬퍼
+  static String get fullName => rank.isNotEmpty ? '$name $rank'.trim() : name;
+  static bool get isAdmin => role == 'admin';
 }
 
 void main() async {
@@ -207,6 +224,7 @@ class MainLayoutPageState extends State<MainLayoutPage> {
   int _selectedIndex = 0;
   final SalesService _salesService = SalesService();
   final PageController _pageController = PageController();
+  DateTime? _lastPressedAt; // 🌟 [추가됨] 뒤로가기 2번 방지용 타이머 장부
   late final Widget _permanentNaverMap;
   late final List<Widget> _pages;
 
@@ -270,8 +288,9 @@ class MainLayoutPageState extends State<MainLayoutPage> {
       const BuildingInfoPage(),
       FieldSchedulePage(key: _schedulePageKey),
       FieldReportPage(key: _reportPageKey),
-      const TaxInvoicePage(), // 👈 [변경] Index 11: 국세청(계산서) 대조 페이지 연결!
-      const Scaffold(body: Center(child: Text("공과금(지출) 대조 시스템 준비 중..."))), // Index 12
+      const TaxInvoicePage(),
+      const Scaffold(body: Center(child: Text("공과금(지출) 대조 시스템 준비 중..."))),
+      const AiPaymentPage(), // 🌟 [Index 13] 전산팀 AI 자동수납 페이지 연결
     ];
 
     _listenToNotifications(); // 포그라운드 처리
@@ -439,6 +458,45 @@ class MainLayoutPageState extends State<MainLayoutPage> {
       return;
     }
 
+    // 🌟 [추가된 핵심 방어벽] 경로 관리(7번 탭)에서 다른 탭으로 넘어갈 때 감지!
+    if (_selectedIndex == 7 && index != 7 && FieldRoutePage.globalHasUnsavedChanges) {
+      bool shouldLeave = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: Colors.white,
+          title: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.orange),
+              SizedBox(width: 8),
+              Text("저장되지 않은 변경사항", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+            ],
+          ),
+          content: const Text("경로가 변경되었지만 저장되지 않았습니다.\n저장하지 않고 다른 메뉴로 이동하시겠습니까?", style: TextStyle(height: 1.4)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false), // 머무름
+              child: const Text("아니오 (저장할게요)", style: TextStyle(color: AppTheme.primaryColor, fontWeight: FontWeight.bold)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true), // 나감
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text("예 (그냥 이동)"),
+            ),
+          ],
+        ),
+      ) ?? false;
+
+      if (!shouldLeave) {
+        // [아니오]를 누르면 이동 취소. 서랍 메뉴에서 눌렀다면 저장 버튼을 누를 수 있게 서랍을 닫아줌
+        if (isMobile && isDrawerClick) Navigator.pop(context);
+        return; // 여기서 함수를 종료하여 탭 이동을 완벽히 차단!
+      } else {
+        // [예]를 누르면 강제로 나갈 수 있도록 센서 초기화 후 아래 로직 그대로 진행
+        FieldRoutePage.globalHasUnsavedChanges = false;
+      }
+    }
+    // 🌟 [방어벽 끝]
+
     if (_selectedIndex == 5 && index != 5) {
       await _salesService.updateLastReadTime();
     }
@@ -490,6 +548,7 @@ class MainLayoutPageState extends State<MainLayoutPage> {
       case 10: return '업무 보고';
       case 11: return '국세청(계산서) 대조';
       case 12: return '공과금(지출) 대조';
+      case 13: return 'AI 자동수납 (전산)';
       default: return '';
     }
   }
@@ -668,7 +727,6 @@ class MainLayoutPageState extends State<MainLayoutPage> {
       ),
     );
   }
-
   Stream<int> _getOverdueWorkCountStream() {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return Stream.value(0);
@@ -709,6 +767,13 @@ class MainLayoutPageState extends State<MainLayoutPage> {
         String userName = userData?['name'] ?? '사용자';
         String userRank = userData?['rank'] ?? '';
         bool isAdmin = (userData?['role'] ?? 'user') == 'admin';
+
+        // 🌟 [핵심 고도화 적용] 서버에서 가져온 내 정보를 전역 캐시에 꽉 쥐어줍니다!
+        // 이제 다른 페이지에서 DB를 뒤지지 않아도 GlobalUserState.fullName 으로 내 이름을 즉시 꺼내 씁니다.
+        GlobalUserState.uid = user?.uid ?? '';
+        GlobalUserState.name = userName;
+        GlobalUserState.rank = userRank;
+        GlobalUserState.role = userData?['role'] ?? 'user';
 
         if (!isAdmin && _selectedIndex == 3) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -834,7 +899,22 @@ class MainLayoutPageState extends State<MainLayoutPage> {
                         ),
                       ),
 
-                      // 🌟 2. 총무팀 업무지원 (새로 추가된 대메뉴)
+                      // 🌟 2. 전산팀 업무지원 (현장팀 바로 밑에 새로 추가)
+                      Theme(
+                        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                        child: ExpansionTile(
+                          key: const PageStorageKey('ComputerSupportMenu'),
+                          leading: const Icon(Icons.terminal_outlined, size: 22),
+                          title: const Text("전산팀 업무지원", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                          iconColor: AppTheme.primaryColor,
+                          collapsedIconColor: AppTheme.textSub,
+                          children: [
+                            _buildSubMenuItem(icon: Icons.auto_fix_high, title: "AI 자동수납", index: 13),
+                          ],
+                        ),
+                      ),
+
+                      // 🌟 3. 총무팀 업무지원 (새로 추가된 대메뉴)
                       Theme(
                         data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
                         child: ExpansionTile(
@@ -846,7 +926,7 @@ class MainLayoutPageState extends State<MainLayoutPage> {
                           iconColor: AppTheme.primaryColor,
                           collapsedIconColor: AppTheme.textSub,
                           children: [
-                            // 🌟 2-1. AI 스마트 시스템 (하위 메뉴)
+                            // 🌟 3-1. AI 스마트 시스템 (하위 메뉴)
                             Theme(
                               data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
                               child: ExpansionTile(
@@ -918,82 +998,116 @@ class MainLayoutPageState extends State<MainLayoutPage> {
           ),
         );
 
-        return Scaffold(
-          appBar: isWideScreen
-              ? null
-              : AppBar(
-            backgroundColor: Colors.white,
-            elevation: 1,
-            iconTheme: const IconThemeData(color: AppTheme.textMain),
-            title: Text(_getTitleByIndex(_selectedIndex),
-                style: const TextStyle(
-                    color: AppTheme.textMain,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold)),
-            centerTitle: false,
-            actions: [
-              notificationButton,
-              const SizedBox(width: 8),
-              userInfoWidget,
-              const SizedBox(width: 16),
-            ],
-          ),
-          drawer: isWideScreen ? null : Drawer(child: menuContent),
-          body: Row(
-            children: [
-              if (isWideScreen) SizedBox(width: 260, child: menuContent),
-              Expanded(
-                child: Stack(
-                  children: [
-                    if (!kIsWeb)
-                      Offstage(
-                          offstage: _selectedIndex != 7,
-                          child: _permanentNaverMap),
-                    Container(
-                      color: (_selectedIndex == 7 && !kIsWeb)
-                          ? Colors.transparent
-                          : AppTheme.backgroundColor,
-                      child: Column(
-                        children: [
-                          if (isWideScreen)
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 24, vertical: 16),
-                              color: AppTheme.surfaceColor,
-                              child: Row(
-                                  mainAxisAlignment:
-                                  MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(_getTitleByIndex(_selectedIndex),
-                                        style: const TextStyle(
-                                            fontSize: 22,
-                                            fontWeight: FontWeight.bold)),
-                                    Row(
-                                      children: [
-                                        notificationButton,
-                                        const SizedBox(width: 20),
-                                        userInfoWidget,
-                                      ],
-                                    )
-                                  ]),
+        // 🌟 [추가됨] 뒤로가기 2번 방지용 그물망 (PopScope)
+        return PopScope(
+          canPop: false, // 시스템 자동 뒤로가기를 1차적으로 차단
+          onPopInvokedWithResult: (didPop, result) async {
+            if (didPop) return;
+
+            final now = DateTime.now();
+
+            // 2초 이내에 다시 누른 것이 아니라면 (첫 번째 뒤로가기 클릭)
+            if (_lastPressedAt == null || now.difference(_lastPressedAt!) > const Duration(seconds: 2)) {
+              _lastPressedAt = now;
+
+              if (context.mounted) {
+                // 하단에 친절한 스낵바 안내 메시지 띄우기
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('한 번 더 누르면 종료됩니다.', style: TextStyle(color: Colors.white)),
+                    backgroundColor: Colors.black87,
+                    duration: Duration(seconds: 2),
+                    behavior: SnackBarBehavior.floating,
+                    margin: EdgeInsets.only(bottom: 20, left: 20, right: 20),
+                  ),
+                );
+              }
+              return;
+            }
+
+            // 2초 이내에 다시 한 번 눌렀다면 실제로 종료 로직 실행
+            if (kIsWeb) {
+              // 웹 브라우저/PWA 환경에서는 히스토리 백을 통해 앱 종료 유도
+              html.window.history.back();
+            }
+          },
+          child: Scaffold(
+            appBar: isWideScreen
+                ? null
+                : AppBar(
+              backgroundColor: Colors.white,
+              elevation: 1,
+              iconTheme: const IconThemeData(color: AppTheme.textMain),
+              title: Text(_getTitleByIndex(_selectedIndex),
+                  style: const TextStyle(
+                      color: AppTheme.textMain,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold)),
+              centerTitle: false,
+              actions: [
+                notificationButton,
+                const SizedBox(width: 8),
+                userInfoWidget,
+                const SizedBox(width: 16),
+              ],
+            ),
+            drawer: isWideScreen ? null : Drawer(child: menuContent),
+            body: Row(
+              children: [
+                if (isWideScreen) SizedBox(width: 260, child: menuContent),
+                Expanded(
+                  child: Stack(
+                    children: [
+                      if (!kIsWeb)
+                        Offstage(
+                            offstage: _selectedIndex != 7,
+                            child: _permanentNaverMap),
+                      Container(
+                        color: (_selectedIndex == 7 && !kIsWeb)
+                            ? Colors.transparent
+                            : AppTheme.backgroundColor,
+                        child: Column(
+                          children: [
+                            if (isWideScreen)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 24, vertical: 16),
+                                color: AppTheme.surfaceColor,
+                                child: Row(
+                                    mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text(_getTitleByIndex(_selectedIndex),
+                                          style: const TextStyle(
+                                              fontSize: 22,
+                                              fontWeight: FontWeight.bold)),
+                                      Row(
+                                        children: [
+                                          notificationButton,
+                                          const SizedBox(width: 20),
+                                          userInfoWidget,
+                                        ],
+                                      )
+                                    ]),
+                              ),
+                            if (isWideScreen)
+                              const Divider(height: 1, color: AppTheme.borderColor),
+                            Expanded(
+                              child: IndexedStack(
+                                index: _selectedIndex,
+                                children: _pages,
+                              ),
                             ),
-                          if (isWideScreen)
-                            const Divider(height: 1, color: AppTheme.borderColor),
-                          Expanded(
-                            child: IndexedStack(
-                              index: _selectedIndex,
-                              children: _pages,
-                            ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-              )
-            ],
+                    ],
+                  ),
+                )
+              ],
+            ),
           ),
-        );
+        ); // 🌟 [추가됨] PopScope를 닫아주는 괄호
       },
     );
   }

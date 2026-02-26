@@ -770,8 +770,6 @@ class _TaxInvoicePageState extends State<TaxInvoicePage> {
   }
 
   void _showNtsDetails(InvoiceData data) {
-    bool hasNextMonth = data.publishDate.contains('[익월]'); // 🌟 팝업에서도 익월 감지
-
     showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -781,12 +779,11 @@ class _TaxInvoicePageState extends State<TaxInvoicePage> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 _buildDetailRow("상호명", data.companyName),
-                _buildDetailRow("승인번호", data.authNum),
+                _buildDetailRow("승인번호", data.authNum), // 🌟 [추가됨] 승인번호 줄 추가
                 _buildDetailRow("사업자번호", data.bizNum),
                 _buildDetailRow("대표자명", data.repName),
                 _buildDetailRow("주소", data.address), _buildDetailRow("이메일", data.email), _buildDetailRow("구분", data.receiptType),
-                _buildDetailRow("발행일자", data.publishDate, valueColor: hasNextMonth ? Colors.redAccent : null), // 🌟 익월이면 발행일자를 빨간색으로!
-                _buildDetailRow("품목명", data.itemName), _buildDetailRow("비고", data.remark),
+                _buildDetailRow("발행일자", data.publishDate), _buildDetailRow("품목명", data.itemName), _buildDetailRow("비고", data.remark),
                 const Divider(height: 24), _buildDetailRow("발행금액(합계)", "${_formatCurrency(data.amount)}원", isHighlight: true),
               ],
             ),
