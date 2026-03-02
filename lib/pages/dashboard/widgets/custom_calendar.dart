@@ -1,5 +1,5 @@
 // [파일 위치: lib/pages/dashboard/widgets/custom_calendar.dart]
-// 수정 내용:
+// 대시보드 [캘린더,일정현황]
 // 1. [다이어트] 일정 등록/수정 기능(팝업, 버튼 등)을 모두 제거하여 순수 '뷰어(Viewer)'로 최적화
 // 2. [기능 동기화] 다중일(기간) 달력 표시 로직 적용
 // 3. [버그 방지] StreamSubscription 적용으로 메모리 누수 방지

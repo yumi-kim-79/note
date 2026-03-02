@@ -1,10 +1,12 @@
 // [파일 위치: web/firebase-messaging-sw.js]
-// [최종 고도화] 중복 알림 차단 + 클릭 이동 완벽 지원 (PWA 최적화 및 플러터 라우팅 대응)
+// [최종 고도화] 글로벌 표준 PWA 알림 라우팅 (순정 위임) + 캐시 강제 파괴
 
 importScripts("https://www.gstatic.com/firebasejs/9.17.2/firebase-app-compat.js");
 importScripts("https://www.gstatic.com/firebasejs/9.17.2/firebase-messaging-compat.js");
 
-// 1. Firebase 설정 (⚠️ 대표님의 실제 키값 유지)
+// ============================================================================
+// 1. Firebase 설정 (⚠️ 대표님의 실제 키값으로 반드시 유지해주세요)
+// ============================================================================
 firebase.initializeApp({
   apiKey: "AIzaSy...",
   authDomain: "sm-sales-note-2026.firebaseapp.com",
@@ -17,69 +19,28 @@ firebase.initializeApp({
 const messaging = firebase.messaging();
 
 // ============================================================================
-// 2. 백그라운드 메시지 핸들러
+// 2. 백그라운드 메시지 핸들러 (순정 위임)
 // ============================================================================
+// 🌟 서버에서 보낸 fcmOptions.link를 통해 브라우저가 알아서 화면을 열고 이동하므로
+// 여기서는 별도의 수동 팝업(showNotification)을 띄우지 않습니다. (중복 알림 원천 차단)
 messaging.onBackgroundMessage(function(payload) {
-  console.log('[SW] 백그라운드 메시지 수신 (시스템이 자동으로 표시함):', payload);
-  // 🔴 수동 알림(showNotification)을 삭제하여 안드로이드 절전 모드에서의 중복/누락 방지
+  console.log('[SW] 백그라운드 메시지 수신 (시스템이 자동으로 표시 및 클릭 이동 처리함):', payload);
 });
 
 // ============================================================================
-// 3. 알림 클릭 시 페이지 이동 (PWA/웹 완벽 지원)
+// 🌟 [핵심 기능 100% 유지] 서비스 워커 강제 즉시 업데이트 (캐시 무시 및 즉각 반영)
+// 이 코드가 있어야 대표님이 코드를 수정했을 때 직원들 폰에 1초 만에 새 코드가 덮어씌워집니다.
 // ============================================================================
-self.addEventListener('notificationclick', function(event) {
-  console.log('[SW] 알림 클릭됨:', event.notification);
-  event.notification.close(); // 클릭하면 즉시 알림 상자 닫기
-
-  const origin = self.location.origin;
-  let targetUrl = origin + '/#/'; // 기본 홈 화면 경로
-
-  // 🌟 [핵심 보정] 서버에서 온 경로를 플러터 웹의 Hash(#) 방식에 맞게 자동 변환
-  if (event.notification.data && event.notification.data.url) {
-      let path = event.notification.data.url;
-      // 경로에 /#/ 가 없으면 강제로 붙여줍니다. (예: '/chat' -> '/#/chat')
-      if (!path.startsWith('/#/')) {
-          if (path.startsWith('/')) path = '/#' + path;
-          else path = '/#/' + path;
-      }
-      targetUrl = origin + path;
-  } else if (event.notification.data && event.notification.data.type) {
-      // (백업) 기존 타입별 이동 방식 유지
-      targetUrl = getUrlByType(event.notification.data.type);
-  }
-
-  console.log('[SW] 최종 이동할 주소:', targetUrl);
-
-  event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(clientList) {
-      // 1. 이미 우리 웹사이트 탭이 열려있는지 확인
-      for (let i = 0; i < clientList.length; i++) {
-        const client = clientList[i];
-        if (client.url.includes(origin) && 'focus' in client) {
-          // 🌟 [안정성 고도화] 일부 모바일 브라우저에서 focusedClient가 null이 되는 현상 방지
-          return client.focus().then(() => {
-             if ('navigate' in client) {
-                 return client.navigate(targetUrl); // 정확한 페이지로 즉시 이동!
-             }
-          });
-        }
-      }
-      // 2. 열려있는 탭이 없다면 아예 새 창(PWA 앱)으로 열기
-      if (clients.openWindow) {
-        return clients.openWindow(targetUrl);
-      }
-    })
-  );
+self.addEventListener('install', function(event) {
+  console.log('[SW] 새로운 서비스 워커 설치 중... 대기 없이 즉시 적용합니다.');
+  self.skipWaiting();
 });
 
-// ============================================================================
-// [보조 함수] 이동 주소 백업 로직 (안전망)
-// ============================================================================
-function getUrlByType(type) {
-  const origin = self.location.origin;
-  if (type === 'chat') return origin + '/#/chat';
-  if (type === 'schedule') return origin + '/#/schedule';
-  if (type === 'notice') return origin + '/#/notice';
-  if (type === 'report') return origin + '/#/report';
-  return origin + '/#/';
-}
+self.addEventListener('activate', function(event) {
+  console.log('[SW] 새로운 서비스 워커 가동 완료! 모든 화면의 제어권을 뺏어옵니다.');
+  event.waitUntil(clients.claim());
+});
+
+// 🗑️ (삭제됨) 기존의 수동 'notificationclick' 가로채기 코드는 삭제되었습니다.
+// 이제 서버(index.js)에서 동봉한 fcmOptions.link 주소를 파이어베이스 순정 엔진이 읽고
+// 플러터 웹의 정확한 해시(#) 경로로 완벽하게 이동시켜 줍니다!

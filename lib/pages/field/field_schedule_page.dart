@@ -1,5 +1,5 @@
 // [파일 위치: lib/pages/field/field_schedule_page.dart]
-// 수정 내용:
+// 현장업무지원 / 일정관리
 // 1. [긴급 수정] 'TextSpan' 이름 충돌 해결 (import 구문에 hide TextSpan 추가)
 // 2. [UI 개선] 리스트 카드 디자인 변경 (제목+작성날짜+기간+작성시간 한 줄 표시)
 // 3. [기능] 일정 등록 시 '시작일' ~ '종료일' 기간 설정 기능
@@ -30,8 +30,12 @@ class FieldSchedulePage extends StatefulWidget {
   FieldSchedulePageState createState() => FieldSchedulePageState(); // ✅ 여기 _ 제거
 }
 
-class FieldSchedulePageState extends State<FieldSchedulePage> { // ✅ 여기 _ 제거
-  Key _refreshKey = UniqueKey(); // ✅ 새로고침용 키
+class FieldSchedulePageState extends State<FieldSchedulePage> {
+  Key _refreshKey = UniqueKey();
+
+  // 🌟 [추가됨] 검색어 저장 및 텍스트 컨트롤러
+  String _searchQuery = "";
+  final TextEditingController _searchCtrl = TextEditingController();
 
   void refreshData() { // ✅ 외부(main)에서 호출할 함수
     if (!mounted) return;
@@ -279,6 +283,13 @@ class FieldSchedulePageState extends State<FieldSchedulePage> { // ✅ 여기 _ 
               lastDay: DateTime.utc(2030, 12, 31),
               focusedDay: _focusedDay,
               calendarFormat: _calendarFormat,
+              // 🌟 [고도화 1] 요일 글씨 하단부 잘림 완벽 방지 (높이를 넉넉하게 32로 늘려줌)
+              daysOfWeekHeight: 32,
+              // 🌟 [고도화 2] 달력 접기/펼치기 활성화 설정
+              availableCalendarFormats: const {
+                CalendarFormat.month: '펼치기 ∨', // 주간 뷰일 때 보이는 버튼 글씨
+                CalendarFormat.week: '접기 ∧',   // 월간 뷰일 때 보이는 버튼 글씨
+              },
               selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
               eventLoader: _getEventsForDay,
               onDaySelected: (selectedDay, focusedDay) {
@@ -288,12 +299,23 @@ class FieldSchedulePageState extends State<FieldSchedulePage> { // ✅ 여기 _ 
                 });
               },
               onFormatChanged: (format) => setState(() => _calendarFormat = format),
-              headerStyle: const HeaderStyle(
-                formatButtonVisible: false,
+              headerStyle: HeaderStyle(
+                formatButtonVisible: true, // 🌟 숨겨져 있던 접기/펼치기 버튼 노출
+                formatButtonShowsNext: true,
                 titleCentered: true,
-                titleTextStyle: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.textMain),
-                leftChevronIcon: Icon(Icons.chevron_left, color: AppTheme.textSub),
-                rightChevronIcon: Icon(Icons.chevron_right, color: AppTheme.textSub),
+                formatButtonDecoration: BoxDecoration(
+                  border: Border.all(color: AppTheme.borderColor),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                formatButtonTextStyle: const TextStyle(
+                  color: AppTheme.textSub,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+                formatButtonPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                titleTextStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.textMain),
+                leftChevronIcon: const Icon(Icons.chevron_left, color: AppTheme.textSub),
+                rightChevronIcon: const Icon(Icons.chevron_right, color: AppTheme.textSub),
               ),
               calendarStyle: CalendarStyle(
                 todayDecoration: const BoxDecoration(color: Colors.transparent, shape: BoxShape.circle),
@@ -309,6 +331,19 @@ class FieldSchedulePageState extends State<FieldSchedulePage> { // ✅ 여기 _ 
                 markerDecoration: const BoxDecoration(color: AppTheme.primaryColor, shape: BoxShape.circle),
               ),
               calendarBuilders: CalendarBuilders(
+                // 🌟 [고도화 2] 달력이 접혔을 때는 전체 날짜, 펼쳐졌을 때는 년월만 표시
+                headerTitleBuilder: (context, day) {
+                  final text = _calendarFormat == CalendarFormat.week
+                      ? DateFormat('yyyy년 M월 d일', 'ko_KR').format(_selectedDay ?? day) // 주간(접힘): 오늘/선택된 날짜 전체
+                      : DateFormat('yyyy년 M월', 'ko_KR').format(day); // 월간(펼침): 년월만 표시
+
+                  return Center(
+                    child: Text(
+                      text,
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.textMain),
+                    ),
+                  );
+                },
                 markerBuilder: (context, date, events) {
                   if (events.isEmpty) return const SizedBox();
                   return Positioned(
@@ -339,21 +374,57 @@ class FieldSchedulePageState extends State<FieldSchedulePage> { // ✅ 여기 _ 
           ),
           const Divider(height: 1, color: AppTheme.borderColor),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             color: AppTheme.backgroundColor,
             child: Row(
               children: [
                 Icon(_isTeamView ? Icons.groups_outlined : Icons.person_outline, size: 20, color: AppTheme.textMain),
                 const SizedBox(width: 8),
                 Text(
-                  _isTeamView ? "팀원별 일정 현황" : "나의 일정 리스트",
+                  _isTeamView ? "팀원별 현황" : "나의 일정",
                   style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.textMain, fontSize: 15),
                 ),
-                const Spacer(),
+                // 🌟 [핵심 고도화] 팀 전체 뷰일 때만 텍스트 옆에 둥글고 예쁜 검색창 표시
+                if (_isTeamView) ...[
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: SizedBox(
+                      height: 34,
+                      child: TextField(
+                        controller: _searchCtrl,
+                        onChanged: (val) => setState(() => _searchQuery = val),
+                        decoration: InputDecoration(
+                          hintText: "이름/내용 검색",
+                          hintStyle: const TextStyle(fontSize: 12, color: AppTheme.textSub),
+                          prefixIcon: const Icon(Icons.search, size: 16, color: AppTheme.textSub),
+                          contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
+                          filled: true,
+                          fillColor: Colors.white,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: const BorderSide(color: AppTheme.borderColor)),
+                          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: const BorderSide(color: AppTheme.borderColor)),
+                          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: const BorderSide(color: AppTheme.primaryColor)),
+                          // 🌟 x 버튼 추가 (누르면 검색어 즉시 초기화)
+                          suffixIcon: _searchQuery.isNotEmpty
+                              ? IconButton(
+                            icon: const Icon(Icons.cancel, size: 16, color: AppTheme.textSub),
+                            onPressed: () {
+                              _searchCtrl.clear();
+                              setState(() => _searchQuery = "");
+                            },
+                          )
+                              : null,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                ] else ...[
+                  const Spacer(),
+                ],
                 if (_selectedDay != null)
                   Text(
                       DateFormat('MM.dd (E)', 'ko_KR').format(_selectedDay!),
-                      style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryColor)
+                      style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryColor, fontSize: 14)
                   ),
               ],
             ),
@@ -417,10 +488,38 @@ class FieldSchedulePageState extends State<FieldSchedulePage> { // ✅ 여기 _ 
     }
 
     Map<String, List<dynamic>> groupedEvents = {};
+    String query = _searchQuery.trim().toLowerCase();
+
     for (var event in events) {
-      String author = event['author'] ?? '이름 미상';
-      if (groupedEvents[author] == null) groupedEvents[author] = [];
-      groupedEvents[author]!.add(event);
+      // 🌟 [검색 필터 로직] 검색어가 입력되었다면? 이름, 제목, 내용 중 하나라도 포함되어야 통과!
+      if (query.isNotEmpty) {
+        String author = (event['author'] ?? '').toString().toLowerCase();
+        String title = (event['title'] ?? '').toString().toLowerCase();
+        String content = (event['content'] ?? '').toString().toLowerCase();
+
+        // 셋 다 일치하지 않으면 이 일정은 제외하고 다음으로 넘어갑니다.
+        if (!author.contains(query) && !title.contains(query) && !content.contains(query)) {
+          continue;
+        }
+      }
+
+      String originalAuthor = event['author'] ?? '이름 미상';
+      if (groupedEvents[originalAuthor] == null) groupedEvents[originalAuthor] = [];
+      groupedEvents[originalAuthor]!.add(event);
+    }
+
+    // 🌟 [예외 처리] 검색 결과가 하나도 없을 때 보여줄 UI
+    if (groupedEvents.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: const [
+            Icon(Icons.search_off, size: 40, color: AppTheme.textSub),
+            SizedBox(height: 10),
+            Text("검색 조건에 맞는 일정이 없습니다.", style: TextStyle(color: AppTheme.textSub)),
+          ],
+        ),
+      );
     }
 
     var sortedKeys = groupedEvents.keys.toList()..sort();
@@ -432,9 +531,9 @@ class FieldSchedulePageState extends State<FieldSchedulePage> { // ✅ 여기 _ 
         String authorName = sortedKeys[index];
         List<dynamic> authorEvents = groupedEvents[authorName]!;
 
-        // ✅ [핵심 수정] PageStorageKey를 추가하여 열림/닫힘 상태가 꼬이지 않게 함
+        // ✅ PageStorageKey를 추가하여 열림/닫힘 상태 유지
         return Card(
-          key: PageStorageKey(authorName), // 카드의 고유 키
+          key: PageStorageKey(authorName),
           margin: const EdgeInsets.only(bottom: 12),
           elevation: 0,
           shape: RoundedRectangleBorder(
@@ -442,7 +541,7 @@ class FieldSchedulePageState extends State<FieldSchedulePage> { // ✅ 여기 _ 
               side: const BorderSide(color: AppTheme.borderColor)
           ),
           child: ExpansionTile(
-            key: PageStorageKey('tile_$authorName'), // 타일의 고유 키
+            key: PageStorageKey('tile_$authorName'),
             initiallyExpanded: true,
             shape: const Border(),
             leading: CircleAvatar(
@@ -983,6 +1082,12 @@ class _AddScheduleDialogState extends State<_AddScheduleDialog> {
             _selectedBuilding = {'name': name, 'address': address, 'docId': docId};
             _isBuildingSelected = true;
             _hasChanges = true;
+
+            // 🌟 [핵심 고도화] 제목이 비어있을 때만 선택한 건물명을 제목에 자동 입력합니다!
+            // 이미 사용자가 제목을 적어두었다면 기존 제목을 100% 보존합니다.
+            if (_titleCtrl.text.trim().isEmpty) {
+              _titleCtrl.text = name;
+            }
           });
           Navigator.pop(context);
         });
@@ -993,7 +1098,15 @@ class _AddScheduleDialogState extends State<_AddScheduleDialog> {
   Future<void> _saveSchedule() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
-    if (_titleCtrl.text.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("일정 제목을 입력해주세요."))); return; }
+
+    // 🌟 [핵심 제한 해제]
+    // 기존 일정(경로관리에서 자동 생성된 일정 등)을 열어서 '수정 및 히스토리 추가'를 할 때는
+    // 제목이 없어도 막히지 않고 무조건 저장되도록 제한을 완벽히 풀었습니다.
+    // (단, 아예 처음 '신규 일정'을 만들 때만 제목을 필수로 받습니다.)
+    if (!isEditMode && _titleCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("일정 제목을 입력해주세요.")));
+      return;
+    }
 
     // 🌟 [핵심 고도화] 통신 불량 시 '직원'으로 뜨던 try-catch 로직 완전 삭제!
     // 폰 메모리에 있는 내 정확한 이름을 0초 만에 즉시 가져옵니다.

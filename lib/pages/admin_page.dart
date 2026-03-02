@@ -1,5 +1,5 @@
 // [파일 위치: lib/pages/admin_page.dart]
-// 수정 내용:
+// 설정 / 관리자 설정 페이지
 // 1. 디자인 시스템(AppTheme, CommonCard, CommonButton) 적용하여 UI 통일
 // 2. 슈퍼 관리자(대표님) 전용 비밀번호 확인 기능 및 로직 100% 유지
 

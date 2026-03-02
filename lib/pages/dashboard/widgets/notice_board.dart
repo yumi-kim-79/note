@@ -1,5 +1,5 @@
 // [파일 위치: lib/pages/dashboard/widgets/notice_board.dart]
-// 수정 내용:
+// 대시보드 [사내공지]
 // 1. [웹 호환성] 사진 선택 시 즉시 미리보기 표시 (Image.network) 유지
 // 2. [UX 개선] 저장 시 다이얼로그 안에서 '업로드 중...' 로딩 표시 로직 100% 유지
 // 3. [최적화] 함수 내부에 있던 위젯 빌드 로직을 깔끔하게 정리하여 렌더링 성능 최적화
@@ -514,7 +514,7 @@ class _NoticeBoardState extends State<NoticeBoard> {
   }
 
   // ------------------------------------------------------------------
-  // [팝업 2] 상세 보기 (기존 유지)
+  // [팝업 2] 상세 보기 (🌟 모바일/PC 반응형 자동 변환 고도화)
   // ------------------------------------------------------------------
   void _showDetailPopup(BuildContext context, String docId, Map<String, dynamic> data, bool isAdmin) {
     DateTime date = (data['createdAt'] as Timestamp).toDate();
@@ -523,105 +523,144 @@ class _NoticeBoardState extends State<NoticeBoard> {
 
     showDialog(
       context: context,
-      builder: (context) => Dialog(
-        backgroundColor: Colors.transparent,
-        child: CommonCard(
-          width: 900,
-          height: 700,
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(child: Text(data['title'] ?? '', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppTheme.textMain))),
-                    IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context))
-                  ]
-              ),
-              const Divider(color: AppTheme.borderColor),
-              Text("작성일: ${DateFormat('yyyy-MM-dd HH:mm').format(date)}", style: const TextStyle(color: AppTheme.textSub, fontSize: 13)),
-              const SizedBox(height: 20),
-              Expanded(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                        flex: hasImage ? 5 : 10,
-                        child: SingleChildScrollView(child: Text(data['content'] ?? '', style: const TextStyle(fontSize: 16, height: 1.6, color: AppTheme.textMain)))
-                    ),
-                    if (hasImage) ...[
-                      const SizedBox(width: 24),
-                      Expanded(
-                          flex: 5,
-                          child: Column(
-                              children: [
-                                const Text("<사진 클릭 시 확대>", style: TextStyle(fontSize: 12, color: AppTheme.primaryColor)),
-                                const SizedBox(height: 8),
-                                Expanded(
-                                    child: GestureDetector(
-                                        onTap: () => _showZoomableImage(context, imageUrl),
-                                        child: Container(
-                                            decoration: BoxDecoration(border: Border.all(color: AppTheme.borderColor), borderRadius: BorderRadius.circular(8)),
-                                            child: ClipRRect(
-                                                borderRadius: BorderRadius.circular(8),
-                                                child: Image.network(imageUrl, fit: BoxFit.contain)
-                                            )
-                                        )
-                                    )
-                                )
-                              ]
-                          )
-                      )
-                    ]
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              if (isAdmin)
+      builder: (context) {
+        // 🌟 [핵심] 팝업이 띄워질 때 화면 가로 폭을 측정합니다. (800 미만이면 모바일/태블릿으로 간주)
+        bool isPopupMobile = MediaQuery.of(context).size.width < 800;
+
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          child: CommonCard(
+            width: 900,
+            height: 700,
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // [헤더 영역] 제목 및 닫기 버튼
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    CommonButton(
-                        text: "수정",
-                        icon: Icons.edit,
-                        width: 100,
-                        onPressed: () {
-                          Navigator.pop(context);
-                          _showEditDialog(context, docId, data);
-                        }
-                    ),
-                    const SizedBox(width: 12),
-                    CommonButton(
-                        text: "삭제",
-                        icon: Icons.delete,
-                        width: 100,
-                        backgroundColor: AppTheme.errorColor,
-                        onPressed: () async {
-                          bool? confirm = await showDialog(
-                              context: context,
-                              builder: (ctx) => AlertDialog(
-                                  backgroundColor: Colors.white,
-                                  title: const Text("공지사항 삭제"),
-                                  content: const Text("정말로 삭제하시겠습니까?"),
-                                  actions: [
-                                    TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("취소", style: TextStyle(color: AppTheme.textSub))),
-                                    TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("삭제", style: TextStyle(color: Colors.red)))
-                                  ]
-                              )
-                          );
-                          if (confirm == true) {
-                            await _salesService.deleteNotice(docId);
-                            if (context.mounted) Navigator.pop(context);
-                          }
-                        }
-                    ),
-                  ],
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(child: Text(data['title'] ?? '', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppTheme.textMain))),
+                      IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context))
+                    ]
                 ),
-            ],
+                const Divider(color: AppTheme.borderColor),
+                Text("작성일: ${DateFormat('yyyy-MM-dd HH:mm').format(date)}", style: const TextStyle(color: AppTheme.textSub, fontSize: 13)),
+                const SizedBox(height: 20),
+
+                // [본문 영역] 🌟 기기 크기에 따라 레이아웃이 마법처럼 바뀝니다.
+                Expanded(
+                  child: isPopupMobile
+                      ? SingleChildScrollView( // 📱 [모바일] 세로 배치 (위: 글, 아래: 사진)
+                    physics: const BouncingScrollPhysics(),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(data['content'] ?? '', style: const TextStyle(fontSize: 16, height: 1.6, color: AppTheme.textMain)),
+                        if (hasImage) ...[
+                          const SizedBox(height: 32),
+                          const Divider(color: AppTheme.borderColor, thickness: 1),
+                          const SizedBox(height: 16),
+                          const Center(child: Text("<사진 클릭 시 확대>", style: TextStyle(fontSize: 12, color: AppTheme.primaryColor))),
+                          const SizedBox(height: 8),
+                          GestureDetector(
+                              onTap: () => _showZoomableImage(context, imageUrl),
+                              child: Container(
+                                  width: double.infinity,
+                                  constraints: const BoxConstraints(maxHeight: 350), // 모바일에서 사진이 너무 길어지지 않게 방어
+                                  decoration: BoxDecoration(border: Border.all(color: AppTheme.borderColor), borderRadius: BorderRadius.circular(8), color: AppTheme.backgroundColor),
+                                  child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: Image.network(imageUrl, fit: BoxFit.contain)
+                                  )
+                              )
+                          )
+                        ]
+                      ],
+                    ),
+                  )
+                      : Row( // 💻 [PC] 가로 배치 (좌측: 글, 우측: 사진)
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                          flex: hasImage ? 5 : 10,
+                          child: SingleChildScrollView(child: Text(data['content'] ?? '', style: const TextStyle(fontSize: 16, height: 1.6, color: AppTheme.textMain)))
+                      ),
+                      if (hasImage) ...[
+                        const SizedBox(width: 24),
+                        Expanded(
+                            flex: 5,
+                            child: Column(
+                                children: [
+                                  const Text("<사진 클릭 시 확대>", style: TextStyle(fontSize: 12, color: AppTheme.primaryColor)),
+                                  const SizedBox(height: 8),
+                                  Expanded(
+                                      child: GestureDetector(
+                                          onTap: () => _showZoomableImage(context, imageUrl),
+                                          child: Container(
+                                              decoration: BoxDecoration(border: Border.all(color: AppTheme.borderColor), borderRadius: BorderRadius.circular(8)),
+                                              child: ClipRRect(
+                                                  borderRadius: BorderRadius.circular(8),
+                                                  child: Image.network(imageUrl, fit: BoxFit.contain)
+                                              )
+                                          )
+                                      )
+                                  )
+                                ]
+                            )
+                        )
+                      ]
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // [버튼 영역] 관리자용 수정/삭제 버튼
+                if (isAdmin)
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      CommonButton(
+                          text: "수정",
+                          icon: Icons.edit,
+                          width: 100,
+                          onPressed: () {
+                            Navigator.pop(context);
+                            _showEditDialog(context, docId, data);
+                          }
+                      ),
+                      const SizedBox(width: 12),
+                      CommonButton(
+                          text: "삭제",
+                          icon: Icons.delete,
+                          width: 100,
+                          backgroundColor: AppTheme.errorColor,
+                          onPressed: () async {
+                            bool? confirm = await showDialog(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                    backgroundColor: Colors.white,
+                                    title: const Text("공지사항 삭제"),
+                                    content: const Text("정말로 삭제하시겠습니까?"),
+                                    actions: [
+                                      TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("취소", style: TextStyle(color: AppTheme.textSub))),
+                                      TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("삭제", style: TextStyle(color: Colors.red)))
+                                    ]
+                                )
+                            );
+                            if (confirm == true) {
+                              await _salesService.deleteNotice(docId);
+                              if (context.mounted) Navigator.pop(context);
+                            }
+                          }
+                      ),
+                    ],
+                  ),
+              ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 

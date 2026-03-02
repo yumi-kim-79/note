@@ -1,4 +1,5 @@
 // [파일 위치: lib/services/notification_service.dart]
+// 알림관련
 // [최종 수정] 클라이언트(앱)에서의 직접 발송 로직 제거 -> 서버(Cloud Functions) 위임 방식 적용
 // 효과 1: 웹(PWA)에서 알림이 2개 뜨는 중복 문제 원천 해결
 // 효과 2: 앱 내에 민감한 인증 키(service-account.json)를 포함하지 않아도 되어 보안 강화

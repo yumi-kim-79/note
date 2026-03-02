@@ -3,7 +3,7 @@
  * 1. optimizeUploadedImage: 사진 업로드 시 800x800 리사이징 (기존 기능 100% 유지)
  * 2. sendPushNotification: 다중 사용자 환경 대응 및 유효하지 않은 토큰 자동 청소 고도화
  * 🌟 [핵심 고도화] PWA(웹) 및 안드로이드 절전모드 완벽 돌파 (소리/진동 강제 적용)
- * 🌟 [경로 고도화] 공지사항, 업무보고 클릭 시 해당 페이지로 정확히 꽂히도록 라우팅 추가
+ * 🌟 [경로 고도화] 공지사항, 업무보고 클릭 시 해당 페이지로 정확히 꽂히도록 라우팅 추가 (FCM 표준 방식 적용)
  */
 
 const { onObjectFinalized } = require("firebase-functions/v2/storage");
@@ -122,17 +122,17 @@ exports.sendPushNotification = onDocumentCreated("notifications/{docId}", async 
                 title: data.title || "알림",
                 body: data.body || "내용이 없습니다."
             },
-            // 기존 Data 유지 (클릭 시 이동 등 내부 처리용)
+            // 기존 Data 유지 (내부 처리 및 네이티브 앱 대비용)
             data: {
                 type: msgType,
                 notificationId: event.params.docId,
                 url: targetUrl
             },
-            // 🌟 [핵심 2] 안드로이드 절전모드(Doze) 격파 및 소리 강제 설정
+            // 🌟 [핵심 2] 안드로이드 절전모드(Doze) 격파 및 소리 강제 설정 (유지)
             android: {
                 priority: "high",
                 notification: {
-                    channelId: "high_importance_channel", // (선택) 앱 개발 시 사용할 채널
+                    channelId: "high_importance_channel",
                     sound: isSoundEnabled ? "default" : undefined,
                     clickAction: "FLUTTER_NOTIFICATION_CLICK"
                 }
@@ -147,23 +147,25 @@ exports.sendPushNotification = onDocumentCreated("notifications/{docId}", async 
                     },
                 },
             },
-            // 🌟 [핵심 3] 웹 브라우저(PWA) 전용 강제 진동, 소리, 깨우기 세팅
+            // 🌟 [핵심 3] 웹 브라우저(PWA) 전용 강제 진동, 소리, 라우팅 세팅
             webpush: {
                 headers: {
-                    Urgency: "high" // 브라우저 배터리 최적화 무시하고 즉시 발송
+                    Urgency: "high" // 브라우저 배터리 최적화 무시하고 즉시 발송 (유지)
                 },
                 notification: {
                     icon: "/icons/Icon-192.png", // PWA 알림 아이콘
                     badge: "/icons/Icon-192.png",
                     requireInteraction: true, // 사용자가 닫기 전까지 화면에 남겨둠
-                    // 사용자가 소리 알림을 켜두었을 때만 진동/소리 적용
+                    // 사용자가 소리 알림을 켜두었을 때만 진동/소리 적용 (유지)
                     ...(isSoundEnabled && {
                         sound: "default",
-                        vibrate: [200, 100, 200, 100, 200] // 징- 징- 징- 패턴
-                    }),
-                    data: {
-                        url: targetUrl // 서비스 워커에서 클릭 시 이동할 주소
-                    }
+                        vibrate: [200, 100, 200, 100, 200] // 징- 징- 징- 패턴 (유지)
+                    })
+                    // 🗑️ (삭제됨) 커스텀 서비스워커와 충돌하던 기존 data: { url: ... } 방식 제거
+                },
+                // 🌟 [대기업 표준 방식 추가] 파이어베이스 순정 라우터가 이 주소를 보고 화면을 즉시 이동시킵니다!
+                fcmOptions: {
+                    link: targetUrl
                 }
             }
         };
@@ -175,7 +177,7 @@ exports.sendPushNotification = onDocumentCreated("notifications/{docId}", async 
     } catch (error) {
         console.error("❌ 발송 실패 상세:", error);
 
-        // ✅ [고도화] 유효하지 않은 토큰인 경우 DB에서 자동 삭제 (청소 기능)
+        // ✅ [고도화] 유효하지 않은 토큰인 경우 DB에서 자동 삭제 (청소 기능 유지)
         if (error.code === 'messaging/invalid-registration-token' ||
             error.code === 'messaging/registration-token-not-registered') {
 

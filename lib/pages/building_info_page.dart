@@ -1,6 +1,5 @@
 // 🏷️ [메뉴 이름: 건물 DB 관리]
 // [파일 위치: lib/pages/building_info_page.dart]
-//
 // 수정 내용:
 // 1. [에러 수정] CommonButton의 'height' 파라미터 제거 -> SizedBox로 감싸서 높이 조절
 // 2. [반응형 UI] 모바일에서 헤더가 깨지지 않도록 레이아웃 조정 (Mobile: 2줄 / PC: 1줄)
@@ -11,6 +10,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:excel/excel.dart' hide Border;
+import '../utils/daum_postcode_stub.dart' if (dart.library.html) '../utils/daum_postcode_web.dart';
 
 import '../services/sales_service.dart';
 
@@ -156,9 +156,53 @@ class _BuildingInfoPageState extends State<BuildingInfoPage> {
                 decoration: const InputDecoration(labelText: "건물명", hintText: "예: 파크타운 1차"),
               ),
               const SizedBox(height: 16),
-              TextField(
-                controller: _addressCtrl,
-                decoration: const InputDecoration(labelText: "도로명 주소", hintText: "예: 서울 강남구 테헤란로 123"),
+              // 🌟 [고도화] 다음(Daum) API 연동 주소 검색기
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _addressCtrl,
+                      readOnly: true, // 🚨 사용자가 임의로 타이핑하지 못하게 막음 (데이터 무결성 보장)
+                      decoration: const InputDecoration(
+                        labelText: "도로명 주소",
+                        hintText: "우측 '주소 검색' 버튼을 이용해주세요",
+                        filled: true,
+                        fillColor: Color(0xFFF5F5F5), // 약간 회색 배경으로 변경
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    height: 48,
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.search, size: 18),
+                      label: const Text("주소 검색"),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.primaryColor,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                      ),
+                      onPressed: () async {
+                        // 🌟 우리가 만든 직통 터널을 통해 카카오 팝업 호출!
+                        Map<String, String>? result = await searchAddress();
+
+                        // 사용자가 주소를 선택하고 돌아왔다면?
+                        if (result != null && context.mounted) {
+                          setState(() {
+                            // 1. 도로명 주소 텍스트칸에 삽입
+                            _addressCtrl.text = result['address'] ?? '';
+
+                            // 2. (보너스 마법) 건물명이 비어있으면 자동 완성
+                            if (_nameCtrl.text.isEmpty && result['buildingName'] != null && result['buildingName']!.isNotEmpty) {
+                              _nameCtrl.text = result['buildingName']!;
+                            }
+                          });
+                        }
+                      },
+                    ),
+                  ),
+                ],
               ),
               if (!isEdit)
                 const Padding(
@@ -217,6 +261,27 @@ class _BuildingInfoPageState extends State<BuildingInfoPage> {
     if (confirm == true) {
       _salesService.deleteBuildingInfo(docId);
     }
+  }
+  // 🌟 [고도화 추가] 상단 헤더용 실시간 건물 개수 뱃지 위젯
+  Widget _buildTotalCountBadge() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: _salesService.getBuildingsStream(),
+      builder: (context, snapshot) {
+        // 로딩 중이거나 데이터가 없으면 0개로 표시
+        int total = snapshot.hasData ? snapshot.data!.docs.length : 0;
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: AppTheme.primaryColor.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            "$total개",
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppTheme.primaryColor),
+          ),
+        );
+      },
+    );
   }
 
   List<Widget> _buildPaginationButtons(int totalPages) {
@@ -298,7 +363,7 @@ class _BuildingInfoPageState extends State<BuildingInfoPage> {
           padding: const EdgeInsets.all(24.0),
           child: Column(
             children: [
-              // ✅ [수정됨] 반응형 헤더
+              // ✅ [수정됨] 반응형 헤더 (실시간 건물 수 뱃지 고도화 적용)
               Container(
                 padding: const EdgeInsets.only(bottom: 24),
                 child: isMobile
@@ -312,9 +377,15 @@ class _BuildingInfoPageState extends State<BuildingInfoPage> {
                         const SizedBox(width: 12),
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
-                          children: const [
-                            Text("건물 DB 관리", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppTheme.textMain)),
-                            Text("경로 탐색용 마스터 데이터", style: TextStyle(fontSize: 12, color: AppTheme.textSub)),
+                          children: [
+                            Row(
+                              children: [
+                                const Text("건물 DB 관리", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppTheme.textMain)),
+                                const SizedBox(width: 8),
+                                _buildTotalCountBadge(), // 🌟 뱃지 장착!
+                              ],
+                            ),
+                            const Text("경로 탐색용 마스터 데이터", style: TextStyle(fontSize: 12, color: AppTheme.textSub)),
                           ],
                         ),
                       ],
@@ -338,7 +409,6 @@ class _BuildingInfoPageState extends State<BuildingInfoPage> {
                         ),
                         const SizedBox(width: 8),
                         Expanded(
-                          // ✅ [수정됨] height 파라미터 삭제 -> SizedBox로 감싸서 높이 48px 고정
                           child: SizedBox(
                             height: 48,
                             child: CommonButton(
@@ -358,9 +428,15 @@ class _BuildingInfoPageState extends State<BuildingInfoPage> {
                     const SizedBox(width: 12),
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
-                        Text("건물 DB 관리", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppTheme.textMain)),
-                        Text("경로 탐색을 위한 마스터 데이터", style: TextStyle(fontSize: 12, color: AppTheme.textSub)),
+                      children: [
+                        Row(
+                          children: [
+                            const Text("건물 DB 관리", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppTheme.textMain)),
+                            const SizedBox(width: 8),
+                            _buildTotalCountBadge(), // 🌟 뱃지 장착!
+                          ],
+                        ),
+                        const Text("경로 탐색을 위한 마스터 데이터", style: TextStyle(fontSize: 12, color: AppTheme.textSub)),
                       ],
                     ),
                     const Spacer(),

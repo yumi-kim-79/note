@@ -1,5 +1,5 @@
 // [파일 위치: lib/pages/dashboard/widgets/recent_sales.dart]
-// 수정 내용:
+// 대시보드 [최근작성노트]
 // 1. [기능 추가] '나만 보기(isPrivate)' 필터링 적용 (남이 쓴 비공개 글은 리스트에서 완전 제외)
 // 2. [UI 개선] 내가 쓴 비공개 글은 제목 옆과 팝업창에 자물쇠(🔒) 아이콘 표시
 // 3. [안정성 유지] PC/모바일 반응형 레이아웃 충돌 방지 로직(Expanded, MainAxisSize) 100% 유지

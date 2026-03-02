@@ -1,5 +1,5 @@
 // [파일 위치: lib/pages/dashboard/dashboard_page.dart]
-// 수정 내용:
+// 대시보드 메인페이지
 // 1. [UX 고도화] StatefulWidget 유지 및 메뉴 재클릭 시 refreshData() 기능 100% 유지
 // 2. [구조 개선] PC 모드에서 Infinity height 에러 방지 로직(safeHeight) 유지
 // 3. [반응형] 부모-자식 간 Breakpoint(900px)를 MediaQuery로 통일하여 렌더링 충돌 원천 차단

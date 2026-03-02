@@ -60,13 +60,18 @@ const AndroidNotificationChannel channel = AndroidNotificationChannel(
 );
 
 // =======================================================
-// 🌙 [백그라운드 핸들러] 앱이 꺼져있을 때(Background/Terminated) 알림 생성
+// 🌙 [백그라운드 핸들러] 웹 & 네이티브 앱 완벽 호환 모드
 // =======================================================
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  // 웹에서는 이 핸들러가 실행되지 않으므로 바로 종료
-  if (kIsWeb) return;
+  // 🌟 [스마트 스위치] 현재 환경이 웹(PWA)이라면?
+  // -> 서비스 워커(sw.js)가 알아서 처리하므로 여기서 즉시 종료! (알림 2개 중복 방지)
+  if (kIsWeb) {
+    debugPrint("🌙 [Web 백그라운드] 메시지 수신 (브라우저가 처리함)");
+    return;
+  }
 
+  // 📱 [미래의 앱을 위한 보존 구역] 나중에 출시할 안드로이드/iOS 앱에서는 아래 코드가 작동하여 알림을 띄웁니다!
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   debugPrint("🌙 [App 백그라운드] 메시지 수신: ${message.messageId}");
 
@@ -83,16 +88,12 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
   final data = message.data;
 
-  // 알림 채널 세부 설정
   final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-      channel.id,
-      channel.name,
+      channel.id, channel.name,
       channelDescription: channel.description,
-      importance: Importance.max,
-      priority: Priority.high
+      importance: Importance.max, priority: Priority.high
   );
 
-  // 백그라운드에서 직접 알림 표시
   await backPlugin.show(
       DateTime.now().millisecond,
       data['title'] ?? '알림',
@@ -363,7 +364,7 @@ class MainLayoutPageState extends State<MainLayoutPage> {
     }
   }
 
-  // ✅ [수정] 포그라운드 알림 리스너 (DB 변경 감지)
+  // ✅ [수정] 포그라운드 알림 리스너 (웹 & 앱 분기 처리)
   void _listenToNotifications() {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -391,17 +392,12 @@ class MainLayoutPageState extends State<MainLayoutPage> {
           final data = change.doc.data() as Map<String, dynamic>;
           final String type = data['type'] ?? '';
 
-          // 🚀 [중요 수정] 웹(Web)일 때와 앱(App)일 때 처리를 분리
+          // 🌟 [스마트 스위치 작동]
           if (kIsWeb) {
-            // [Web] 하단 SnackBar 삭제됨 (요청사항 반영)
-            // [Web] 화면을 보고 있을 때는 알림 팝업 없음. (빨간 뱃지만 업데이트 됨)
-            // [Web] 진동은 가능하면 실행
-            if (canVibrate) {
-              // 웹 진동은 브라우저 정책에 따라 안 될 수도 있음 (무시해도 됨)
-              // Vibration.vibrate();
-            }
+            // [웹(PWA) 모드] 앱을 켜놓고 있을 때는 방해되지 않게 빨간 뱃지만 올립니다. (화면 상단 알림창 띄우지 않음)
+            debugPrint("🔔 [Web 포그라운드] 새 알림 도착 (뱃지 카운트 증가)");
           } else {
-            // [App] 모바일 앱에서는 네이티브 알림(상단 배너 + 소리/진동) 실행
+            // 📱 [미래의 앱 모드] 네이티브 앱에서는 화면 상단에 배너 알림과 진동을 발생시킵니다.
             if (canVibrate) {
               Vibration.hasVibrator().then((has) { if (has == true) Vibration.vibrate(); });
             }

@@ -1,5 +1,5 @@
 // [파일 위치: lib/pages/sales/sales_write_page.dart]
-// 수정 내용:
+// 메인페이지 / 새노트작성
 // 1. [웹 호환성] Image.file() 대신 웹에서는 Image.network() 사용 (Blob URL)
 // 2. [HEIC 대응] 웹에서 HEIC 선택 시 '엑박' 대신 '변환 대기 아이콘' 표시
 // 3. [로직 연결] SalesService의 uploadImage에 파일 경로가 아닌 XFile 객체 전달
