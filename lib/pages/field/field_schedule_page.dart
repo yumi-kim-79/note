@@ -1579,7 +1579,19 @@ class _StaffSearchWidget extends StatefulWidget {
 class _StaffSearchWidgetState extends State<_StaffSearchWidget> {
   String _searchText = "";
   int _currentPage = 1;
-  final int _itemsPerPage = 5; // 한 화면에 5명만 노출
+  final int _itemsPerPage = 5;
+
+  // 🌟 [최적화 추가] 애니메이션 완료를 기다리는 변수
+  bool _isAnimationDone = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // 🌟 [최적화 추가] 바텀시트가 올라오는 시간(약 300ms) 동안 데이터 로딩을 멈춰서 버벅임을 완벽히 없앱니다.
+    Future.delayed(const Duration(milliseconds: 350), () {
+      if (mounted) setState(() => _isAnimationDone = true);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1591,12 +1603,10 @@ class _StaffSearchWidgetState extends State<_StaffSearchWidget> {
       ),
       child: Column(
         children: [
-          // 드래그 핸들 (상단 회색 바)
           Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)), margin: const EdgeInsets.only(bottom: 16)),
           const Text("업무 인계 대상자 선택", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.textMain)),
           const SizedBox(height: 16),
 
-          // 직원 이름 검색창
           TextField(
               onChanged: (val) => setState(() { _searchText = val; _currentPage = 1; }),
               decoration: InputDecoration(
@@ -1610,28 +1620,27 @@ class _StaffSearchWidgetState extends State<_StaffSearchWidget> {
           ),
           const SizedBox(height: 16),
 
-          // 직원 리스트 (5명 페이징)
+          // 🌟 [최적화 적용] 애니메이션이 진행 중일 때는 빈 화면(로딩바)만 보여주고, 완전히 올라오면 데이터를 뿌림
           Expanded(
-            child: StreamBuilder<QuerySnapshot>(
+            child: !_isAnimationDone
+                ? const Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
+                : StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance.collection('users').snapshots(),
               builder: (context, snapshot) {
                 if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
 
-                // 내 아이디는 제외
                 var allDocs = snapshot.data!.docs.where((d) => d.id != FirebaseAuth.instance.currentUser?.uid).toList();
 
-                // 🌟 검색어 필터링 (DB 필드명 'name' 사용!)
                 if (_searchText.isNotEmpty) {
                   allDocs = allDocs.where((doc) {
                     var data = doc.data() as Map<String, dynamic>;
-                    String name = (data['name'] ?? '').toString().toLowerCase(); // 👈 'fullName' -> 'name' 변경
+                    String name = (data['name'] ?? '').toString().toLowerCase();
                     return name.contains(_searchText.toLowerCase());
                   }).toList();
                 }
 
                 if (allDocs.isEmpty) return const Center(child: Text("검색 결과가 없습니다.", style: TextStyle(color: AppTheme.textSub)));
 
-                // 🌟 페이징 계산 (5명 단위)
                 int totalItems = allDocs.length;
                 int totalPages = (totalItems / _itemsPerPage).ceil();
                 if (_currentPage > totalPages) _currentPage = totalPages;
@@ -1641,7 +1650,6 @@ class _StaffSearchWidgetState extends State<_StaffSearchWidget> {
                 int endIndex = startIndex + _itemsPerPage;
                 if (endIndex > totalItems) endIndex = totalItems;
 
-                // 현재 페이지에 해당하는 데이터만 추출
                 var currentDocs = allDocs.sublist(startIndex, endIndex);
 
                 return Column(
@@ -1653,9 +1661,7 @@ class _StaffSearchWidgetState extends State<_StaffSearchWidget> {
                         itemCount: currentDocs.length,
                         itemBuilder: (context, index) {
                           var data = currentDocs[index].data() as Map<String, dynamic>;
-
-                          // 🌟 출력 시에도 DB 필드명 'name' 사용!
-                          String userName = data['name'] ?? '이름 없음'; // 👈 'fullName' -> 'name' 변경
+                          String userName = data['name'] ?? '이름 없음';
                           String userRank = data['rank'] ?? '직원';
 
                           return ListTile(
@@ -1668,8 +1674,6 @@ class _StaffSearchWidgetState extends State<_StaffSearchWidget> {
                         },
                       ),
                     ),
-
-                    // 🌟 하단 페이징 컨트롤 버튼
                     if (totalPages > 1)
                       Container(
                         height: 50,
@@ -1677,15 +1681,9 @@ class _StaffSearchWidgetState extends State<_StaffSearchWidget> {
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            IconButton(
-                                icon: const Icon(Icons.chevron_left),
-                                onPressed: _currentPage > 1 ? () => setState(() => _currentPage--) : null
-                            ),
+                            IconButton(icon: const Icon(Icons.chevron_left), onPressed: _currentPage > 1 ? () => setState(() => _currentPage--) : null),
                             Text("$_currentPage / $totalPages", style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.textMain)),
-                            IconButton(
-                                icon: const Icon(Icons.chevron_right),
-                                onPressed: _currentPage < totalPages ? () => setState(() => _currentPage++) : null
-                            ),
+                            IconButton(icon: const Icon(Icons.chevron_right), onPressed: _currentPage < totalPages ? () => setState(() => _currentPage++) : null),
                           ],
                         ),
                       ),

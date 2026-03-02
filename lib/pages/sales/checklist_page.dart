@@ -5,6 +5,7 @@
 // 3. [기능 유지] 프린트, 복사, 엔터 줄바꿈, 체크리스트 등 기존 기능 100% 보존
 // 4. [🌟고도화] 작성자 '이름+직책' 추가 및 UI 표시
 // 5. [🌟고도화] 복사/공유/프린트 시 입주자대표 정보 및 메모가 누락되지 않도록 데이터 추출 로직 완벽 보완
+// 6. [🌟신규추가] 상단 스마트 검색창 및 5개 단위 페이징(Pagination) 기능 적용
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -33,6 +34,11 @@ class ChecklistPage extends StatefulWidget {
 
 class _ChecklistPageState extends State<ChecklistPage> {
   final SalesService _salesService = SalesService();
+
+  // 🌟 [추가됨] 검색 및 페이징 상태 관리 변수
+  String _searchQuery = "";
+  int _currentPage = 1;
+  final int _itemsPerPage = 5; // 한 페이지에 노출할 개수
 
   // 체크리스트 항목 데이터 (25개 항목)
   final List<String> _checklistItems = [
@@ -73,16 +79,15 @@ class _ChecklistPageState extends State<ChecklistPage> {
         if (!userSnapshot.hasData) return const Center(child: CircularProgressIndicator());
         final userData = userSnapshot.data?.data() as Map<String, dynamic>?;
 
-        // ✅ [고도화] 작성자 이름뿐만 아니라 직책(rank)도 가져와서 합칩니다.
         final String myName = userData?['name'] ?? '담당자';
         final String myRank = userData?['rank'] ?? '';
-        final String authorInfo = "$myName $myRank".trim(); // 예: "홍길동 과장"
+        final String authorInfo = "$myName $myRank".trim();
 
         return Scaffold(
           backgroundColor: AppTheme.backgroundColor,
           body: Column(
             children: [
-              // 헤더 영역
+              // 1. 헤더 영역
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),
@@ -94,7 +99,6 @@ class _ChecklistPageState extends State<ChecklistPage> {
                     CommonButton(
                       text: "새 리스트 작성",
                       icon: Icons.add,
-                      // ✅ [고도화] 직책이 포함된 authorInfo 전달
                       onPressed: () => _showChecklistDialog(context, null, authorInfo),
                     )
                   ],
@@ -102,74 +106,162 @@ class _ChecklistPageState extends State<ChecklistPage> {
               ),
               const Divider(height: 1, color: AppTheme.borderColor),
 
-              // 리스트 영역
+              // 🌟 2. [추가됨] 스마트 검색창 영역
+              Container(
+                color: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                child: TextField(
+                  onChanged: (val) {
+                    setState(() {
+                      _searchQuery = val;
+                      _currentPage = 1; // 검색어가 바뀌면 무조건 1페이지로 리셋
+                    });
+                  },
+                  decoration: InputDecoration(
+                    hintText: "건물명, 주소, 작성자 검색",
+                    prefixIcon: const Icon(Icons.search, color: AppTheme.textSub),
+                    filled: true,
+                    fillColor: AppTheme.backgroundColor,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                  ),
+                ),
+              ),
+              const Divider(height: 1, color: AppTheme.borderColor),
+
+              // 3. 리스트 영역 (검색 & 페이징 적용)
               Expanded(
                 child: StreamBuilder<QuerySnapshot>(
                   stream: _salesService.getChecklistsStream(),
                   builder: (context, snapshot) {
                     if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
 
-                    final docs = snapshot.data?.docs ?? [];
+                    var allDocs = snapshot.data?.docs ?? [];
 
-                    if (docs.isEmpty) {
-                      return const Center(child: Text("작성된 체크리스트가 없습니다.", style: TextStyle(color: Colors.grey)));
+                    // 🌟 [검색 필터링 로직]
+                    if (_searchQuery.isNotEmpty) {
+                      allDocs = allDocs.where((doc) {
+                        var data = doc.data() as Map<String, dynamic>;
+                        String bName = (data['buildingName'] ?? '').toString().toLowerCase();
+                        String addr = (data['address'] ?? '').toString().toLowerCase();
+                        String auth = (data['author'] ?? '').toString().toLowerCase();
+                        String q = _searchQuery.toLowerCase();
+
+                        // 건물명, 주소, 작성자 중 하나라도 포함되면 통과
+                        return bName.contains(q) || addr.contains(q) || auth.contains(q);
+                      }).toList();
                     }
 
-                    return ListView.separated(
-                      padding: const EdgeInsets.all(20),
-                      itemCount: docs.length,
-                      separatorBuilder: (context, index) => const SizedBox(height: 12),
-                      itemBuilder: (context, index) {
-                        final data = docs[index].data() as Map<String, dynamic>;
-                        final docId = docs[index].id;
+                    if (allDocs.isEmpty) {
+                      return const Center(child: Text("검색 결과가 없습니다.", style: TextStyle(color: Colors.grey)));
+                    }
 
-                        // 진행률 계산
-                        final List items = data['checkItems'] ?? [];
-                        final int completed = items.where((i) => i['isChecked'] == true).length;
-                        final double progress = items.isEmpty ? 0 : completed / items.length;
+                    // 🌟 [페이징 계산 로직]
+                    int totalItems = allDocs.length;
+                    int totalPages = (totalItems / _itemsPerPage).ceil();
+                    if (_currentPage > totalPages) _currentPage = totalPages;
+                    if (_currentPage < 1) _currentPage = 1;
 
-                        return GestureDetector(
-                          // ✅ [고도화] 직책이 포함된 authorInfo 전달
-                          onTap: () => _showChecklistDialog(context, {...data, 'id': docId}, authorInfo),
-                          child: CommonCard(
-                            padding: const EdgeInsets.all(16),
-                            child: Row(
-                              children: [
-                                // 진행률 원형 그래프
-                                Stack(
-                                  alignment: Alignment.center,
-                                  children: [
-                                    SizedBox(
-                                      width: 50, height: 50,
-                                      child: CircularProgressIndicator(
-                                        value: progress,
-                                        backgroundColor: AppTheme.backgroundColor,
-                                        strokeWidth: 5,
-                                        color: progress == 1.0 ? Colors.green : AppTheme.primaryColor,
-                                      ),
-                                    ),
-                                    Text("${(progress * 100).toInt()}%", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                                  ],
-                                ),
-                                const SizedBox(width: 20),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                    int startIndex = (_currentPage - 1) * _itemsPerPage;
+                    int endIndex = min(startIndex + _itemsPerPage, totalItems);
+
+                    // 현재 페이지에 해당하는 데이터 5개만 싹둑 자르기
+                    var currentDocs = allDocs.sublist(startIndex, endIndex);
+
+                    return Column(
+                      children: [
+                        Expanded(
+                          child: ListView.separated(
+                            padding: const EdgeInsets.all(20),
+                            itemCount: currentDocs.length,
+                            separatorBuilder: (context, index) => const SizedBox(height: 12),
+                            itemBuilder: (context, index) {
+                              final data = currentDocs[index].data() as Map<String, dynamic>;
+                              final docId = currentDocs[index].id;
+
+                              final List items = data['checkItems'] ?? [];
+                              final int completed = items.where((i) => i['isChecked'] == true).length;
+                              final double progress = items.isEmpty ? 0 : completed / items.length;
+
+                              return GestureDetector(
+                                onTap: () => _showChecklistDialog(context, {...data, 'id': docId}, authorInfo),
+                                child: CommonCard(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Row(
                                     children: [
-                                      Text(data['buildingName'] ?? '건물명 없음', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                                      const SizedBox(height: 4),
-                                      Text(data['address'] ?? '주소 없음', style: const TextStyle(color: Colors.grey, fontSize: 13), overflow: TextOverflow.ellipsis),
-                                      const SizedBox(height: 4),
-                                      Text("작성일: ${data['createdAt'] != null ? DateFormat('yyyy-MM-dd').format((data['createdAt'] as Timestamp).toDate()) : '-'}", style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                                      Stack(
+                                        alignment: Alignment.center,
+                                        children: [
+                                          SizedBox(
+                                            width: 50, height: 50,
+                                            child: CircularProgressIndicator(
+                                              value: progress,
+                                              backgroundColor: AppTheme.backgroundColor,
+                                              strokeWidth: 5,
+                                              color: progress == 1.0 ? Colors.green : AppTheme.primaryColor,
+                                            ),
+                                          ),
+                                          Text("${(progress * 100).toInt()}%", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                        ],
+                                      ),
+                                      const SizedBox(width: 20),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(data['buildingName'] ?? '건물명 없음', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                            const SizedBox(height: 4),
+                                            Text(data['address'] ?? '주소 없음', style: const TextStyle(color: Colors.grey, fontSize: 13), overflow: TextOverflow.ellipsis),
+                                            const SizedBox(height: 4),
+                                            Row(
+                                              children: [
+                                                const Icon(Icons.person, size: 12, color: Colors.grey),
+                                                const SizedBox(width: 4),
+                                                Text(data['author'] ?? '작성자 미상', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                                                const Text("  |  ", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                                                Text("작성일: ${data['createdAt'] != null ? DateFormat('yyyy-MM-dd').format((data['createdAt'] as Timestamp).toDate()) : '-'}", style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const Icon(Icons.chevron_right, color: Colors.grey),
                                     ],
                                   ),
                                 ),
-                                const Icon(Icons.chevron_right, color: Colors.grey),
+                              );
+                            },
+                          ),
+                        ),
+                        // 🌟 [추가됨] 하단 페이지 네비게이션
+                        if (totalPages > 1)
+                          Container(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            decoration: const BoxDecoration(
+                                color: Colors.white,
+                                border: Border(top: BorderSide(color: AppTheme.borderColor))
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                IconButton(
+                                  icon: const Icon(Icons.chevron_left, color: AppTheme.textMain),
+                                  onPressed: _currentPage > 1 ? () => setState(() => _currentPage--) : null,
+                                ),
+                                const SizedBox(width: 16),
+                                Text(
+                                    "$_currentPage  /  $totalPages",
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppTheme.primaryColor)
+                                ),
+                                const SizedBox(width: 16),
+                                IconButton(
+                                  icon: const Icon(Icons.chevron_right, color: AppTheme.textMain),
+                                  onPressed: _currentPage < totalPages ? () => setState(() => _currentPage++) : null,
+                                ),
                               ],
                             ),
-                          ),
-                        );
-                      },
+                          )
+                      ],
                     );
                   },
                 ),
@@ -195,7 +287,7 @@ class _ChecklistPageState extends State<ChecklistPage> {
 }
 
 // ==============================================================================
-// [상세 팝업 위젯] - 데이터 입력 및 프린트
+// [상세 팝업 위젯] - 데이터 입력 및 프린트 (기존 내용 완벽 유지)
 // ==============================================================================
 class _HandoverDetailDialog extends StatefulWidget {
   final Map<String, dynamic>? data;
@@ -261,11 +353,9 @@ class _HandoverDetailDialogState extends State<_HandoverDetailDialog> {
     }
   }
 
-  // ✅ [고도화] 텍스트 포맷팅 (복사/공유 시 정보 누락 방지 완벽 적용)
   String _formatChecklistText() {
     String text = "[SM 인수인계 체크리스트]\n";
     text += "출력일: ${DateFormat('yyyy-MM-dd').format(DateTime.now())}\n";
-    // 작성자 직책 포함
     text += "작성자: ${widget.data?['author'] ?? widget.authorName}\n\n";
 
     text += "■ 1. 기본 정보\n";
@@ -275,7 +365,6 @@ class _HandoverDetailDialogState extends State<_HandoverDetailDialog> {
     text += "- 건물개요: 세대수 ${_householdCtrl.text} / 승강기 ${_elevatorCtrl.text} / 주차 ${_parkingCtrl.text}\n\n";
 
     text += "■ 2. 입주자대표 / 관리단\n";
-    // 정보 누락 방지 로직: 이름, 연락처, 동호수, 직책 중 하나라도 입력되어 있으면 출력
     List<String> validMembers = [];
     for (var m in _committeeList) {
       if (m['name'].toString().trim().isNotEmpty ||
@@ -300,12 +389,10 @@ class _HandoverDetailDialogState extends State<_HandoverDetailDialog> {
     text += "${_remarksCtrl.text.trim().isEmpty ? '(내용 없음)' : _remarksCtrl.text}\n\n";
 
     text += "■ 5. 체크 리스트 내역\n";
-    // 💡 수정: 작성 여부와 상관없이 25개 항목 전체를 무조건 출력합니다.
     for (var item in _currentCheckItems) {
       String status = item['isChecked'] == true ? "[V]" : "[ ]";
       text += "$status ${item['title']}\n";
 
-      // 메모가 있으면 출력하고, 없으면 빈칸(공란)으로 둡니다.
       String memoText = (item['memo'] != null && item['memo'].toString().trim().isNotEmpty)
           ? item['memo']
           : "";
@@ -323,7 +410,6 @@ class _HandoverDetailDialogState extends State<_HandoverDetailDialog> {
     );
   }
 
-  // ✅ [고도화] 프린트(PDF) 출력 (데이터 누락 방지 및 직책 표시)
   Future<void> _printChecklist() async {
     final doc = pw.Document();
     final font = await PdfGoogleFonts.nanumGothicRegular();
@@ -355,7 +441,6 @@ class _HandoverDetailDialogState extends State<_HandoverDetailDialog> {
                     children: [
                       _buildPdfRow("건물명", _buildingNameCtrl.text),
                       _buildPdfRow("주소", _buildingAddressCtrl.text),
-                      // 직책까지 포함된 authorName 적용
                       _buildPdfRow("작성자", widget.data?['author'] ?? widget.authorName),
                       _buildPdfRow("관리시작일", DateFormat('yyyy-MM-dd').format(_startDate)),
                       _buildPdfRow("건물개요", "세대수: ${_householdCtrl.text} / 승강기: ${_elevatorCtrl.text} / 주차: ${_parkingCtrl.text}"),
@@ -372,7 +457,6 @@ class _HandoverDetailDialogState extends State<_HandoverDetailDialog> {
               child: pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
-                    // 누락 방지 로직 적용
                     ..._committeeList.where((m) => m['name'].toString().trim().isNotEmpty || m['contact'].toString().trim().isNotEmpty || m['role'].toString().trim().isNotEmpty).map((m) {
                       String info = "";
                       if(m['unit'].toString().isNotEmpty) info += "[${m['unit']}] ";
@@ -384,7 +468,6 @@ class _HandoverDetailDialogState extends State<_HandoverDetailDialog> {
                           child: pw.Text(info, style: const pw.TextStyle(fontSize: 12))
                       );
                     }).toList(),
-                    // 입력된 위원이 아무도 없으면
                     if (_committeeList.every((m) => m['name'].toString().trim().isEmpty && m['contact'].toString().trim().isEmpty && m['role'].toString().trim().isEmpty))
                       pw.Text("정보 없음", style: const pw.TextStyle(fontSize: 12))
                   ]
@@ -411,12 +494,11 @@ class _HandoverDetailDialogState extends State<_HandoverDetailDialog> {
             pw.SizedBox(height: 24),
             pw.Text("■ 인수인계 세부 내역", style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
             pw.Divider(),
-            // 💡 수정: where 필터링 삭제. 체크 여부 상관없이 모든 항목을 출력합니다.
             ..._currentCheckItems.map((item) {
               bool isChecked = item['isChecked'] == true;
               String memoText = (item['memo'] != null && item['memo'].toString().trim().isNotEmpty)
                   ? item['memo']
-                  : ""; // 메모가 없으면 공란으로 처리
+                  : "";
 
               return pw.Container(
                 margin: const pw.EdgeInsets.only(bottom: 8),
@@ -533,6 +615,11 @@ class _HandoverDetailDialogState extends State<_HandoverDetailDialog> {
     final double screenWidth = MediaQuery.of(context).size.width;
     final bool isMobile = screenWidth < 800;
 
+    // 🌟 [핵심 고도화] 현재 로그인한 사람과 글 작성자가 일치하는지 확인하는 권한 센서
+    final currentUserUid = FirebaseAuth.instance.currentUser?.uid;
+    final bool isAuthor = widget.data != null &&
+        (widget.data!['uid'] == currentUserUid || widget.data!['author'] == widget.authorName);
+
     return Dialog(
       backgroundColor: Colors.transparent,
       insetPadding: EdgeInsets.all(isMobile ? 10 : 20),
@@ -548,18 +635,17 @@ class _HandoverDetailDialogState extends State<_HandoverDetailDialog> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  // 🌟 [UI 고도화] 제목 옆에 작성자 정보(직책 포함)를 깔끔한 배지 형태로 표시
                   Expanded(
                     child: Wrap(
                       crossAxisAlignment: WrapCrossAlignment.center,
                       spacing: 12,
-                      runSpacing: 8, // 모바일 화면이 좁아서 줄바꿈될 때의 간격
+                      runSpacing: 8,
                       children: [
                         const Text("인수인계 정보 입력", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black)),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                           decoration: BoxDecoration(
-                            color: AppTheme.primaryLight, // 테마의 연한 배경색 적용
+                            color: AppTheme.primaryLight,
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(color: AppTheme.primaryColor.withOpacity(0.3)),
                           ),
@@ -578,7 +664,6 @@ class _HandoverDetailDialogState extends State<_HandoverDetailDialog> {
                       ],
                     ),
                   ),
-                  // 우측 버튼들 (복사/공유/프린트/닫기) 유지
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -606,7 +691,6 @@ class _HandoverDetailDialogState extends State<_HandoverDetailDialog> {
                       const Text("1. 기본 및 건물 정보", style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryColor)),
                       const SizedBox(height: 12),
 
-                      // 1행: 건물명, 날짜
                       isMobile
                           ? Column(children: [
                         _buildTextField("건물명", _buildingNameCtrl),
@@ -623,7 +707,6 @@ class _HandoverDetailDialogState extends State<_HandoverDetailDialog> {
                       _buildTextField("주소", _buildingAddressCtrl),
                       const SizedBox(height: 12),
 
-                      // 3행: 세대수, 승강기, 주차
                       isMobile
                           ? Column(children: [
                         _buildTextField("세대수", _householdCtrl),
@@ -642,7 +725,6 @@ class _HandoverDetailDialogState extends State<_HandoverDetailDialog> {
 
                       const SizedBox(height: 24),
 
-                      // 2. 입주자대표/관리단 정보
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -767,15 +849,17 @@ class _HandoverDetailDialogState extends State<_HandoverDetailDialog> {
               padding: const EdgeInsets.all(20),
               child: Row(
                 children: [
-                  if (widget.data != null)
+                  // 🌟 [수정됨] 작성자 본인일 때만 '삭제' 버튼 노출!
+                  if (isAuthor)
                     Expanded(
                       child: TextButton(
                         onPressed: _delete,
                         style: TextButton.styleFrom(foregroundColor: AppTheme.errorColor, padding: const EdgeInsets.symmetric(vertical: 16)),
-                        child: const Text("삭제"),
+                        child: const Text("삭제", style: TextStyle(fontWeight: FontWeight.bold)),
                       ),
                     ),
-                  if (widget.data != null) const SizedBox(width: 10),
+                  if (isAuthor) const SizedBox(width: 10),
+
                   Expanded(flex: 2, child: OutlinedButton(onPressed: () => Navigator.pop(context), style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)), child: const Text("취소"))),
                   const SizedBox(width: 10),
                   Expanded(flex: 2, child: CommonButton(text: "저장", onPressed: _save)),
