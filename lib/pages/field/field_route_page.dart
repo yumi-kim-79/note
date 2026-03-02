@@ -718,7 +718,7 @@ class FieldRoutePageState extends State<FieldRoutePage> with AutomaticKeepAliveC
             'buildingName': item.name,
             'buildingAddress': item.address,
             'visitOrder': i,
-            'status': 'pending',
+            'status': 'active', // 🌟 내 일정이므로 '진행 중' 상태로 즉시 저장
             'colorCode': 0xFF9E9E9E,
             'createdAt': FieldValue.serverTimestamp(),
           });

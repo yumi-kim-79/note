@@ -156,11 +156,16 @@ class FieldSchedulePageState extends State<FieldSchedulePage> {
     var excel = Excel.createExcel();
     Sheet sheet = excel['Sheet1'];
 
-    List<String> headers = ['담당자(직책)', '제목', '건물명', '기간/일시', '시간', '최초 내용', '수정 로그'];
+    // 🌟 [고도화] 엑셀 헤더(첫 줄) 디자인 및 항목 개편
+    List<String> headers = ['상태', '담당자', '제목', '방문 건물', '일자/기간', '시간', '최초 내용', '업무 히스토리 (이관/수정)'];
     for (int i = 0; i < headers.length; i++) {
       var cell = sheet.cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0));
       cell.value = TextCellValue(headers[i]);
-      cell.cellStyle = CellStyle(bold: true, horizontalAlign: HorizontalAlign.Center, backgroundColorHex: ExcelColor.fromHexString("#E0E0E0"));
+      cell.cellStyle = CellStyle(
+          bold: true,
+          horizontalAlign: HorizontalAlign.Center,
+          backgroundColorHex: ExcelColor.fromHexString("#E0E0E0")
+      );
     }
 
     for (int i = 0; i < targetEvents.length; i++) {
@@ -175,37 +180,52 @@ class FieldSchedulePageState extends State<FieldSchedulePage> {
         dateStr += " ~ ${DateFormat('MM-dd').format(endD)}";
       }
 
+      // 🌟 [고도화] 상태값 한글 변환
+      String statusStr = event['status'] == 'pending' ? '🚨 수락 대기' : '✅ 진행/완료';
+
       List<dynamic> logs = event['workLogs'] ?? [];
       String firstContent = "";
-      List<String> history = [];
+      List<String> historyList = [];
 
       if (logs.isNotEmpty) {
         var firstLog = logs.first;
         firstContent = "[${firstLog['author']}] ${firstLog['text']}";
+
+        // 🌟 [고도화] 히스토리를 여러 열로 쪼개지 않고, 날짜와 함께 줄바꿈(\n)으로 합침
         if (logs.length > 1) {
           for (int j = 1; j < logs.length; j++) {
-            history.add("[${logs[j]['author']}] ${logs[j]['text']}");
+            String logTime = logs[j]['createdAt'] != null
+                ? DateFormat('MM/dd HH:mm').format((logs[j]['createdAt'] as Timestamp).toDate())
+                : "";
+            historyList.add("[$logTime ${logs[j]['author']}] ${logs[j]['text']}");
           }
         }
       } else {
         firstContent = event['content'] ?? "";
       }
 
+      String mergedHistory = historyList.isEmpty ? "-" : historyList.join('\n');
+
       List<CellValue> rowData = [
+        TextCellValue(statusStr),
         TextCellValue(event['author'] ?? '미상'),
         TextCellValue(event['title'] ?? ''),
         TextCellValue(event['buildingName'] ?? '-'),
         TextCellValue(dateStr),
         TextCellValue("${DateFormat('HH:mm').format(startTime)} ~ ${DateFormat('HH:mm').format(endTime)}"),
         TextCellValue(firstContent),
+        TextCellValue(mergedHistory), // 🌟 한 셀에 예쁘게 다 들어가도록 처리
       ];
 
-      for (var hist in history) {
-        rowData.add(TextCellValue(hist));
-      }
-
       for (int col = 0; col < rowData.length; col++) {
-        sheet.cell(CellIndex.indexByColumnRow(columnIndex: col, rowIndex: i + 1)).value = rowData[col];
+        var cell = sheet.cell(CellIndex.indexByColumnRow(columnIndex: col, rowIndex: i + 1));
+        cell.value = rowData[col];
+        // 히스토리 칸은 줄바꿈 허용(TextWrapping) 설정
+        if (col == 7) {
+          cell.cellStyle = CellStyle(textWrapping: TextWrapping.WrapText, verticalAlign: VerticalAlign.Top);
+        } else {
+          cell.cellStyle = CellStyle(verticalAlign: VerticalAlign.Top);
+        }
       }
     }
 
@@ -573,20 +593,20 @@ class FieldSchedulePageState extends State<FieldSchedulePage> {
     DateTime end = (event['endDate'] as Timestamp?)?.toDate() ?? start;
     bool isMultiDay = !DateUtils.isSameDay(start, end);
 
-    // 기간 문자열
     String dateRangeStr = isMultiDay
         ? "${DateFormat('MM.dd').format(start)}~${DateFormat('MM.dd').format(end)}"
         : DateFormat('MM.dd').format(start);
 
-    // 2. 작성 일시(Created At) - 없으면 시작 시간으로 대체
+    // 2. 작성 일시(Created At)
     DateTime createdAt = (event['createdAt'] as Timestamp?)?.toDate() ?? start;
     String createDateStr = DateFormat('yyyy.MM.dd').format(createdAt);
     String createTimeStr = DateFormat('HH:mm').format(createdAt);
 
-    // 3. 제목
+    // 3. 제목 및 상태
     String title = event['title'] ?? '';
+    String status = event['status'] ?? 'active'; // 🌟 상태값 확인
+    String currentUid = FirebaseAuth.instance.currentUser?.uid ?? '';
 
-    // 내용 처리
     if (logs.isNotEmpty) {
       var lastLog = logs.last;
       lastText = lastLog['text'] ?? "";
@@ -618,13 +638,24 @@ class FieldSchedulePageState extends State<FieldSchedulePage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // ✅ [수정됨] 순서 변경: 제목 -> 작성일시(날짜+시간) -> 기간설정
                   RichText(
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     text: TextSpan(
                       style: DefaultTextStyle.of(context).style,
                       children: [
+                        // 🌟 [핵심 고도화] 수락 대기 중인 상태 딱지 표시
+                        if (status == 'pending' && originalOwnerUid == currentUid)
+                          const TextSpan(
+                              text: "🚨[수락 대기] ",
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.deepOrange)
+                          )
+                        else if (status == 'pending')
+                          TextSpan(
+                              text: "⏳[대기중] ",
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blue.shade700)
+                          ),
+
                         // (1) 제목 (굵게)
                         if (title.isNotEmpty)
                           TextSpan(
@@ -632,13 +663,13 @@ class FieldSchedulePageState extends State<FieldSchedulePage> {
                               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppTheme.textMain)
                           ),
 
-                        // (2) 작성 일시 (날짜 + 시간 붙여서 표시)
+                        // (2) 작성 일시
                         TextSpan(
-                            text: "$createDateStr $createTimeStr  ", // 날짜와 시간 사이 공백, 뒤에 공백 2칸
+                            text: "$createDateStr $createTimeStr  ",
                             style: const TextStyle(fontSize: 12, color: Colors.grey)
                         ),
 
-                        // (3) 기간 설정 (맨 뒤로 이동, 강조 색상)
+                        // (3) 기간 설정
                         TextSpan(
                             text: "[$dateRangeStr]",
                             style: const TextStyle(fontSize: 12, color: AppTheme.primaryColor, fontWeight: FontWeight.bold)
@@ -727,6 +758,21 @@ class _AddScheduleDialogState extends State<_AddScheduleDialog> {
   bool get isEditMode => widget.existingData != null;
   bool _hasChanges = false;
 
+  // 🌟 [핵심 고도화] 권한 감지 센서 3가지
+  bool get isPendingTask => isEditMode && widget.existingData!['status'] == 'pending';
+
+  bool get isMyPendingTask {
+    // 상대방이 나에게 넘겨서 내가 "수락/거절"을 해야 하는 상태
+    final user = FirebaseAuth.instance.currentUser;
+    return isPendingTask && widget.existingData!['uid'] == user?.uid;
+  }
+
+  bool get isSenderOfPendingTask {
+    // 내가 상대방에게 넘겼고, 상대방의 대답을 "기다리는" 상태
+    final user = FirebaseAuth.instance.currentUser;
+    return isPendingTask && widget.existingData!['lastModifierUid'] == user?.uid && widget.existingData!['uid'] != user?.uid;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -812,25 +858,57 @@ class _AddScheduleDialogState extends State<_AddScheduleDialog> {
         padding: const EdgeInsets.all(0),
         child: Column(
           children: [
+            // 🌟 [수정] 상단 헤더 영역 (중복 버튼 제거 및 올바른 타이틀 삽입)
             Padding(
               padding: const EdgeInsets.all(20),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(isEditMode ? "일정 상세" : "일정 등록", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppTheme.textMain)),
-                  IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+                  Text(
+                      isEditMode ? "일정 상세" : "일정 등록",
+                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppTheme.textMain)
+                  ),
+                  IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close, color: AppTheme.textMain)
+                  ),
                 ],
               ),
             ),
             const Divider(height: 1, color: AppTheme.borderColor),
 
+            // [Body]
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(20),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text("제목", style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.textSub)),
+                    // 🌟 [안내 배너 시스템] 권한에 따라 다른 안내문 띄우기
+                    if (isMyPendingTask)
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        margin: const EdgeInsets.only(bottom: 20),
+                        decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.orange.shade300)),
+                        child: Row(children: [
+                          Icon(Icons.notifications_active, color: Colors.orange.shade800),
+                          const SizedBox(width: 10),
+                          const Expanded(child: Text("동료가 이관한 업무입니다. 하단에서 수락 또는 거절을 선택해주세요.", style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold, fontSize: 13))),
+                        ]),
+                      )
+                    else if (isSenderOfPendingTask)
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        margin: const EdgeInsets.only(bottom: 20),
+                        decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.blue.shade300)),
+                        child: Row(children: [
+                          Icon(Icons.hourglass_top, color: Colors.blue.shade800),
+                          const SizedBox(width: 10),
+                          const Expanded(child: Text("담당자에게 업무를 이관하고 수락을 기다리는 중입니다.", style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold, fontSize: 13))),
+                        ]),
+                      ),
+
+                    const Text("제목", style: TextStyle(fontWeight: FontWeight.bold)),
                     const SizedBox(height: 8),
                     TextField(
                         controller: _titleCtrl,
@@ -1040,31 +1118,88 @@ class _AddScheduleDialogState extends State<_AddScheduleDialog> {
 
             const Divider(height: 1, color: AppTheme.borderColor),
 
+            // 🌟 [하단 버튼 스마트 스위칭] 권한 상태에 따른 3가지 분기 처리
             Padding(
               padding: const EdgeInsets.all(20),
-              child: Row(
+              child: isMyPendingTask
+                  ? Row( // 👉 [케이스 1] 수신자 모드: 거절 vs 수락
                 children: [
-                  if (isEditMode && widget.existingData!['uid'] == user?.uid)
-                    Expanded(
-                        flex: 1,
-                        child: Padding(
-                            padding: const EdgeInsets.only(right: 8.0),
-                            child: TextButton(
-                                onPressed: _deleteSchedule,
-                                style: TextButton.styleFrom(foregroundColor: AppTheme.errorColor, padding: const EdgeInsets.symmetric(vertical: 16)),
-                                child: const Text("삭제")
-                            )
-                        )
-                    ),
-
                   Expanded(
-                    flex: 3,
+                    child: TextButton(
+                      onPressed: _rejectHandover,
+                      style: TextButton.styleFrom(foregroundColor: AppTheme.errorColor, padding: const EdgeInsets.symmetric(vertical: 16), backgroundColor: AppTheme.errorColor.withOpacity(0.1)),
+                      child: const FittedBox(child: Text("거절 (반송)", style: TextStyle(fontWeight: FontWeight.bold))),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _acceptHandover,
+                      style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryColor, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 15), elevation: 0, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+                      child: const FittedBox(child: Text("수락 (내 일정으로)", style: TextStyle(fontWeight: FontWeight.bold))),
+                    ),
+                  ),
+                ],
+              )
+                  : isSenderOfPendingTask
+                  ? Row( // 👉 [케이스 2] 송신자 모드: 닫기 vs 이관 취소(회수)
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: TextButton.styleFrom(foregroundColor: AppTheme.textSub, padding: const EdgeInsets.symmetric(vertical: 16)),
+                      child: const FittedBox(child: Text("닫기")),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(flex: 2,
+                    child: ElevatedButton(
+                      onPressed: _cancelHandover,
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.blue.shade700, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 15), elevation: 0, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+                      child: const FittedBox(child: Text("이관 취소 (업무 회수)", style: TextStyle(fontWeight: FontWeight.bold))),
+                    ),
+                  ),
+                ],
+              )
+                  : Row( // 👉 [케이스 3] 일반 모드: 삭제/닫기 | 저장 | 이관
+                children: [
+                  // 1. [좌측] 삭제 (내 업무일 때만) 또는 닫기
+                  Expanded(
+                    child: (isEditMode && widget.existingData!['uid'] == user?.uid)
+                        ? TextButton(
+                      onPressed: _deleteSchedule,
+                      style: TextButton.styleFrom(foregroundColor: AppTheme.errorColor, padding: const EdgeInsets.symmetric(vertical: 16)),
+                      child: const FittedBox(child: Text("삭제", style: TextStyle(fontWeight: FontWeight.bold))),
+                    )
+                        : TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: TextButton.styleFrom(foregroundColor: AppTheme.textSub, padding: const EdgeInsets.symmetric(vertical: 16)),
+                      child: FittedBox(child: Text(isEditMode ? "닫기" : "취소")),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+
+                  // 2. [중앙] 등록/저장 (팀 뷰에서 타인의 일정에 댓글을 달 수 있도록 저장은 유지)
+                  Expanded(
                     child: CommonButton(
-                      onPressed: _hasChanges ? _saveSchedule : () => Navigator.pop(context),
-                      text: _hasChanges ? "작성 완료 (저장)" : "닫기",
+                      onPressed: _hasChanges ? _saveSchedule : (isEditMode ? null : () => Navigator.pop(context)),
+                      text: isEditMode ? "저장" : "등록",
                       backgroundColor: _hasChanges ? AppTheme.primaryColor : Colors.grey,
                     ),
                   ),
+                  const SizedBox(width: 8),
+
+                  // 3. [우측] 이관 버튼 (내 업무일 때만 활성화)
+                  if (isEditMode && widget.existingData!['uid'] == user?.uid)
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: _showStaffSelectionSheet,
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.orange.shade700, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 15), elevation: 0, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+                        child: const FittedBox(child: Text("이관", style: TextStyle(fontWeight: FontWeight.bold))),
+                      ),
+                    )
+                  else
+                    const Spacer(),
                 ],
               ),
             ),
@@ -1072,6 +1207,172 @@ class _AddScheduleDialogState extends State<_AddScheduleDialog> {
         ),
       ),
     );
+  }
+  // =========================================================
+  // 🌟 [추가 로직] 직원 검색 페이징 팝업 호출 (맨 아래 추가된 위젯 연결)
+  // =========================================================
+  void _showStaffSelectionSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => DraggableScrollableSheet(
+          initialChildSize: 0.8,
+          minChildSize: 0.5,
+          maxChildSize: 0.95,
+          expand: false,
+          builder: (context, scrollController) {
+            // 🌟 새롭게 만든 검색 및 페이징 전용 위젯 호출
+            return _StaffSearchWidget(
+              scrollController: scrollController,
+              onSelected: (uid, name) => _confirmHandover(uid, name),
+            );
+          }
+      ),
+    );
+  }
+
+  Future<void> _confirmHandover(String targetUid, String targetName) async {
+    final reasonCtrl = TextEditingController();
+    bool? confirm = await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        title: Text("$targetName님에게 이관"),
+        content: TextField(controller: reasonCtrl, decoration: const InputDecoration(hintText: "이관 사유를 입력하세요 (선택)", filled: true, fillColor: AppTheme.backgroundColor, border: OutlineInputBorder())),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("취소", style: TextStyle(color: Colors.grey))),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), style: ElevatedButton.styleFrom(backgroundColor: Colors.orange.shade700, foregroundColor: Colors.white), child: const Text("확인 (토스)")),
+        ],
+      ),
+    );
+
+    if (confirm == true && mounted) {
+      String myName = GlobalUserState.fullName;
+      setState(() {
+        _workLogs.add({'text': "➡️ $targetName님에게 업무 이관 (사유: ${reasonCtrl.text.isEmpty ? '없음' : reasonCtrl.text})", 'uid': FirebaseAuth.instance.currentUser?.uid, 'author': myName, 'createdAt': Timestamp.now()});
+      });
+
+      await FirebaseFirestore.instance.collection('schedules').doc(widget.existingData!['id']).update({
+        'uid': targetUid,
+        'author': targetName,
+        'workLogs': _workLogs,
+        'lastModifierName': myName,
+        'lastModifierUid': FirebaseAuth.instance.currentUser?.uid, // 🌟 송신자 기억하기
+        'status': 'pending'
+      });
+
+      await NotificationService().sendNotification(targetToken: "", targetUid: targetUid, title: "📑 업무 이관 요청", body: "$myName님이 업무를 이관했습니다.", type: 'schedule');
+
+      Navigator.pop(context);
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("$targetName님에게 업무를 성공적으로 넘겼습니다.")));
+    }
+  }
+
+  // =========================================================
+  // 🌟 [엔진 1] 이관 취소 (업무 회수)
+  // =========================================================
+  Future<void> _cancelHandover() async {
+    bool? confirm = await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        title: const Text("업무 회수"),
+        content: const Text("이관했던 업무를 취소하고 다시 내 일정으로 되돌리시겠습니까?"),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("닫기", style: TextStyle(color: Colors.grey))),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), style: ElevatedButton.styleFrom(backgroundColor: Colors.blue.shade700, foregroundColor: Colors.white), child: const Text("회수하기")),
+        ],
+      ),
+    );
+
+    if (confirm == true && mounted) {
+      String myName = GlobalUserState.fullName;
+      String targetUid = widget.existingData!['uid'];
+
+      _workLogs.add({'text': "↩️ $myName님이 요청을 취소하고 업무를 회수했습니다.", 'uid': FirebaseAuth.instance.currentUser?.uid, 'author': myName, 'createdAt': Timestamp.now()});
+
+      await FirebaseFirestore.instance.collection('schedules').doc(widget.existingData!['id']).update({
+        'uid': FirebaseAuth.instance.currentUser?.uid, // 다시 내 소유로 변경
+        'author': myName,
+        'status': 'active', // 상태 원복
+        'workLogs': _workLogs,
+      });
+
+      await NotificationService().sendNotification(targetToken: "", targetUid: targetUid, title: "업무 이관 취소", body: "$myName님이 요청했던 이관을 취소했습니다.", type: 'schedule');
+
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("업무를 성공적으로 회수했습니다.")));
+    }
+  }
+
+  // =========================================================
+  // 🌟 [엔진 2] 업무 수락
+  // =========================================================
+  Future<void> _acceptHandover() async {
+    String myName = GlobalUserState.fullName;
+    String originalUid = widget.existingData!['lastModifierUid'] ?? '';
+
+    _workLogs.add({'text': "✅ $myName님이 업무를 수락하여 일정에 등록했습니다.", 'uid': FirebaseAuth.instance.currentUser?.uid, 'author': myName, 'createdAt': Timestamp.now()});
+
+    await FirebaseFirestore.instance.collection('schedules').doc(widget.existingData!['id']).update({
+      'status': 'active',
+      'workLogs': _workLogs,
+    });
+
+    if (originalUid.isNotEmpty) {
+      await NotificationService().sendNotification(targetToken: "", targetUid: originalUid, title: "✅ 업무 이관 수락", body: "$myName님이 이관된 업무를 수락했습니다.", type: 'schedule');
+    }
+
+    if (mounted) {
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("업무를 성공적으로 수락했습니다.")));
+    }
+  }
+
+  // =========================================================
+  // 🌟 [엔진 3] 업무 거절 (반송)
+  // =========================================================
+  Future<void> _rejectHandover() async {
+    final reasonCtrl = TextEditingController();
+    bool? confirm = await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        title: const Text("업무 거절 및 반송"),
+        content: TextField(controller: reasonCtrl, decoration: const InputDecoration(hintText: "거절 사유를 필수로 적어주세요.", filled: true, border: OutlineInputBorder())),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("취소", style: TextStyle(color: Colors.grey))),
+          ElevatedButton(onPressed: () {
+            if (reasonCtrl.text.trim().isEmpty) { ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text("거절 사유를 반드시 입력해야 합니다."))); return; }
+            Navigator.pop(ctx, true);
+          }, style: ElevatedButton.styleFrom(backgroundColor: AppTheme.errorColor, foregroundColor: Colors.white), child: const Text("반송하기")),
+        ],
+      ),
+    );
+
+    if (confirm == true && mounted) {
+      String myName = GlobalUserState.fullName;
+      String originalUid = widget.existingData!['lastModifierUid'] ?? '';
+      String originalName = widget.existingData!['lastModifierName'] ?? '이전 담당자';
+
+      _workLogs.add({'text': "❌ $myName님이 업무를 거절했습니다. (사유: ${reasonCtrl.text})", 'uid': FirebaseAuth.instance.currentUser?.uid, 'author': myName, 'createdAt': Timestamp.now()});
+
+      await FirebaseFirestore.instance.collection('schedules').doc(widget.existingData!['id']).update({
+        'uid': originalUid, // 원래 주인으로 복귀
+        'author': originalName,
+        'status': 'active',
+        'workLogs': _workLogs,
+      });
+
+      if (originalUid.isNotEmpty) {
+        await NotificationService().sendNotification(targetToken: "", targetUid: originalUid, title: "🚨 업무 이관 거절", body: "$myName님이 업무를 반송했습니다. 사유를 확인해주세요.", type: 'schedule');
+      }
+
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("업무를 원래 담당자에게 반송했습니다.")));
+    }
   }
 
   void _showBuildingSearchSheet() {
@@ -1264,6 +1565,139 @@ class _AddScheduleDialogState extends State<_AddScheduleDialog> {
     }).toList());
   }
 }
+// =========================================================
+// 🌟 [추가됨] 직원 검색 및 5개씩 페이징 처리 위젯 (필드명 name으로 수정 완료)
+// =========================================================
+class _StaffSearchWidget extends StatefulWidget {
+  final ScrollController scrollController;
+  final Function(String uid, String name) onSelected;
+  const _StaffSearchWidget({required this.scrollController, required this.onSelected});
+  @override
+  State<_StaffSearchWidget> createState() => _StaffSearchWidgetState();
+}
 
+class _StaffSearchWidgetState extends State<_StaffSearchWidget> {
+  String _searchText = "";
+  int _currentPage = 1;
+  final int _itemsPerPage = 5; // 한 화면에 5명만 노출
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))
+      ),
+      child: Column(
+        children: [
+          // 드래그 핸들 (상단 회색 바)
+          Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)), margin: const EdgeInsets.only(bottom: 16)),
+          const Text("업무 인계 대상자 선택", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.textMain)),
+          const SizedBox(height: 16),
+
+          // 직원 이름 검색창
+          TextField(
+              onChanged: (val) => setState(() { _searchText = val; _currentPage = 1; }),
+              decoration: InputDecoration(
+                  hintText: "직원 이름 검색",
+                  prefixIcon: const Icon(Icons.search, color: AppTheme.textSub),
+                  filled: true,
+                  fillColor: AppTheme.backgroundColor,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                  contentPadding: const EdgeInsets.symmetric(vertical: 0)
+              )
+          ),
+          const SizedBox(height: 16),
+
+          // 직원 리스트 (5명 페이징)
+          Expanded(
+            child: StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance.collection('users').snapshots(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+
+                // 내 아이디는 제외
+                var allDocs = snapshot.data!.docs.where((d) => d.id != FirebaseAuth.instance.currentUser?.uid).toList();
+
+                // 🌟 검색어 필터링 (DB 필드명 'name' 사용!)
+                if (_searchText.isNotEmpty) {
+                  allDocs = allDocs.where((doc) {
+                    var data = doc.data() as Map<String, dynamic>;
+                    String name = (data['name'] ?? '').toString().toLowerCase(); // 👈 'fullName' -> 'name' 변경
+                    return name.contains(_searchText.toLowerCase());
+                  }).toList();
+                }
+
+                if (allDocs.isEmpty) return const Center(child: Text("검색 결과가 없습니다.", style: TextStyle(color: AppTheme.textSub)));
+
+                // 🌟 페이징 계산 (5명 단위)
+                int totalItems = allDocs.length;
+                int totalPages = (totalItems / _itemsPerPage).ceil();
+                if (_currentPage > totalPages) _currentPage = totalPages;
+                if (_currentPage < 1) _currentPage = 1;
+
+                int startIndex = (_currentPage - 1) * _itemsPerPage;
+                int endIndex = startIndex + _itemsPerPage;
+                if (endIndex > totalItems) endIndex = totalItems;
+
+                // 현재 페이지에 해당하는 데이터만 추출
+                var currentDocs = allDocs.sublist(startIndex, endIndex);
+
+                return Column(
+                  children: [
+                    Expanded(
+                      child: ListView.separated(
+                        separatorBuilder: (_, __) => const Divider(height: 1, color: AppTheme.borderColor),
+                        controller: widget.scrollController,
+                        itemCount: currentDocs.length,
+                        itemBuilder: (context, index) {
+                          var data = currentDocs[index].data() as Map<String, dynamic>;
+
+                          // 🌟 출력 시에도 DB 필드명 'name' 사용!
+                          String userName = data['name'] ?? '이름 없음'; // 👈 'fullName' -> 'name' 변경
+                          String userRank = data['rank'] ?? '직원';
+
+                          return ListTile(
+                            leading: const CircleAvatar(backgroundColor: AppTheme.primaryLight, child: Icon(Icons.person, color: AppTheme.primaryColor)),
+                            title: Text(userName, style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.textMain)),
+                            subtitle: Text(userRank, style: const TextStyle(color: AppTheme.textSub)),
+                            trailing: const Icon(Icons.chevron_right, color: AppTheme.textSub),
+                            onTap: () => widget.onSelected(currentDocs[index].id, userName),
+                          );
+                        },
+                      ),
+                    ),
+
+                    // 🌟 하단 페이징 컨트롤 버튼
+                    if (totalPages > 1)
+                      Container(
+                        height: 50,
+                        alignment: Alignment.center,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            IconButton(
+                                icon: const Icon(Icons.chevron_left),
+                                onPressed: _currentPage > 1 ? () => setState(() => _currentPage--) : null
+                            ),
+                            Text("$_currentPage / $totalPages", style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.textMain)),
+                            IconButton(
+                                icon: const Icon(Icons.chevron_right),
+                                onPressed: _currentPage < totalPages ? () => setState(() => _currentPage++) : null
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 class _BuildingSearchWidget extends StatefulWidget { final ScrollController scrollController; final Function(String name, String address, String docId) onSelected; const _BuildingSearchWidget({required this.scrollController, required this.onSelected}); @override State<_BuildingSearchWidget> createState() => _BuildingSearchWidgetState(); }
 class _BuildingSearchWidgetState extends State<_BuildingSearchWidget> { String _searchText = ""; @override Widget build(BuildContext context) { return Container(padding: const EdgeInsets.all(16), decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(20))), child: Column(children: [Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)), margin: const EdgeInsets.only(bottom: 16)), const Text("건물 검색 및 선택", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.textMain)), const SizedBox(height: 16), TextField(onChanged: (val) => setState(() => _searchText = val), decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: "건물명 또는 주소 검색")), const SizedBox(height: 16), Expanded(child: StreamBuilder<QuerySnapshot>(stream: FirebaseFirestore.instance.collection('buildings').orderBy('createdAt', descending: true).snapshots(), builder: (context, snapshot) { if (!snapshot.hasData) return const Center(child: CircularProgressIndicator()); var docs = snapshot.data!.docs; if (_searchText.isNotEmpty) { docs = docs.where((doc) { var data = doc.data() as Map<String, dynamic>; String name = (data['name'] ?? '').toString().toLowerCase(); String address = (data['address'] ?? '').toString().toLowerCase(); String search = _searchText.toLowerCase(); return name.contains(search) || address.contains(search); }).toList(); } if (docs.isEmpty) return const Center(child: Text("검색 결과가 없습니다.")); return ListView.separated(separatorBuilder: (context, index) => const Divider(), controller: widget.scrollController, itemCount: docs.length, itemBuilder: (context, index) { var data = docs[index].data() as Map<String, dynamic>; return ListTile(leading: const Icon(Icons.location_city, color: AppTheme.textSub), title: Text(data['name'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold)), subtitle: Text(data['address'] ?? ''), onTap: () { widget.onSelected(data['name'] ?? '이름 없음', data['address'] ?? '', docs[index].id); }); }); }))])); } }

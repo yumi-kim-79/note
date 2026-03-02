@@ -723,6 +723,22 @@ class MainLayoutPageState extends State<MainLayoutPage> {
       ),
     );
   }
+
+  // =========================================================
+  // 🌟 [핵심 고도화] 나에게 이관되어 '수락 대기' 중인 업무 개수 가져오기
+  // =========================================================
+  Stream<int> _getPendingScheduleCountStream() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return Stream.value(0);
+
+    return FirebaseFirestore.instance
+        .collection('schedules')
+        .where('uid', isEqualTo: user.uid)
+        .where('status', isEqualTo: 'pending')
+        .snapshots()
+        .map((snapshot) => snapshot.docs.length); // 대기 중인 문서 개수 반환
+  }
+
   Stream<int> _getOverdueWorkCountStream() {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return Stream.value(0);
@@ -884,7 +900,15 @@ class MainLayoutPageState extends State<MainLayoutPage> {
                           iconColor: AppTheme.primaryColor,
                           collapsedIconColor: AppTheme.textSub,
                           children: [
-                            _buildSubMenuItem(icon: Icons.calendar_today, title: "일정 관리", index: 9),
+                            // 🌟 [핵심 고도화] 일정 관리 메뉴에 실시간 뱃지 연동!
+                            StreamBuilder<int>(
+                              stream: _getPendingScheduleCountStream(),
+                              builder: (context, snap) => _buildSubMenuItem(
+                                  icon: Icons.calendar_today,
+                                  title: "일정 관리",
+                                  index: 9,
+                                  badgeCount: snap.data ?? 0),
+                            ),
                             _buildSubMenuItem(icon: Icons.alt_route, title: "경로 관리 (AI)", index: 7),
                             StreamBuilder<int>(
                               stream: _getOverdueWorkCountStream(),

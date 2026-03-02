@@ -378,7 +378,7 @@ class _CustomCalendarState extends State<CustomCalendar> {
     );
   }
 
-  // ✅ [UI 통일] 터치 시 읽기 전용(Viewer) 팝업 띄우기 (화살표 제거됨)
+  // ✅ [UI 통일] 터치 시 읽기 전용(Viewer) 팝업 띄우기 (수락 대기 딱지 추가!)
   Widget _buildCustomEventCard(Map<String, dynamic> event) {
     Color eventColor = Color(event['colorCode'] ?? 0xFF1A233A);
     List<dynamic> logs = event['workLogs'] ?? [];
@@ -397,7 +397,10 @@ class _CustomCalendarState extends State<CustomCalendar> {
     DateTime createdAt = (event['createdAt'] as Timestamp?)?.toDate() ?? start;
     String createInfoStr = "${DateFormat('yyyy.MM.dd').format(createdAt)} ${DateFormat('HH:mm').format(createdAt)}";
 
+    // 🌟 [핵심 고도화] 제목 및 상태값 가져오기
     String title = event['title'] ?? '';
+    String status = event['status'] ?? 'active';
+    String currentUid = FirebaseAuth.instance.currentUser?.uid ?? '';
 
     if (logs.isNotEmpty) {
       var lastLog = logs.last;
@@ -437,6 +440,18 @@ class _CustomCalendarState extends State<CustomCalendar> {
                     text: TextSpan(
                       style: DefaultTextStyle.of(context).style,
                       children: [
+                        // 🌟 [추가됨] 현장 페이지와 동일한 수락 대기 딱지 표시
+                        if (status == 'pending' && originalOwnerUid == currentUid)
+                          const TextSpan(
+                              text: "🚨[수락 대기] ",
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.deepOrange)
+                          )
+                        else if (status == 'pending')
+                          TextSpan(
+                              text: "⏳[대기중] ",
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blue.shade700)
+                          ),
+
                         TextSpan(
                             text: "$title  ",
                             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppTheme.textMain)

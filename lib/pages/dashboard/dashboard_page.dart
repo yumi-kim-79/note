@@ -6,6 +6,10 @@
 // 4. [🌟스크롤 고도화] 모바일에서 자식 위젯의 터치 간섭을 무시하고 부모 스크롤이 우선권을 갖도록 환경 설정
 
 import 'package:flutter/material.dart';
+// 🌟 [추가] 파이어베이스 연동을 위한 패키지 임포트
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
 import 'widgets/notice_board.dart';
 import 'widgets/recent_sales.dart';
 import 'widgets/custom_calendar.dart';
@@ -40,6 +44,69 @@ class DashboardPageState extends State<DashboardPage> {
     );
   }
 
+  // =========================================================
+  // 🌟 [추가] 대기 중인 이관 업무 개수 감지 및 경고 배너 생성기
+  // =========================================================
+  Widget _buildPendingTaskBanner() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return const SizedBox.shrink();
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('schedules')
+          .where('uid', isEqualTo: user.uid)
+          .where('status', isEqualTo: 'pending') // 대기 중인 내 업무만 필터링
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) return const SizedBox.shrink();
+
+        int count = snapshot.data!.docs.length;
+        if (count == 0) return const SizedBox.shrink(); // 업무가 없으면 배너 숨김!
+
+        return Container(
+          width: double.infinity,
+          margin: const EdgeInsets.only(bottom: 20),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.orange.shade700, Colors.deepOrange.shade600],
+            ),
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.orange.withOpacity(0.3),
+                blurRadius: 8,
+                offset: const Offset(0, 4),
+              )
+            ],
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 32),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                        "🚨 수락 대기 중인 업무가 $count건 있습니다!",
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                        "좌측 메뉴의 [일정 관리] 탭에서 내용을 확인하고 수락/거절을 완료해 주세요.",
+                        style: TextStyle(color: Colors.white70, fontSize: 13)
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // 🌟 [분석 결과 반영] 자식 위젯들과 100% 동일한 기준으로 화면 크기 판별
@@ -52,83 +119,93 @@ class DashboardPageState extends State<DashboardPage> {
       color: AppTheme.backgroundColor,
       child: Padding(
         padding: const EdgeInsets.all(24.0),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            // =======================================================
-            // [에러 방어] PC 모드 높이 계산 (기존 로직 유지)
-            // =======================================================
-            double safeHeight = constraints.maxHeight;
-            if (safeHeight == double.infinity) {
-              safeHeight = MediaQuery.of(context).size.height - 120;
-              if (safeHeight < 600) safeHeight = 600;
-            }
+        child: Column(
+          children: [
+            // 🌟 [핵심 반영] 무조건 최상단에 고정되는 스티키 경고 배너!
+            _buildPendingTaskBanner(),
 
-            // -------------------------------------------------------
-            // [웹/PC 모드] 900px 이상일 때 (가로 배치)
-            // -------------------------------------------------------
-            if (isWideScreen) {
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    flex: 4,
-                    child: SizedBox(
-                      height: safeHeight,
-                      child: Column(
-                        children: [
-                          const Expanded(flex: 5, child: NoticeBoard()),
-                          const SizedBox(height: 24),
-                          const Expanded(flex: 5, child: RecentSales()),
-                        ],
+            // 기존의 LayoutBuilder를 Expanded로 감싸서 남은 영역을 모두 채우도록 구조 개선
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  // =======================================================
+                  // [에러 방어] PC 모드 높이 계산 (기존 로직 유지)
+                  // =======================================================
+                  double safeHeight = constraints.maxHeight;
+                  if (safeHeight == double.infinity) {
+                    safeHeight = MediaQuery.of(context).size.height - 120;
+                    if (safeHeight < 600) safeHeight = 600;
+                  }
+
+                  // -------------------------------------------------------
+                  // [웹/PC 모드] 900px 이상일 때 (가로 배치)
+                  // -------------------------------------------------------
+                  if (isWideScreen) {
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          flex: 4,
+                          child: SizedBox(
+                            height: safeHeight,
+                            child: Column(
+                              children: [
+                                const Expanded(flex: 5, child: NoticeBoard()),
+                                const SizedBox(height: 24),
+                                const Expanded(flex: 5, child: RecentSales()),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 24),
+                        Expanded(
+                          flex: 6,
+                          child: SizedBox(
+                            height: safeHeight,
+                            child: const CustomCalendar(),
+                          ),
+                        ),
+                      ],
+                    );
+                  }
+
+                  // -------------------------------------------------------
+                  // [모바일/태블릿 모드] 900px 미만일 때 (세로 배치 + 전체 스크롤)
+                  // -------------------------------------------------------
+                  else {
+                    return ScrollConfiguration(
+                      // 파란색 물결 효과 등 모바일 특유의 스크롤 효과를 깔끔하게 조정
+                      behavior: const ScrollBehavior().copyWith(overscroll: false),
+                      child: SingleChildScrollView(
+                        // 🌟 [핵심] 사용자가 어디를 만지든 부모 스크롤이 즉각 반응하도록 물리 엔진 설정
+                        physics: const BouncingScrollPhysics(
+                            parent: AlwaysScrollableScrollPhysics()
+                        ),
+                        child: Column(
+                          // 모바일에서는 내용물만큼만 높이를 차지하도록 설정 (중요)
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // 1. 공지사항
+                            const NoticeBoard(),
+                            const SizedBox(height: 24),
+
+                            // 2. 최근 영업 활동
+                            const RecentSales(),
+                            const SizedBox(height: 24),
+
+                            // 3. 캘린더 (모바일은 높이 고정 유지)
+                            const SizedBox(height: 750, child: CustomCalendar()),
+
+                            const SizedBox(height: 40),
+                          ],
+                        ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(width: 24),
-                  Expanded(
-                    flex: 6,
-                    child: SizedBox(
-                      height: safeHeight,
-                      child: const CustomCalendar(),
-                    ),
-                  ),
-                ],
-              );
-            }
-
-            // -------------------------------------------------------
-            // [모바일/태블릿 모드] 900px 미만일 때 (세로 배치 + 전체 스크롤)
-            // -------------------------------------------------------
-            else {
-              return ScrollConfiguration(
-                // 파란색 물결 효과 등 모바일 특유의 스크롤 효과를 깔끔하게 조정
-                behavior: const ScrollBehavior().copyWith(overscroll: false),
-                child: SingleChildScrollView(
-                  // 🌟 [핵심] 사용자가 어디를 만지든 부모 스크롤이 즉각 반응하도록 물리 엔진 설정
-                  physics: const BouncingScrollPhysics(
-                      parent: AlwaysScrollableScrollPhysics()
-                  ),
-                  child: Column(
-                    // 모바일에서는 내용물만큼만 높이를 차지하도록 설정 (중요)
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // 1. 공지사항
-                      const NoticeBoard(),
-                      const SizedBox(height: 24),
-
-                      // 2. 최근 영업 활동
-                      const RecentSales(),
-                      const SizedBox(height: 24),
-
-                      // 3. 캘린더 (모바일은 높이 고정 유지)
-                      const SizedBox(height: 750, child: CustomCalendar()),
-
-                      const SizedBox(height: 40),
-                    ],
-                  ),
-                ),
-              );
-            }
-          },
+                    );
+                  }
+                },
+              ),
+            ),
+          ],
         ),
       ),
     );
