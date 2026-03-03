@@ -83,9 +83,9 @@ class _ChecklistPageState extends State<ChecklistPage> {
         final String myRank = userData?['rank'] ?? '';
         final String authorInfo = "$myName $myRank".trim();
 
-        return Scaffold(
-          backgroundColor: AppTheme.backgroundColor,
-          body: Column(
+        return Container(
+          color: AppTheme.backgroundColor,
+          child: Column(
             children: [
               // 1. 헤더 영역
               Container(

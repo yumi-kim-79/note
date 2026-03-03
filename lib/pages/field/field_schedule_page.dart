@@ -53,6 +53,7 @@ class FieldSchedulePageState extends State<FieldSchedulePage> {
   DateTime? _selectedDay;
 
   Map<DateTime, List<dynamic>> _events = {};
+  List<Map<String, dynamic>> _myPendingEvents = []; // 🌟 [고도화 추가] 날짜 상관없이 무조건 띄울 내 대기 업무 보관함
   bool _isTeamView = false;
 
   StreamSubscription<QuerySnapshot>? _scheduleSubscription; // 🌟 [버그 수정] 켜져있는 스트림(수도꼭지)을 기억할 변수
@@ -86,8 +87,16 @@ class FieldSchedulePageState extends State<FieldSchedulePage> {
 
     _scheduleSubscription = query.snapshots().listen((snapshot) {
       Map<DateTime, List<dynamic>> newEvents = {};
+      List<Map<String, dynamic>> newPendingEvents = []; // 🌟 담아둘 임시 바구니
+
       for (var doc in snapshot.docs) {
         var data = doc.data() as Map<String, dynamic>;
+        data['id'] = doc.id; // id를 미리 넣어줌
+
+        // 🌟 [핵심 고도화] 수락 대기 상태이고 '나'에게 온 업무라면 날짜 무관하게 무조건 바구니에 담기!
+        if (data['status'] == 'pending' && data['uid'] == user.uid) {
+          newPendingEvents.add(data);
+        }
 
         DateTime start;
         if (data['startDate'] != null) {
@@ -113,7 +122,12 @@ class FieldSchedulePageState extends State<FieldSchedulePage> {
           currentDay = currentDay.add(const Duration(days: 1));
         }
       }
-      if (mounted) setState(() => _events = newEvents);
+      if (mounted) {
+        setState(() {
+          _events = newEvents;
+          _myPendingEvents = newPendingEvents; // 🌟 캘린더 데이터와 대기 업무 데이터를 동시 업데이트!
+        });
+      }
     });
   }
 
@@ -472,8 +486,18 @@ class FieldSchedulePageState extends State<FieldSchedulePage> {
   }
 
   Widget _buildMyEventList() {
-    final events = _getEventsForDay(_selectedDay!);
-    if (events.isEmpty) {
+    final user = FirebaseAuth.instance.currentUser;
+    final selectedDayEvents = _getEventsForDay(_selectedDay!);
+
+    // 🌟 [고도화] 현재 선택된 달력 날짜의 일정 중, '수락 대기' 상태인 것은 위에서 띄울 거니까 중복 방지를 위해 제외
+    final normalEvents = selectedDayEvents.where((e) {
+      return !(e['status'] == 'pending' && e['uid'] == user?.uid);
+    }).toList();
+
+    // 🌟 [핵심 고도화] 시공간을 초월하여 "무조건 맨 위에 띄울 대기 업무" + "선택한 날짜의 일반 일정" 강제 결합!
+    final displayEvents = [..._myPendingEvents, ...normalEvents];
+
+    if (displayEvents.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -485,10 +509,11 @@ class FieldSchedulePageState extends State<FieldSchedulePage> {
         ),
       );
     }
+
     return ListView.builder(
-      itemCount: events.length,
+      itemCount: displayEvents.length,
       padding: const EdgeInsets.symmetric(vertical: 12),
-      itemBuilder: (context, index) => _buildCustomEventCard(events[index]),
+      itemBuilder: (context, index) => _buildCustomEventCard(displayEvents[index]),
     );
   }
 
@@ -1142,8 +1167,17 @@ class _AddScheduleDialogState extends State<_AddScheduleDialog> {
                 ],
               )
                   : isSenderOfPendingTask
-                  ? Row( // 👉 [케이스 2] 송신자 모드: 닫기 vs 이관 취소(회수)
+                  ? Row( // 👉 [케이스 2] 송신자 모드: 삭제 | 닫기 | 이관 취소(회수)
                 children: [
+                  // 🌟 [추가됨] 내가 보낸 대기 중인 업무도 바로 삭제 가능하도록 허용!
+                  Expanded(
+                    child: TextButton(
+                      onPressed: _deleteSchedule,
+                      style: TextButton.styleFrom(foregroundColor: AppTheme.errorColor, padding: const EdgeInsets.symmetric(vertical: 16)),
+                      child: const FittedBox(child: Text("삭제", style: TextStyle(fontWeight: FontWeight.bold))),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: TextButton(
                       onPressed: () => Navigator.pop(context),
@@ -1151,12 +1185,12 @@ class _AddScheduleDialogState extends State<_AddScheduleDialog> {
                       child: const FittedBox(child: Text("닫기")),
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 8),
                   Expanded(flex: 2,
                     child: ElevatedButton(
                       onPressed: _cancelHandover,
                       style: ElevatedButton.styleFrom(backgroundColor: Colors.blue.shade700, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 15), elevation: 0, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-                      child: const FittedBox(child: Text("이관 취소 (업무 회수)", style: TextStyle(fontWeight: FontWeight.bold))),
+                      child: const FittedBox(child: Text("이관 취소(회수)", style: TextStyle(fontWeight: FontWeight.bold))),
                     ),
                   ),
                 ],
@@ -1480,8 +1514,43 @@ class _AddScheduleDialogState extends State<_AddScheduleDialog> {
   }
 
   Future<void> _deleteSchedule() async {
-    bool? confirm = await showDialog(context: context, builder: (ctx) => AlertDialog(backgroundColor: Colors.white, title: const Text("삭제 확인"), content: const Text("이 일정을 삭제하시겠습니까?"), actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("취소")), TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("삭제", style: TextStyle(color: AppTheme.errorColor)))]));
-    if (confirm == true) { await FirebaseFirestore.instance.collection('schedules').doc(widget.existingData!['id']).delete(); if (mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("삭제되었습니다."))); }}
+    bool? confirm = await showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+            backgroundColor: Colors.white,
+            title: const Text("삭제 확인"),
+            content: const Text("이 일정을 완전히 삭제하시겠습니까?\n(상대방에게 이관 대기 중인 경우, 요청도 함께 취소됩니다.)"),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("취소")),
+              TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("삭제", style: TextStyle(color: AppTheme.errorColor)))
+            ]
+        )
+    );
+
+    if (confirm == true) {
+      // 🌟 [핵심 고도화] 수락 대기 중인 상태에서 지웠을 경우 뱃지 꼬임 방지!
+      if (isSenderOfPendingTask) {
+        String targetUid = widget.existingData!['uid'];
+        String myName = GlobalUserState.fullName;
+
+        // 상대방에게 취소 알림을 보내서 상황을 인지시키고 뱃지를 갱신하도록 유도
+        await NotificationService().sendNotification(
+            targetToken: "",
+            targetUid: targetUid,
+            title: "🗑️ 업무 이관 취소(삭제)",
+            body: "$myName님이 이관 대기 중이던 업무를 삭제했습니다.",
+            type: 'schedule'
+        );
+      }
+
+      // 실제 데이터 완전 삭제
+      await FirebaseFirestore.instance.collection('schedules').doc(widget.existingData!['id']).delete();
+
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("일정이 영구 삭제되었습니다.")));
+      }
+    }
   }
 
   // ✅ [수정] 날짜 선택기 (Start/End 구분)
