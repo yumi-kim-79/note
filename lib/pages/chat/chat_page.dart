@@ -1,8 +1,11 @@
 // [파일 위치: lib/pages/chat/chat_page.dart]
 // [최종 고도화] 카카오톡 방식의 무중단 채팅 UI 구현
 // 1. [Mobile] 엔터 키를 '줄바꿈'으로 변경하여 키보드 내려감(깜빡임) 원천 차단
-// 2. [PC] 엔터 키로 '전송' 유지 (기존 100점 경험 보존)
+// 2. [PC] 엔터 키로 '전송' 유지 / Shift+Enter로 '줄바꿈' 완벽 지원 (한글 잔상 방어 100% 유지)
 // 3. [Focus] 메시지 전송 후 포커스를 강제로 유지하여 연속 입력 보장
+// 4. [🌟고도화] DB 요금 폭탄(무한 읽음 처리) 원천 차단
+// 5. [🌟고도화] 같은 시간, 같은 사람의 연속 메시지 말풍선 묶음(프사, 시간 생략) UI 적용
+// 6. [🌟고도화] 스크롤 시 '최신 메시지(↓)' 플로팅 버튼 등장
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -12,13 +15,13 @@ import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:universal_html/html.dart' as html;
-import 'package:flutter/foundation.dart' show kIsWeb;
+// 🌟 [수정 1] defaultTargetPlatform 에러 해결을 위해 import 항목 추가
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform;
 import 'dart:convert';
 import 'dart:async';
-import 'dart:io'; // 플랫폼 감지용
+import 'dart:io';
 
 import '../../services/sales_service.dart';
-import '../../services/notification_service.dart';
 import '../../theme/app_theme.dart';
 
 // --- 메인 페이지 위젯 ---
@@ -37,6 +40,7 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void initState() {
     super.initState();
+    // 🌟 [최적화 유지] 채팅방 처음 열 때 딱 한 번만 읽음 처리
     if (widget.isVisible) _salesService.updateLastReadTime();
     _deleteOldMessages();
   }
@@ -44,6 +48,7 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void didUpdateWidget(covariant ChatPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // 🌟 [최적화 유지] 다른 탭에 있다가 채팅방 탭으로 돌아왔을 때 한 번만 읽음 처리
     if (!oldWidget.isVisible && widget.isVisible) {
       _salesService.updateLastReadTime();
     }
@@ -84,10 +89,10 @@ class _ChatPageState extends State<ChatPage> {
         Expanded(
           child: Container(
             color: const Color(0xFFB2C7DA),
+            // 🌟 [고도화 반영] Stateful로 변경된 _MessageList 호출
             child: _MessageList(
               salesService: _salesService,
               scrollController: _scrollController,
-              isVisible: widget.isVisible,
             ),
           ),
         ),
@@ -100,11 +105,10 @@ class _ChatPageState extends State<ChatPage> {
   }
 }
 
-// --- 1. 헤더 위젯 ---
+// --- 1. 헤더 위젯 (기존 기능 100% 보존) ---
 class _ChatHeader extends StatelessWidget {
   const _ChatHeader({super.key});
 
-  // 🗑️ [관리자 전용] 전체 대화 삭제 기능
   Future<void> _deleteAllChats(BuildContext context) async {
     bool? confirm = await showDialog(
       context: context,
@@ -140,7 +144,6 @@ class _ChatHeader extends StatelessWidget {
     }
   }
 
-  // 💾 백업 기능
   Future<void> _backupChat(BuildContext context) async {
     try {
       var snapshot = await FirebaseFirestore.instance.collection('chats').orderBy('createdAt', descending: false).get();
@@ -180,11 +183,8 @@ class _ChatHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // ✅ 1. 관리자 권한 확인 (이메일 체크)
     final user = FirebaseAuth.instance.currentUser;
     final bool isAdmin = user?.email == 'yuseok8052@gmail.com';
-
-    // ✅ 2. 화면 너비 확인 (600px 미만이면 좁은 화면)
     final bool isCompact = MediaQuery.of(context).size.width < 600;
 
     return Container(
@@ -194,17 +194,15 @@ class _ChatHeader extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Expanded(
-            child: const Text(
+          const Expanded(
+            child: Text(
               "💬 업무 톡톡",
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               overflow: TextOverflow.ellipsis,
             ),
           ),
-
           Row(
             children: [
-              // 🔴 [관리자 전용] 전체 삭제 버튼 (isAdmin일 때만 보임)
               if (isAdmin)
                 Padding(
                   padding: const EdgeInsets.only(right: 8.0),
@@ -216,20 +214,11 @@ class _ChatHeader extends StatelessWidget {
                       padding: EdgeInsets.symmetric(horizontal: isCompact ? 8 : 16),
                       minimumSize: Size(isCompact ? 40 : 64, 36),
                     ),
-                    // 화면이 좁으면 아이콘만, 넓으면 글자까지
                     child: isCompact
                         ? const Icon(Icons.delete_forever, size: 20)
-                        : const Row(
-                      children: [
-                        Icon(Icons.delete_forever, size: 16),
-                        SizedBox(width: 8),
-                        Text("전체삭제"),
-                      ],
-                    ),
+                        : const Row(children: [Icon(Icons.delete_forever, size: 16), SizedBox(width: 8), Text("전체삭제")]),
                   ),
                 ),
-
-              // 💾 백업 버튼 (항상 보임)
               OutlinedButton(
                 onPressed: () => _backupChat(context),
                 style: OutlinedButton.styleFrom(
@@ -240,13 +229,7 @@ class _ChatHeader extends StatelessWidget {
                 ),
                 child: isCompact
                     ? const Icon(Icons.download_rounded, size: 20)
-                    : const Row(
-                  children: [
-                    Icon(Icons.download_rounded, size: 16),
-                    SizedBox(width: 8),
-                    Text("대화 백업"),
-                  ],
-                ),
+                    : const Row(children: [Icon(Icons.download_rounded, size: 16), SizedBox(width: 8), Text("대화 백업")]),
               )
             ],
           )
@@ -256,13 +239,47 @@ class _ChatHeader extends StatelessWidget {
   }
 }
 
-// --- 2. 메시지 목록 위젯 ---
-class _MessageList extends StatelessWidget {
+// --- 2. 메시지 목록 위젯 (🌟 고도화를 위해 Stateful로 변경) ---
+class _MessageList extends StatefulWidget {
   final SalesService salesService;
   final ScrollController scrollController;
-  final bool isVisible;
 
-  const _MessageList({required this.salesService, required this.scrollController, required this.isVisible});
+  const _MessageList({required this.salesService, required this.scrollController});
+
+  @override
+  State<_MessageList> createState() => _MessageListState();
+}
+
+class _MessageListState extends State<_MessageList> {
+  bool _showScrollFAB = false;
+
+  // 🌟 [핵심 수술 1] 데이터를 받아오는 파이프라인을 저장할 전용 변수를 만듭니다.
+  late Stream<QuerySnapshot> _chatStream;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // 🌟 [핵심 수술 2] 화면이 처음 열릴 때 딱 한 번만 파이프라인을 단단히 연결합니다!
+    _chatStream = widget.salesService.getChatMessagesStream();
+
+    // 🌟 [스크롤 감지] 화면을 위로 200픽셀 이상 올리면 플로팅 버튼 등장
+    widget.scrollController.addListener(() {
+      if (widget.scrollController.offset > 200 && !_showScrollFAB) {
+        setState(() => _showScrollFAB = true);
+      } else if (widget.scrollController.offset <= 200 && _showScrollFAB) {
+        setState(() => _showScrollFAB = false);
+      }
+    });
+  }
+
+  void _scrollToBottom() {
+    widget.scrollController.animateTo(
+      0.0,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOut,
+    );
+  }
 
   void _showDeleteOption(BuildContext context, String docId) {
     showModalBottomSheet(
@@ -279,7 +296,7 @@ class _MessageList extends StatelessWidget {
                 title: const Text("삭제하기", style: TextStyle(color: AppTheme.errorColor, fontWeight: FontWeight.bold)),
                 onTap: () async {
                   Navigator.pop(context);
-                  await salesService.deleteChatMessage(docId);
+                  await widget.salesService.deleteChatMessage(docId);
                 },
               ),
               ListTile(
@@ -297,80 +314,205 @@ class _MessageList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final currentUser = FirebaseAuth.instance.currentUser;
-    return StreamBuilder<QuerySnapshot>(
-      stream: salesService.getChatMessagesStream(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-        final List<QueryDocumentSnapshot> docs = snapshot.hasData ? snapshot.data!.docs : <QueryDocumentSnapshot>[];
-        if (snapshot.hasData && isVisible) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            salesService.updateLastReadTime();
-          });
-        }
-        if (docs.isEmpty) return const Center(child: Text("첫 메시지를 남겨보세요!", style: TextStyle(color: Colors.black54)));
-        return ListView.builder(
-          reverse: true,
-          controller: scrollController,
-          padding: const EdgeInsets.all(16),
-          physics: const ClampingScrollPhysics(),
-          itemCount: docs.length,
-          itemBuilder: (context, index) {
-            final data = docs[index].data() as Map<String, dynamic>;
-            final String docId = docs[index].id;
-            final bool isMe = data['uid'] == currentUser?.uid;
-            final DateTime date = (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
-            bool showDateSeparator = false;
-            if (index < docs.length - 1) {
-              final prevData = docs[index + 1].data() as Map<String, dynamic>;
-              final prevDate = (prevData['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
-              if (date.day != prevDate.day || date.month != prevDate.month) showDateSeparator = true;
-            } else {
-              showDateSeparator = true;
-            }
-            return Column(
-              children: [
-                if (showDateSeparator) _buildDateSeparator(date),
-                _buildMessageBubble(
-                  context: context,
-                  isMe: isMe,
-                  author: data['author'] ?? '알수없음',
-                  message: data['message'] ?? '',
-                  imageUrl: data['imageUrl'],
-                  date: date,
-                  onLongPress: isMe ? () => _showDeleteOption(context, docId) : null,
-                ),
-              ],
+    return Stack(
+      children: [
+        StreamBuilder<QuerySnapshot>(
+          // 🌟 [핵심 수술 3] 매번 새로 부르지 않고, initState에서 딱 한 번 연결해둔 고정 파이프라인을 씁니다!
+          stream: _chatStream,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+            final List<QueryDocumentSnapshot> docs = snapshot.hasData ? snapshot.data!.docs : <QueryDocumentSnapshot>[];
+
+            // 🚨 [핵심 버그 수정] 이곳에 있던 updateLastReadTime() 무한 호출을 삭제하여 파이어베이스 요금 폭탄을 완벽 방어했습니다!
+
+            if (docs.isEmpty) return const Center(child: Text("첫 메시지를 남겨보세요!", style: TextStyle(color: Colors.black54)));
+
+            return ListView.builder(
+              reverse: true, // 최신 메시지가 맨 아래(인덱스 0)로 오도록 뒤집음
+              controller: widget.scrollController,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+              physics: const ClampingScrollPhysics(),
+              itemCount: docs.length,
+              itemBuilder: (context, index) {
+                final data = docs[index].data() as Map<String, dynamic>;
+                final String docId = docs[index].id;
+                final bool isMe = data['uid'] == currentUser?.uid;
+
+                final DateTime currentDate = (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
+                final String currentAuthor = data['author'] ?? '알수없음';
+
+                bool showDateSeparator = false;
+                bool hideProfileAndName = false;
+                bool hideTime = false;
+
+                // 🌟 [UI 고도화: 카카오톡 빙의] 연속 메시지 묶음 로직
+                // index + 1 은 과거(이전) 메시지입니다 (reverse 상태이므로)
+                if (index < docs.length - 1) {
+                  final prevData = docs[index + 1].data() as Map<String, dynamic>;
+                  final DateTime prevDate = (prevData['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
+                  final String prevAuthor = prevData['author'] ?? '';
+
+                  // 1. 날짜가 다르면 구분선 표시
+                  if (currentDate.day != prevDate.day || currentDate.month != prevDate.month) {
+                    showDateSeparator = true;
+                  }
+
+                  // 2. 과거 메시지와 보낸 사람 & 분(minute)이 같으면 내 프사와 이름을 숨김 (위쪽으로 달라붙음)
+                  if (currentAuthor == prevAuthor &&
+                      currentDate.year == prevDate.year &&
+                      currentDate.month == prevDate.month &&
+                      currentDate.day == prevDate.day &&
+                      currentDate.hour == prevDate.hour &&
+                      currentDate.minute == prevDate.minute) {
+                    hideProfileAndName = true;
+                  }
+                } else {
+                  // 가장 오래된(맨 처음) 메시지는 무조건 날짜 구분선 표시
+                  showDateSeparator = true;
+                }
+
+                // index - 1 은 미래(최신) 메시지입니다 (reverse 상태이므로)
+                if (index > 0) {
+                  final nextData = docs[index - 1].data() as Map<String, dynamic>;
+                  final DateTime nextDate = (nextData['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
+                  final String nextAuthor = nextData['author'] ?? '';
+
+                  // 3. 미래 메시지와 보낸 사람 & 분(minute)이 같으면 내 시간 표시를 숨김 (아래 메시지에만 표시)
+                  if (currentAuthor == nextAuthor &&
+                      currentDate.year == nextDate.year &&
+                      currentDate.month == nextDate.month &&
+                      currentDate.day == nextDate.day &&
+                      currentDate.hour == nextDate.hour &&
+                      currentDate.minute == nextDate.minute) {
+                    hideTime = true;
+                  }
+                }
+
+                return Column(
+                  children: [
+                    if (showDateSeparator) _buildDateSeparator(currentDate),
+                    _buildMessageBubble(
+                      context: context,
+                      isMe: isMe,
+                      author: currentAuthor,
+                      message: data['message'] ?? '',
+                      imageUrl: data['imageUrl'],
+                      date: currentDate,
+                      hideProfileAndName: hideProfileAndName,
+                      hideTime: hideTime,
+                      onLongPress: isMe ? () => _showDeleteOption(context, docId) : null,
+                    ),
+                  ],
+                );
+              },
             );
           },
-        );
-      },
+        ),
+
+        // 🌟 [UX 고도화] 최신 메시지로 스크롤 이동 버튼 (우측 하단)
+        if (_showScrollFAB)
+          Positioned(
+            bottom: 20,
+            right: 20,
+            child: FloatingActionButton(
+              mini: true,
+              backgroundColor: Colors.white.withOpacity(0.9),
+              elevation: 3,
+              onPressed: _scrollToBottom,
+              child: const Icon(Icons.keyboard_arrow_down, color: Colors.black87, size: 30),
+            ),
+          ),
+      ],
     );
   }
 
   Widget _buildDateSeparator(DateTime date) {
-    return Padding(padding: const EdgeInsets.symmetric(vertical: 16), child: Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4), decoration: BoxDecoration(color: Colors.black.withOpacity(0.1), borderRadius: BorderRadius.circular(12)), child: Text(DateFormat('yyyy년 M월 d일 EEEE', 'ko_KR').format(date), style: const TextStyle(fontSize: 11, color: Colors.white))));
+    return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            decoration: BoxDecoration(color: Colors.black.withOpacity(0.15), borderRadius: BorderRadius.circular(20)),
+            child: Text(DateFormat('yyyy년 M월 d일 EEEE', 'ko_KR').format(date), style: const TextStyle(fontSize: 12, color: Colors.white))
+        )
+    );
   }
 
-  Widget _buildMessageBubble({required BuildContext context, required bool isMe, required String author, required String message, String? imageUrl, required DateTime date, VoidCallback? onLongPress}) {
+  Widget _buildMessageBubble({
+    required BuildContext context,
+    required bool isMe,
+    required String author,
+    required String message,
+    String? imageUrl,
+    required DateTime date,
+    required bool hideProfileAndName,
+    required bool hideTime,
+    VoidCallback? onLongPress
+  }) {
     String timeStr = DateFormat('a h:mm', 'ko_KR').format(date);
+
     Widget bubble = Container(
         constraints: const BoxConstraints(maxWidth: 280),
-        padding: imageUrl != null ? const EdgeInsets.all(4) : const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-        decoration: BoxDecoration(color: isMe ? const Color(0xFFFEE500) : Colors.white, borderRadius: BorderRadius.circular(12), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 1, offset: const Offset(0, 1))]),
+        padding: imageUrl != null ? const EdgeInsets.all(4) : const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+            color: isMe ? const Color(0xFFFEE500) : Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 1, offset: const Offset(0, 1))]
+        ),
         child: imageUrl != null && imageUrl.isNotEmpty
             ? GestureDetector(onTap: () => _showZoomableImage(context, imageUrl), child: ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.network(imageUrl, fit: BoxFit.cover)))
             : Text(message, style: const TextStyle(fontSize: 14, height: 1.4, color: Colors.black))
     );
+
     if (onLongPress != null) {
       bubble = GestureDetector(onLongPress: onLongPress, onDoubleTap: onLongPress, child: bubble);
     }
-    return Padding(padding: const EdgeInsets.only(bottom: 12), child: Row(mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start, crossAxisAlignment: CrossAxisAlignment.start, children: [if (!isMe) Container(margin: const EdgeInsets.only(right: 8), child: Column(children: [CircleAvatar(radius: 18, backgroundColor: Colors.white, child: Text(author.isNotEmpty ? author[0] : '?', style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 14)))])) , Column(crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start, children: [if (!isMe) Padding(padding: const EdgeInsets.only(left: 2, bottom: 4), child: Text(author, style: const TextStyle(fontSize: 12, color: Colors.black54))), Row(crossAxisAlignment: CrossAxisAlignment.end, children: [if (isMe) Padding(padding: const EdgeInsets.only(right: 6, bottom: 2), child: Text(timeStr, style: const TextStyle(fontSize: 10, color: Colors.black54))), bubble, if (!isMe) Padding(padding: const EdgeInsets.only(left: 6, bottom: 2), child: Text(timeStr, style: const TextStyle(fontSize: 10, color: Colors.black54)))])])]));
+
+    return Padding(
+      // 연속 메시지일 경우 위아래 간격을 확 줄여서 하나처럼 보이게 만듦
+        padding: EdgeInsets.only(bottom: hideTime ? 4 : 12),
+        child: Row(
+            mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // 내 메시지가 아닐 때 프사 영역
+              if (!isMe)
+                hideProfileAndName
+                    ? const SizedBox(width: 44) // 프사 숨길 때 빈 공간 확보 (정렬 유지)
+                    : Container(
+                    margin: const EdgeInsets.only(right: 8),
+                    child: CircleAvatar(radius: 18, backgroundColor: Colors.white, child: Text(author.isNotEmpty ? author[0] : '?', style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 14)))
+                ),
+
+              Column(
+                  crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                  children: [
+                    // 내 메시지가 아닐 때 이름 영역
+                    if (!isMe && !hideProfileAndName)
+                      Padding(padding: const EdgeInsets.only(left: 2, bottom: 4), child: Text(author, style: const TextStyle(fontSize: 12, color: Colors.black54))),
+
+                    Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          // 내가 보낸 메시지일 때 좌측 시간
+                          if (isMe && !hideTime) Padding(padding: const EdgeInsets.only(right: 6, bottom: 2), child: Text(timeStr, style: const TextStyle(fontSize: 10, color: Colors.black54))),
+                          bubble,
+                          // 남이 보낸 메시지일 때 우측 시간
+                          if (!isMe && !hideTime) Padding(padding: const EdgeInsets.only(left: 6, bottom: 2), child: Text(timeStr, style: const TextStyle(fontSize: 10, color: Colors.black54)))
+                        ]
+                    )
+                  ]
+              )
+            ]
+        )
+    );
   }
 
-  void _showZoomableImage(BuildContext context, String imageUrl) { showDialog(context: context, builder: (context) => Dialog(backgroundColor: Colors.black, insetPadding: EdgeInsets.zero, child: Stack(children: [Center(child: InteractiveViewer(child: Image.network(imageUrl))), Positioned(top: 40, right: 20, child: IconButton(icon: const Icon(Icons.close, color: Colors.white), onPressed: () => Navigator.pop(context)))]))); }
+  void _showZoomableImage(BuildContext context, String imageUrl) {
+    showDialog(context: context, builder: (context) => Dialog(backgroundColor: Colors.black, insetPadding: EdgeInsets.zero, child: Stack(children: [Center(child: InteractiveViewer(child: Image.network(imageUrl))), Positioned(top: 40, right: 20, child: IconButton(icon: const Icon(Icons.close, color: Colors.white), onPressed: () => Navigator.pop(context)))])));
+  }
 }
 
-// --- 3. 메시지 입력창 위젯 (Stateful) ---
+// --- 3. 메시지 입력창 위젯 (기존 로직 100% 유지) ---
 class _ChatInput extends StatefulWidget {
   final SalesService salesService;
   final ScrollController scrollController;
@@ -383,13 +525,18 @@ class _ChatInput extends StatefulWidget {
 
 class _ChatInputState extends State<_ChatInput> {
   final TextEditingController _msgController = TextEditingController();
-  // ❌ [삭제] NotificationService는 이제 SalesService 내부에서 처리하므로 여기서 필요 없습니다.
   final FocusNode _focusNode = FocusNode();
 
   bool _isUploading = false;
   bool _isSending = false;
 
-  bool get _isMobile => !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+  // 🌟 [핵심 고도화] 웹(Web)으로 접속해도 PC인지 모바일/태블릿인지 완벽하게 스캔합니다!
+  bool get _isMobile {
+    if (kIsWeb) {
+      return defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.android;
+    }
+    return Platform.isAndroid || Platform.isIOS;
+  }
 
   @override
   void dispose() {
@@ -419,6 +566,7 @@ class _ChatInputState extends State<_ChatInput> {
     _msgController.clear();
     _scrollToBottom();
 
+    // 🌟 [핵심 보존] 한글 IME 잔상 버그 완벽 방어 로직 (절대 건드리지 않음)
     if (kIsWeb) {
       _focusNode.unfocus();
       Future.delayed(const Duration(milliseconds: 10), () {
@@ -429,25 +577,19 @@ class _ChatInputState extends State<_ChatInput> {
     }
 
     try {
-      // ✅ [여기서 끝!] addChatMessage를 부르면 SalesService가 알아서 알림까지 다 보냅니다.
       await widget.salesService.addChatMessage(message: text);
       widget.salesService.updateLastReadTime();
-
-      // ❌ [삭제됨] 여기서 또 _sendChatNotification을 호출하면 알림이 중복됩니다.
-
       Future.delayed(const Duration(milliseconds: 100), () => _scrollToBottom());
-
     } catch (e) {
       debugPrint("전송 중 에러 발생: $e");
     } finally {
-      if (mounted) {
-        setState(() => _isSending = false);
-      }
+      if (mounted) setState(() => _isSending = false);
     }
   }
 
   Future<void> _sendImage() async {
     final ImagePicker picker = ImagePicker();
+    // 🌟 [핵심 보존] 웹 환경 HEIC 호환을 위한 원본 화질 유지 (imageQuality 옵션 없음)
     final XFile? image = await picker.pickImage(source: ImageSource.gallery);
     if (image != null) {
       setState(() => _isUploading = true);
@@ -455,15 +597,9 @@ class _ChatInputState extends State<_ChatInput> {
         final bytes = await image.readAsBytes();
         String fileName = "chat/${DateTime.now().millisecondsSinceEpoch}_${image.name}";
 
-        // 업로드
         String downloadUrl = await widget.salesService.uploadImage(bytes, fileName);
-
-        // ✅ [여기서 끝!] 메시지 저장 및 알림 발송 자동 처리
         await widget.salesService.addChatMessage(message: "(사진)", imageUrl: downloadUrl);
         widget.salesService.updateLastReadTime();
-
-        // ❌ [삭제됨] _sendChatNotification 호출 제거
-
       } catch (e) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("사진 전송 실패")));
       } finally {
@@ -471,9 +607,6 @@ class _ChatInputState extends State<_ChatInput> {
       }
     }
   }
-
-  // ❌ [삭제] _sendChatNotification 함수 전체 삭제
-  // 이유: SalesService.dart의 addChatMessage 함수 안에서 이미 전체 알림(Broadcast)을 수행하고 있습니다.
 
   @override
   Widget build(BuildContext context) {
@@ -490,7 +623,8 @@ class _ChatInputState extends State<_ChatInput> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: CallbackShortcuts(
-                    bindings: {
+                    // 🌟 [UX 고도화] 모바일/태블릿 웹에서는 엔터키 가로채기를 해제하여 100% 줄바꿈만 되도록 설정!
+                    bindings: _isMobile ? {} : {
                       const SingleActivator(LogicalKeyboardKey.enter): () {
                         if (!_isSending) _sendMessage();
                       },
@@ -500,10 +634,15 @@ class _ChatInputState extends State<_ChatInput> {
                       controller: _msgController,
                       maxLines: null,
                       keyboardType: TextInputType.multiline,
-                      textInputAction: _isMobile ? TextInputAction.newline : TextInputAction.send,
-                      onSubmitted: _isMobile ? null : (_) => _sendMessage(),
+
+                      // 🌟 [수정 2] PC/모바일 상관없이 무조건 'newline'으로 설정하고, onSubmitted를 뺍니다.
+                      // 브라우저가 강제로 엔터를 '전송'으로 처리하는 것을 막아주어 Shift+Enter가 완벽히 동작합니다!
+                      textInputAction: TextInputAction.newline,
+                      onSubmitted: null,
+
                       decoration: InputDecoration(
-                        hintText: _isMobile ? "메시지 입력" : "메시지 입력 (Enter:전송)",
+                        // 🌟 [UX 고도화] 줄바꿈 단축키(Shift+Enter) 힌트 안내 추가
+                        hintText: _isMobile ? "메시지 입력 (엔터: 줄바꿈)" : "메시지 입력 (Enter: 전송, Shift+Enter: 줄바꿈)",
                         hintStyle: const TextStyle(color: Colors.grey, fontSize: 12),
                         filled: true, fillColor: const Color(0xFFF2F2F2),
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),

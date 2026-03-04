@@ -13,9 +13,11 @@
   },
   "main": "index.js",
   "dependencies": {
-    "firebase-admin": "^11.8.0",
-    "firebase-functions": "latest",
-    "child-process-promise": "^2.2.1"
+    "axios": "^1.13.6",
+    "child-process-promise": "^2.2.1",
+    "cors": "^2.8.6",
+    "firebase-admin": "^13.7.0",
+    "firebase-functions": "^7.0.6"
   },
   "private": true
 }

@@ -18,6 +18,7 @@ import 'firebase_options.dart';
 import 'package:flutter/foundation.dart'; // kIsWeb 사용을 위해 필수
 import 'dart:async';
 import 'dart:html' as html; // 🌟 [추가됨] 웹(PWA) 뒤로가기 종료를 위한 패키지
+import 'pages/field_info/field_info_page.dart';
 
 // ✅ 알림/진동 패키지
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -227,6 +228,9 @@ class MainLayoutPageState extends State<MainLayoutPage> {
   final SalesService _salesService = SalesService();
   final PageController _pageController = PageController();
   DateTime? _lastPressedAt; // 🌟 [추가됨] 뒤로가기 2번 방지용 타이머 장부
+
+  // 🌟 [추가됨] 하단 바의 '전체(☰)' 버튼을 눌렀을 때 햄버거 메뉴를 열어줄 마스터 키
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   late final Widget _permanentNaverMap;
   late final List<Widget> _pages;
 
@@ -293,6 +297,11 @@ class MainLayoutPageState extends State<MainLayoutPage> {
       const TaxInvoicePage(),
       const Scaffold(body: Center(child: Text("공과금(지출) 대조 시스템 준비 중..."))),
       const AiPaymentPage(), // 🌟 [Index 13] 전산팀 AI 자동수납 페이지 연결
+
+      // 🌟 [추가됨] 하단 바 전용 신규 페이지 3개 연결 (Index 14, 15, 16)
+      const Scaffold(body: Center(child: Text("📊 영업 정보 페이지 (준비 중)"))),
+      const FieldInfoPage(),
+      const Scaffold(body: Center(child: Text("📁 자료실 페이지 (준비 중)"))),
     ];
 
     _listenToNotifications(); // 포그라운드 처리
@@ -528,7 +537,23 @@ class MainLayoutPageState extends State<MainLayoutPage> {
     }
   }
 
-  void _logout() { AuthService().logout(); }
+  // 🌟 [핵심 고도화] 좀비 메모리 완벽 초기화를 위한 브라우저 강제 새로고침 로직
+  void _logout() async {
+    // 1. 파이어베이스 인증 정보부터 안전하게 지웁니다.
+    await AuthService().logout();
+
+    // 2. 현재 환경이 웹(PWA)이라면? -> 브라우저 강제 새로고침 (F5 효과)
+    if (kIsWeb) {
+      html.window.location.reload(); // 글로벌 키, 변수 등 모든 찌꺼기가 0.1초 만에 증발합니다!
+    } else {
+      // 📱 (선택 사항) 혹시 모를 네이티브 앱 환경을 위한 안전장치
+      final isMobile = MediaQuery.of(context).size.width < 900;
+      if (isMobile && Scaffold.of(context).isDrawerOpen) {
+        Navigator.pop(context);
+      }
+      setState(() => _selectedIndex = 0);
+    }
+  }
 
   String _getTitleByIndex(int index) {
     switch (index) {
@@ -546,6 +571,10 @@ class MainLayoutPageState extends State<MainLayoutPage> {
       case 11: return '국세청(계산서) 대조';
       case 12: return '공과금(지출) 대조';
       case 13: return 'AI 자동수납 (전산)';
+    // 🌟 [추가됨] 신규 탭 타이틀
+      case 14: return '영업 정보';
+      case 15: return '현장 정보';
+      case 16: return '자료실';
       default: return '';
     }
   }
@@ -869,8 +898,8 @@ class MainLayoutPageState extends State<MainLayoutPage> {
                   child: Column(
                     children: [
                       _buildMenuItem(
-                          icon: Icons.dashboard_outlined,
-                          title: '대시보드',
+                          icon: Icons.dashboard, // home_outlined 대신 기존에 검증된 dashboard 사용
+                          title: '홈 (대시보드)',
                           index: 0),
                       _buildMenuItem(
                           icon: Icons.edit_note, title: '새 노트작성', index: 1),
@@ -894,7 +923,7 @@ class MainLayoutPageState extends State<MainLayoutPage> {
                         data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
                         child: ExpansionTile(
                           key: const PageStorageKey('FieldSupportMenu'),
-                          leading: const Icon(Icons.map_outlined, size: 22),
+                          leading: const Icon(Icons.map, size: 22), // 복잡한 Stack 제거하고 기본 map 사용
                           title: const Text("현장팀 업무지원", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
                           initiallyExpanded: _isFieldSupportExpanded,
                           onExpansionChanged: (expanded) => setState(() => _isFieldSupportExpanded = expanded),
@@ -969,10 +998,18 @@ class MainLayoutPageState extends State<MainLayoutPage> {
                         ),
                       ),
 
-                      const Divider(height: 32, indent: 24, endIndent: 24, color: AppTheme.borderColor),
+                      // 🌟 [추가됨] 총무팀 밑 구분선 및 신규 메뉴 3개
+                      const Divider(height: 24, indent: 24, endIndent: 24, color: AppTheme.borderColor),
+                      _buildMenuItem(icon: Icons.assessment, title: '영업 정보', index: 14), // trending_up 대신 assessment
+                      _buildMenuItem(icon: Icons.business, title: '현장 정보', index: 15),   // Stack 제거하고 기본 business 사용
+                      _buildMenuItem(icon: Icons.folder, title: '자료실', index: 16),       // folder_open_outlined 대신 기본 folder 사용
+
+                      const Divider(height: 24, indent: 24, endIndent: 24, color: AppTheme.borderColor),
 
                       // 3. 건물 DB 정보 (기존 위치 유지)
                       _buildMenuItem(icon: Icons.business, title: '건물 DB 정보', index: 8),
+
+                      const Divider(height: 24, indent: 24, endIndent: 24, color: AppTheme.borderColor),
 
                       // 🌟 4. 설정 (새로 묶은 대메뉴)
                       Theme(
@@ -1053,9 +1090,11 @@ class MainLayoutPageState extends State<MainLayoutPage> {
             }
           },
           child: Scaffold(
+            key: _scaffoldKey, // 🌟 [추가됨] 햄버거 메뉴를 강제로 열기 위한 마스터키 장착
             appBar: isWideScreen
                 ? null
                 : AppBar(
+              automaticallyImplyLeading: false, // 🌟 [추가] 좌측 상단 햄버거 버튼을 강제로 숨깁니다.
               backgroundColor: Colors.white,
               elevation: 1,
               iconTheme: const IconThemeData(color: AppTheme.textMain),
@@ -1127,14 +1166,122 @@ class MainLayoutPageState extends State<MainLayoutPage> {
                 )
               ],
             ),
+            // 🌟 [핵심 고도화] 토스 스타일 모바일 하단 네비게이션 바 부착 (PC에서는 숨김)
+            bottomNavigationBar: isWideScreen ? null : _buildBottomNavigationBar(),
           ),
         ); // 🌟 [추가됨] PopScope를 닫아주는 괄호
       },
     );
   }
 
+  // =========================================================
+  // 🌟 [추가됨] 토스(Toss) 스타일 하단 네비게이션 바 위젯
+  // =========================================================
+  Widget _buildBottomNavigationBar() {
+    int bottomSelectedIndex = -1;
+    if (_selectedIndex == 0) bottomSelectedIndex = 0; // 홈
+    else if (_selectedIndex == 14) bottomSelectedIndex = 1; // 영업
+    else if (_selectedIndex == 15) bottomSelectedIndex = 2; // 현장
+    else if (_selectedIndex == 16) bottomSelectedIndex = 3; // 자료
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: Colors.grey.shade200, width: 1)),
+      ),
+      child: SafeArea(
+        child: SizedBox(
+          height: 60,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              // 1. 홈 (대시보드 아이콘)
+              _buildBottomNavItem(icon: Icons.dashboard, label: '홈', isSelected: bottomSelectedIndex == 0, onTap: () => _onMenuSelected(0, isDrawerClick: false)),
+
+              // 2. 영업 (차트 아이콘)
+              _buildBottomNavItem(icon: Icons.assessment, label: '영업', isSelected: bottomSelectedIndex == 1, onTap: () => _onMenuSelected(14, isDrawerClick: false)),
+
+              // 3. 현장 (건물 아이콘 - Stack 제거)
+              _buildBottomNavItem(icon: Icons.business, label: '현장', isSelected: bottomSelectedIndex == 2, onTap: () => _onMenuSelected(15, isDrawerClick: false)),
+
+              // 4. 자료 (폴더 아이콘)
+              _buildBottomNavItem(icon: Icons.folder, label: '자료', isSelected: bottomSelectedIndex == 3, onTap: () => _onMenuSelected(16, isDrawerClick: false)),
+
+              _buildBottomNavItem(
+                  icon: Icons.menu,
+                  label: '전체',
+                  isSelected: false,
+                  onTap: () {
+                    _scaffoldKey.currentState?.openDrawer();
+                  },
+                  showBadge: true
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // 🌟 [수정됨] 커스텀 아이콘(겹친 아이콘) 렌더링 시 웹 충돌 완벽 방어!
+  Widget _buildBottomNavItem({
+    IconData? icon,
+    Widget? customIcon,
+    required String label,
+    required bool isSelected,
+    required VoidCallback onTap,
+    bool showBadge = false
+  }) {
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        splashColor: Colors.transparent,
+        highlightColor: Colors.transparent,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                // 🌟 [핵심 방어벽] customIcon이 없는데 icon마저 비어있을 경우를 대비한 안전망 추가
+                customIcon ?? (icon != null
+                    ? Icon(icon, size: 26, color: isSelected ? AppTheme.textMain : Colors.grey.shade400)
+                    : const SizedBox()),
+
+                if (showBadge)
+                  StreamBuilder<int>(
+                      stream: _getUnreadNotificationCountStream(),
+                      builder: (context, snap) {
+                        int count = snap.data ?? 0;
+                        if (count == 0) return const SizedBox.shrink();
+                        return Positioned(
+                          right: -4,
+                          top: -2,
+                          child: Container(width: 6, height: 6, decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle)),
+                        );
+                      }
+                  ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: isSelected ? FontWeight.w800 : FontWeight.w500,
+                color: isSelected ? AppTheme.textMain : Colors.grey.shade500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // 🌟 [수정됨] 커스텀 아이콘을 받을 수 있도록 파라미터(customIcon) 추가
   Widget _buildMenuItem(
       {required IconData icon,
+        Widget? customIcon,
         required String title,
         required int index,
         int badgeCount = 0}) {
@@ -1150,7 +1297,8 @@ class MainLayoutPageState extends State<MainLayoutPage> {
               color: isSelected ? AppTheme.primaryLight : Colors.transparent,
               borderRadius: BorderRadius.circular(50)),
           child: Row(children: [
-            Icon(icon,
+            // 🌟 커스텀 아이콘이 있으면 그것을 쓰고, 없으면 기본 아이콘 사용!
+            customIcon ?? Icon(icon,
                 color: isSelected ? AppTheme.primaryColor : AppTheme.textSub,
                 size: 22),
             const SizedBox(width: 16),
