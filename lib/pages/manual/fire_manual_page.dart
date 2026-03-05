@@ -1,5 +1,5 @@
 // [파일 위치: lib/pages/manual/fire_manual_page.dart]
-// [설명: 현장 대응 매뉴얼 No.05 - 소방 및 전기 연동 (Enterprise 버전)]
+// [설명: 현장 대응 매뉴얼 No.05 - 소방 및 전기 연동 (Enterprise / 100% 호환 순정 아이콘 버전)]
 
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -93,17 +93,17 @@ class FireManualPage extends StatelessWidget {
   Widget _buildStep1() {
     return _buildCard(
       title: "1단계: 소방 수신기(P형/R형) 및 전기 연동 초기 대응",
-      icon: Icons.notifications_active_outlined,
+      icon: Icons.notifications_active, // 🌟 [수정] notifications_active 순정
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text("화재 경보 시 현장 담당자는 당황하지 말고 '수신반'의 데이터를 먼저 읽어야 합니다.", style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
           const SizedBox(height: 16),
-          _buildInfoRow(Icons.dashboard_outlined, "화재 구역 점등", "몇 층, 어느 구역인지 정확히 확인"),
-          _buildInfoRow(Icons.link_outlined, "전기 연동 상태", "승강기 하향(Homing), 비상방송 송출, 방화셔터 및 제연 팬 가동 여부 확인"),
-          _buildInfoRow(Icons.settings_power_outlined, "펌프 기동 확인", "주펌프/보조펌프에 '기동' 램프가 들어왔는지 확인"),
+          _buildInfoRow(Icons.dashboard, "화재 구역 점등", "몇 층, 어느 구역인지 정확히 확인"), // 🌟 [수정] dashboard 순정
+          _buildInfoRow(Icons.link, "전기 연동 상태", "승강기 하향(Homing), 비상방송 송출, 방화셔터 및 제연 팬 가동 여부 확인"), // 🌟 [수정] link 순정
+          _buildInfoRow(Icons.settings_power, "펌프 기동 확인", "주펌프/보조펌프에 '기동' 램프가 들어왔는지 확인"), // 🌟 [수정] settings_power 순정
           const Divider(height: 24, color: Color(0xFFE2E8F0)),
-          _buildHighlightBox(Icons.directions_run, "현장 출동 및 육안 확인", "• 2인 1조 원칙. 소화기 및 무전기 지참\n• 연기, 탄 냄새, 수온 상승 여부 확인", isDanger: true),
+          _buildHighlightBox(Icons.directions_run, "현장 출동 및 육안 확인", "• 2인 1조 원칙. 소화기 및 무전기 지참\n• 연기, 탄 냄새, 수온 상승 여부 확인", isDanger: true), // 🌟 [수정] directions_run 유지
         ],
       ),
     );
@@ -113,7 +113,7 @@ class FireManualPage extends StatelessWidget {
   Widget _buildStep2() {
     return _buildCard(
       title: "2단계: 스프링클러(SP) 작동/파손 시 긴급 조치",
-      icon: Icons.water_drop_outlined,
+      icon: Icons.opacity, // 🌟 [수정] opacity 순정
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -131,7 +131,7 @@ class FireManualPage extends StatelessWidget {
   Widget _buildStep3() {
     return _buildCard(
       title: "3단계: 지하 소방펌프 가동 시 이상 징후 판별",
-      icon: Icons.hearing_outlined,
+      icon: Icons.hearing, // 🌟 [수정] hearing 순정
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -139,17 +139,17 @@ class FireManualPage extends StatelessWidget {
           const SizedBox(height: 16),
           const Text("🔊 소음(Noise) 판별법", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF334155))),
           const SizedBox(height: 8),
-          _buildInfoRow(Icons.check_circle_outline, "정상", "규칙적이고 웅장한 모터 회전음"),
-          _buildInfoRow(Icons.warning_amber_outlined, "이상 1 (금속음)", "\"까르륵/깡깡\" 소리 👉 임펠러 파손 또는 이물질 유입"),
-          _buildInfoRow(Icons.vibration_outlined, "이상 2 (진동음)", "바닥이 떨릴 정도의 심한 진동 👉 펌프 축(Shaft) 정렬 불량"),
+          _buildInfoRow(Icons.check_circle, "정상", "규칙적이고 웅장한 모터 회전음"), // 🌟 [수정] check_circle 순정
+          _buildInfoRow(Icons.warning, "이상 1 (금속음)", "\"까르륵/깡깡\" 소리 👉 임펠러 파손 또는 이물질 유입"), // 🌟 [수정] warning 순정
+          _buildInfoRow(Icons.vibration, "이상 2 (진동음)", "바닥이 떨릴 정도의 심한 진동 👉 펌프 축(Shaft) 정렬 불량"), // 🌟 [수정] vibration 순정
           const Divider(height: 24, color: Color(0xFFE2E8F0)),
           const Text("👃 냄새(Odor) 판별법", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF334155))),
           const SizedBox(height: 8),
-          _buildInfoRow(Icons.local_fire_department_outlined, "고무 타는 냄새", "커플링/벨트 마찰열 👉 즉시 정지 후 점검"),
-          _buildInfoRow(Icons.electrical_services_outlined, "전기 타는 냄새", "모터 내부 코일 과열 👉 화재 위험 및 소실 주의", colorOverride: Colors.red.shade700),
-          _buildInfoRow(Icons.water_outlined, "비린 냄새/악취", "배관 내 고인 '사수' 방출 👉 정상 현상"),
+          _buildInfoRow(Icons.whatshot, "고무 타는 냄새", "커플링/벨트 마찰열 👉 즉시 정지 후 점검"), // 🌟 [수정] whatshot 순정
+          _buildInfoRow(Icons.electrical_services, "전기 타는 냄새", "모터 내부 코일 과열 👉 화재 위험 및 소실 주의", colorOverride: Colors.red.shade700), // 🌟 [수정] electrical_services 유지 (기본)
+          _buildInfoRow(Icons.water_damage, "비린 냄새/악취", "배관 내 고인 '사수' 방출 👉 정상 현상"), // 🌟 [수정] water_damage 순정
           const SizedBox(height: 8),
-          _buildHighlightBox(Icons.search_outlined, "누수 확인", "메카니컬 씰 부위에서 분수처럼 솟구치는지 확인 (약간 떨어짐은 냉각용 정상)"),
+          _buildHighlightBox(Icons.search, "누수 확인", "메카니컬 씰 부위에서 분수처럼 솟구치는지 확인 (약간 떨어짐은 냉각용 정상)"), // 🌟 [수정] search 순정
         ],
       ),
     );
@@ -159,7 +159,7 @@ class FireManualPage extends StatelessWidget {
   Widget _buildStep4() {
     return _buildCard(
       title: "4단계: 책임 소재 확정 및 SM종합관리의 법적 방어",
-      icon: Icons.gavel_outlined,
+      icon: Icons.gavel, // 🌟 [수정] gavel 순정
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -194,7 +194,7 @@ class FireManualPage extends StatelessWidget {
             const Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.account_tree_outlined, color: Color(0xFF475569)),
+                Icon(Icons.account_tree, color: Color(0xFF475569)), // 🌟 [수정] account_tree 순정
                 SizedBox(width: 8),
                 Text("소방 및 전기 연동 프로세스", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF334155))),
               ],
@@ -276,7 +276,7 @@ class FireManualPage extends StatelessWidget {
   Widget _buildStep5() {
     return _buildCard(
       title: "5단계: 현장 담당자 최종 체크리스트 (Mobile)",
-      icon: Icons.checklist_rtl_outlined,
+      icon: Icons.playlist_add_check, // 🌟 [수정] playlist_add_check 순정
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -332,7 +332,7 @@ class FireManualPage extends StatelessWidget {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           padding: EdgeInsets.zero,
         ),
-        icon: Icon(Icons.phone_in_talk, size: 20, color: itemColor),
+        icon: Icon(Icons.phone, size: 20, color: itemColor), // 🌟 [수정] phone 순정
         label: Text("$title\n$number", textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: itemColor, height: 1.3)),
         onPressed: isCallable ? () => _makePhoneCall(number) : null,
       ),
@@ -482,7 +482,7 @@ class FireManualPage extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(isAlert ? Icons.warning_amber_rounded : Icons.check_box_outlined, color: isAlert ? Colors.red.shade600 : primaryNavy, size: 22),
+          Icon(isAlert ? Icons.warning : Icons.check_box, color: isAlert ? Colors.red.shade600 : primaryNavy, size: 22), // 🌟 [수정] warning / check_box 순정
           const SizedBox(width: 10),
           Expanded(
             child: Text(text, style: TextStyle(fontSize: 15, color: isAlert ? Colors.red.shade800 : const Color(0xFF1E293B), fontWeight: isAlert ? FontWeight.bold : FontWeight.w500, height: 1.4)),

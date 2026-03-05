@@ -22,7 +22,8 @@
     <link rel="manifest" href="manifest.json">
 
     <script>
-        window.flutterWebRenderer = "html";
+        // 🌟 [수정됨] PC는 canvaskit, 모바일은 html 등 기기 환경에 맞춰 가장 빠르고 안정적인 엔진을 스스로 선택하도록 'auto'로 복구했습니다.
+        window.flutterWebRenderer = "auto";
     </script>
 
     <script src="https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js"></script>
@@ -126,7 +127,7 @@
 <script>
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', function () {
-            // ⚠️ [수정됨] 파이어베이스와의 충돌(이중 등록)을 막기 위해 ?v= 꼼수를 제거하고 정석대로 호출합니다.
+            // ⚠️ 파이어베이스와의 충돌(이중 등록)을 막기 위해 정석대로 호출합니다.
             navigator.serviceWorker.register('/firebase-messaging-sw.js').then(function (registration) {
                 console.log('[SW] 서비스 워커 등록 성공:', registration.scope);
                 registration.update(); // 브라우저 자체 기능으로 캐시를 무시하고 즉시 최신화합니다.

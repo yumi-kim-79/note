@@ -43,7 +43,7 @@ class FieldManualPage extends StatelessWidget {
                 context,
                 title: "누수 발생 시 단지 내 초기 대응 매뉴얼",
                 date: "2026.03.05",
-                icon: Icons.water_drop,
+                icon: Icons.opacity, // 🌟 [수정] 모바일 100% 호환 순정 물방울 아이콘
                 color: Colors.blue,
                 destinationPage: const LeakageManualPage(),
               ),
@@ -53,7 +53,7 @@ class FieldManualPage extends StatelessWidget {
                 context,
                 title: "동절기 배관 동파 방지 및 해빙 매뉴얼",
                 date: "2026.03.05",
-                icon: Icons.ac_unit,
+                icon: Icons.ac_unit, // 🌟 눈송이 순정 (안전함)
                 color: Colors.lightBlueAccent,
                 destinationPage: const FreezeManualPage(),
               ),
@@ -63,7 +63,7 @@ class FieldManualPage extends StatelessWidget {
                 context,
                 title: "승강기 오작동 및 갇힘 사고발생시 매뉴얼",
                 date: "2026.03.05",
-                icon: Icons.elevator,
+                icon: Icons.unfold_more, // 🌟 [수정] 모바일 100% 호환 상하(승강기) 순정 아이콘
                 color: Colors.orange,
                 destinationPage: const ElevatorManualPage(),
               ),
@@ -73,7 +73,7 @@ class FieldManualPage extends StatelessWidget {
                 context,
                 title: "정전 및 발전기 기동 확인 매뉴얼",
                 date: "2026.03.05",
-                icon: Icons.electric_bolt,
+                icon: Icons.flash_on, // 🌟 [수정] 모바일 100% 호환 번개 순정 아이콘
                 color: Colors.amber,
                 destinationPage: const BlackoutManualPage(),
               ),
@@ -83,7 +83,7 @@ class FieldManualPage extends StatelessWidget {
                 context,
                 title: "소방 시설 및 전기 설비 구동 시 매뉴얼",
                 date: "2026.03.05",
-                icon: Icons.local_fire_department,
+                icon: Icons.whatshot, // 🌟 [수정] 모바일 100% 호환 불꽃(소방) 순정 아이콘
                 color: Colors.redAccent,
                 destinationPage: const FireManualPage(),
               ),
@@ -93,7 +93,7 @@ class FieldManualPage extends StatelessWidget {
                 context,
                 title: "주차타워 차량파손, 전복, 사고 매뉴얼",
                 date: "2026.03.05",
-                icon: Icons.local_parking,
+                icon: Icons.directions_car, // 🌟 [수정] 모바일 100% 호환 자동차(주차) 순정 아이콘
                 color: Colors.blueGrey,
                 destinationPage: const ParkingTowerManualPage(),
               ),
@@ -103,7 +103,7 @@ class FieldManualPage extends StatelessWidget {
           ),
         ),
       ),
-      // 🌟 [수정됨] 본사 통제 원칙에 따라 현장 직원의 '직접 등록(추가) 버튼'을 영구 삭제했습니다.
+      // 🌟 본사 통제 원칙에 따라 현장 직원의 '직접 등록(추가) 버튼' 영구 삭제 유지
     );
   }
 

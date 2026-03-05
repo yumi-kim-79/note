@@ -1,5 +1,5 @@
 // [파일 위치: lib/pages/manual/parking_tower_manual_page.dart]
-// [설명: 현장 대응 매뉴얼 No.06 - 주차타워 사고 (Enterprise 버전)]
+// [설명: 현장 대응 매뉴얼 No.06 - 주차타워 사고 (Enterprise / 100% 호환 순정 아이콘 버전)]
 
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -95,17 +95,17 @@ class ParkingTowerManualPage extends StatelessWidget {
   Widget _buildStep1() {
     return _buildCard(
       title: "1단계: 사고 접수 및 긴급 비상 정지 (Emergency Stop)",
-      icon: Icons.stop_circle_outlined,
+      icon: Icons.stop, // 🌟 [수정] stop 순정
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text("사고 발생 인지 즉시 기계를 정지시키고 현장을 통제하여 2차 추락이나 파손을 막습니다.", style: TextStyle(fontSize: 15, color: Color(0xFF334155))),
           const SizedBox(height: 16),
-          _buildHighlightBox(Icons.pan_tool_outlined, "비상 정지 버튼 작동", "조작반의 비상 정지 버튼을 즉시 눌러 모든 구동을 멈춤", isDanger: true),
+          _buildHighlightBox(Icons.pan_tool, "비상 정지 버튼 작동", "조작반의 비상 정지 버튼을 즉시 눌러 모든 구동을 멈춤", isDanger: true), // 🌟 [수정] pan_tool 순정
           const SizedBox(height: 8),
-          _buildHighlightBox(Icons.not_interested_outlined, "출입 금지 및 안전선 설치", "타워 내부로의 진입을 엄격히 금지하고, 입구에 안전 테이프 및 차단막 설치", isWarning: true),
+          _buildHighlightBox(Icons.block, "출입 금지 및 안전선 설치", "타워 내부로의 진입을 엄격히 금지하고, 입구에 안전 테이프 및 차단막 설치", isWarning: true), // 🌟 [수정] block 순정
           const SizedBox(height: 8),
-          _buildInfoRow(Icons.power_settings_new_outlined, "전원 차단 (필요시)", "기계적 오작동으로 인한 폭주 위험이 있을 경우 메인 차단기 내림"),
+          _buildInfoRow(Icons.power_settings_new, "전원 차단 (필요시)", "기계적 오작동으로 인한 폭주 위험이 있을 경우 메인 차단기 내림"), // 🌟 [수정] power_settings_new 순정
         ],
       ),
     );
@@ -115,17 +115,17 @@ class ParkingTowerManualPage extends StatelessWidget {
   Widget _buildStep2() {
     return _buildCard(
       title: "2단계: 인명 사고(대인) 발생 시 긴급 구조 (Life Rescue)",
-      icon: Icons.medical_services_outlined,
+      icon: Icons.healing, // 🌟 [수정] healing 순정
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text("사람이 갇히거나 다친 경우, 관리자의 독단적 판단은 형사 처벌로 이어질 수 있습니다.", style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
           const SizedBox(height: 16),
-          _buildInfoRow(Icons.local_hospital_outlined, "119 및 유지관리업체 동시 신고", "인명 피해 상황을 알리고 즉시 출동 요청"),
+          _buildInfoRow(Icons.local_hospital, "119 및 유지관리업체 동시 신고", "인명 피해 상황을 알리고 즉시 출동 요청"), // 🌟 [수정] local_hospital 순정
           const SizedBox(height: 8),
-          _buildHighlightBox(Icons.warning_amber_rounded, "강제 구조 금지", "관리자가 기계를 수동으로 조작하여 구조를 시도하는 행위 절대 금지. (기계 급하강으로 인한 압사 위험)", isDanger: true),
+          _buildHighlightBox(Icons.warning, "강제 구조 금지", "관리자가 기계를 수동으로 조작하여 구조를 시도하는 행위 절대 금지. (기계 급하강으로 인한 압사 위험)", isDanger: true), // 🌟 [수정] warning 순정
           const SizedBox(height: 8),
-          _buildInfoRow(Icons.record_voice_over_outlined, "지속적 소통", "구조대 도착 전까지 부상자와 대화하며 상태를 확인하고 안심 유도"),
+          _buildInfoRow(Icons.record_voice_over, "지속적 소통", "구조대 도착 전까지 부상자와 대화하며 상태를 확인하고 안심 유도"), // 🌟 [수정] record_voice_over 순정
         ],
       ),
     );
@@ -135,7 +135,7 @@ class ParkingTowerManualPage extends StatelessWidget {
   Widget _buildStep3() {
     return _buildCard(
       title: "3단계: 현장 진단 및 원인 분석 (Diagnosis)",
-      icon: Icons.search_outlined,
+      icon: Icons.search, // 🌟 [수정] search 순정
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -144,17 +144,17 @@ class ParkingTowerManualPage extends StatelessWidget {
 
           const Text("🚗 사용자 과실 체크 (Most Common)", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF334155))),
           const SizedBox(height: 8),
-          _buildInfoRow(Icons.straighten_outlined, "차량 규격 초과", "대형 SUV나 개조 차량이 제한 높이/무게를 초과했는지 확인"),
-          _buildInfoRow(Icons.directions_car_outlined, "입고 불량", "사이드미러 미접힘, 트렁크 열림, 차량이 팔레트 중앙에서 벗어났는지 확인"),
-          _buildInfoRow(Icons.person_off_outlined, "운전자 이탈 전 조치", "주차 브레이크 미체결, 기어 P단 미위치 여부 확인"),
+          _buildInfoRow(Icons.straighten, "차량 규격 초과", "대형 SUV나 개조 차량이 제한 높이/무게를 초과했는지 확인"), // 🌟 [수정] straighten 순정
+          _buildInfoRow(Icons.directions_car, "입고 불량", "사이드미러 미접힘, 트렁크 열림, 차량이 팔레트 중앙에서 벗어났는지 확인"), // 🌟 [수정] directions_car 순정
+          _buildInfoRow(Icons.exit_to_app, "운전자 이탈 전 조치", "주차 브레이크 미체결, 기어 P단 미위치 여부 확인"), // 🌟 [수정] exit_to_app 순정
 
           const Divider(height: 24, color: Color(0xFFE2E8F0)),
 
           const Text("⚙️ 기계 결함 체크", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF334155))),
           const SizedBox(height: 8),
-          _buildInfoRow(Icons.sensors_outlined, "센서 오작동", "입구 센서나 낙하 방지 장치가 작동하지 않았는지 확인"),
-          _buildInfoRow(Icons.build_outlined, "부품 파손", "와이어로프 소선 파단, 체인 이탈, 감속기 고장 여부 확인"),
-          _buildInfoRow(Icons.hearing_outlined, "이상 소음/냄새", "사고 직전 \"끼이익\" 하는 금속 마찰음이나 타는 냄새가 있었는지 확인"),
+          _buildInfoRow(Icons.settings_input_antenna, "센서 오작동", "입구 센서나 낙하 방지 장치가 작동하지 않았는지 확인"), // 🌟 [수정] settings_input_antenna 순정
+          _buildInfoRow(Icons.build, "부품 파손", "와이어로프 소선 파단, 체인 이탈, 감속기 고장 여부 확인"), // 🌟 [수정] build 순정
+          _buildInfoRow(Icons.hearing, "이상 소음/냄새", "사고 직전 \"끼이익\" 하는 금속 마찰음이나 타는 냄새가 있었는지 확인"), // 🌟 [수정] hearing 순정
         ],
       ),
     );
@@ -164,14 +164,14 @@ class ParkingTowerManualPage extends StatelessWidget {
   Widget _buildStep4() {
     return _buildCard(
       title: "4단계: SM종합관리의 법적 증거 확보 (Evidence)",
-      icon: Icons.gavel_outlined,
+      icon: Icons.gavel, // 🌟 [수정] gavel 순정
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text("소송에서 관리회사를 지키는 가장 강력한 무기들입니다.", style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
           const SizedBox(height: 16),
-          _buildInfoRow(Icons.videocam_outlined, "CCTV 및 블랙박스 백업", "사고 당시의 영상, 차량 입고 시점의 영상을 즉시 확보"),
-          _buildInfoRow(Icons.data_object_outlined, "로그 데이터(Log Data) 추출", "주차 시스템 컴퓨터에 기록된 에러 코드와 작동 기록 사진 촬영"),
+          _buildInfoRow(Icons.videocam, "CCTV 및 블랙박스 백업", "사고 당시의 영상, 차량 입고 시점의 영상을 즉시 확보"), // 🌟 [수정] videocam 순정
+          _buildInfoRow(Icons.storage, "로그 데이터(Log Data) 추출", "주차 시스템 컴퓨터에 기록된 에러 코드와 작동 기록 사진 촬영"), // 🌟 [수정] storage 순정
           const SizedBox(height: 12),
           Container(
             padding: const EdgeInsets.all(16),
@@ -181,7 +181,7 @@ class ParkingTowerManualPage extends StatelessWidget {
               children: [
                 const Row(
                   children: [
-                    Icon(Icons.camera_alt_outlined, color: Color(0xFF475569), size: 20),
+                    Icon(Icons.camera_alt, color: Color(0xFF475569), size: 20), // 🌟 [수정] camera_alt 순정
                     SizedBox(width: 8),
                     Text("현장 타임스탬프 필수 촬영 항목", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
                   ],
@@ -211,7 +211,7 @@ class ParkingTowerManualPage extends StatelessWidget {
             const Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.account_tree_outlined, color: Color(0xFF475569)),
+                Icon(Icons.account_tree, color: Color(0xFF475569)), // 🌟 [수정] account_tree 순정
                 SizedBox(width: 8),
                 Text("주차타워 사고 대응 프로세스", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF334155))),
               ],
@@ -293,7 +293,7 @@ class ParkingTowerManualPage extends StatelessWidget {
   Widget _buildStep5() {
     return _buildCard(
       title: "5단계: 책임 소재 및 법적 방어 (Liability)",
-      icon: Icons.admin_panel_settings_outlined,
+      icon: Icons.security, // 🌟 [수정] security 순정
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -317,7 +317,7 @@ class ParkingTowerManualPage extends StatelessWidget {
             child: const Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.shield_outlined, color: Color(0xFF64748B), size: 20),
+                Icon(Icons.verified_user, color: Color(0xFF64748B), size: 20), // 🌟 [수정] verified_user 순정
                 SizedBox(width: 10),
                 Expanded(
                   child: Text("SM종합관리의 전략: \"우리는 매월 전문 업체를 통해 정기 검사를 실시하였으며(증거 제출), 이용자 주의사항을 입구에 명확히 게시(사진 제출)했으므로 관리상 과실이 없음\"을 주장.",
@@ -335,7 +335,7 @@ class ParkingTowerManualPage extends StatelessWidget {
   Widget _buildStep6() {
     return _buildCard(
       title: "6단계: 현장 담당자 최종 체크리스트 (Mobile)",
-      icon: Icons.checklist_rtl_outlined,
+      icon: Icons.playlist_add_check, // 🌟 [수정] playlist_add_check 순정
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -391,7 +391,7 @@ class ParkingTowerManualPage extends StatelessWidget {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           padding: EdgeInsets.zero,
         ),
-        icon: Icon(Icons.phone_in_talk, size: 20, color: itemColor),
+        icon: Icon(Icons.phone, size: 20, color: itemColor), // 🌟 [수정] phone 순정
         label: Text("$title\n$number", textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: itemColor, height: 1.3)),
         onPressed: isCallable ? () => _makePhoneCall(number) : null,
       ),
@@ -529,7 +529,7 @@ class ParkingTowerManualPage extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(isAlert ? Icons.warning_amber_rounded : Icons.check_box_outlined, color: isAlert ? Colors.red.shade600 : primaryNavy, size: 22),
+          Icon(isAlert ? Icons.warning : Icons.check_box, color: isAlert ? Colors.red.shade600 : primaryNavy, size: 22), // 🌟 [수정] warning / check_box 순정
           const SizedBox(width: 10),
           Expanded(
             child: Text(text, style: TextStyle(fontSize: 15, color: isAlert ? Colors.red.shade800 : const Color(0xFF1E293B), fontWeight: isAlert ? FontWeight.bold : FontWeight.w500, height: 1.4)),

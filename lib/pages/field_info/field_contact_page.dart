@@ -83,6 +83,7 @@ class _FieldContactPageState extends State<FieldContactPage> {
   List<FieldContact> _naverContacts = [];
   bool _isNaverSearching = false;
   int _naverSearchStart = 1; // 🌟 [신규] 네이버 추가 5개 불러오기를 위한 페이징 시작점
+  int _currentPage = 1;
 
   // 👑 [수정됨] 접속한 사람이 '진짜 관리자'인지 검사하는 로직
   bool get _isSuperAdmin {
@@ -526,7 +527,7 @@ class _FieldContactPageState extends State<FieldContactPage> {
               icon: const Icon(Icons.clear, color: Colors.grey, size: 20),
               onPressed: () {
                 _searchController.clear();
-                setState(() { _searchQuery = ""; _naverContacts.clear(); });
+                setState(() { _searchQuery = ""; _naverContacts.clear(); _currentPage = 1; });
               }
           ),
           filled: true, fillColor: Colors.grey[100],
@@ -578,32 +579,82 @@ class _FieldContactPageState extends State<FieldContactPage> {
           return const Center(child: Text("검색 결과가 없습니다.\n우측 하단 버튼을 눌러 등록해주세요.", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)));
         }
 
-        return ListView.builder(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          // 🌟 검색어가 있을 때(네이버 연동 중일 때) 하단에 '더 검색하기' 버튼 렌더링 공간(+1) 추가
-          itemCount: finalContacts.length + (_searchQuery.isNotEmpty ? 1 : 0),
-          itemBuilder: (context, index) {
-            // 🌟 리스트의 맨 마지막 칸에 도달하면 [더 검색하기] 버튼 렌더링
-            if (index == finalContacts.length) {
-              return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 16),
+        // 🌟 [페이징 핵심 로직] 전체 데이터를 5개씩 쪼갭니다!
+        int itemsPerPage = 5;
+        int totalPages = (finalContacts.length / itemsPerPage).ceil();
+        if (totalPages == 0) totalPages = 1;
+        if (_currentPage > totalPages) _currentPage = totalPages;
+
+        // 🌟 현재 페이지에 해당하는 딱 5개의 데이터만 잘라내기
+        List<FieldContact> pageContacts = finalContacts.skip((_currentPage - 1) * itemsPerPage).take(itemsPerPage).toList();
+
+        return Column(
+          children: [
+            // 1. 잘라낸 5개의 리스트만 화면에 뿌려줍니다.
+            Expanded(
+              child: ListView.builder(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                itemCount: pageContacts.length,
+                itemBuilder: (context, index) {
+                  return _buildContactCard(pageContacts[index]);
+                },
+              ),
+            ),
+
+            // 2. 하단 페이지 넘기기 버튼 ( < 1 / 3 > )
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  // 이전 페이지 버튼
+                  IconButton(
+                    icon: const Icon(Icons.chevron_left, size: 30),
+                    color: _currentPage > 1 ? AppTheme.primaryColor : Colors.grey,
+                    onPressed: _currentPage > 1 ? () => setState(() => _currentPage--) : null,
+                  ),
+
+                  // 현재 페이지 / 전체 페이지 표시
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Text("$_currentPage / $totalPages", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  ),
+
+                  // 다음 페이지 버튼
+                  IconButton(
+                    icon: const Icon(Icons.chevron_right, size: 30),
+                    color: _currentPage < totalPages ? AppTheme.primaryColor : Colors.grey,
+                    onPressed: _currentPage < totalPages ? () => setState(() => _currentPage++) : null,
+                  ),
+                ],
+              ),
+            ),
+
+            // 3. 검색어가 있을 때 (네이버 결과 연동 중일 때) '더 검색하기' 버튼
+            if (_searchQuery.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16),
                 child: ElevatedButton.icon(
-                  onPressed: _isNaverSearching ? null : () => _searchNaver(_searchQuery, isLoadMore: true),
+                  onPressed: _isNaverSearching ? null : () async {
+                    // 서버에 추가 5개 요청
+                    await _searchNaver(_searchQuery, isLoadMore: true);
+                    // 데이터를 더 불러오면 자동으로 맨 마지막 페이지로 이동시킴!
+                    setState(() {
+                      _currentPage = ((finalContacts.length + 5) / itemsPerPage).ceil();
+                    });
+                  },
                   icon: _isNaverSearching
                       ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
                       : const Icon(Icons.add_circle_outline),
-                  label: const Text("더 검색하기 (추가 5개)", style: TextStyle(fontWeight: FontWeight.bold)),
+                  label: const Text("네이버 더 검색하기 (추가 5개)", style: TextStyle(fontWeight: FontWeight.bold)),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.white,
                     foregroundColor: AppTheme.primaryColor,
                     side: const BorderSide(color: AppTheme.primaryColor),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
                   ),
                 ),
-              );
-            }
-            return _buildContactCard(finalContacts[index]);
-          },
+              ),
+          ],
         );
       },
     );

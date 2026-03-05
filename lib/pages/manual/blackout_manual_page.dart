@@ -1,5 +1,5 @@
 // [파일 위치: lib/pages/manual/blackout_manual_page.dart]
-// [설명: 현장 대응 매뉴얼 No.04 - 정전 및 비상발전기 (Enterprise 버전)]
+// [설명: 현장 대응 매뉴얼 No.04 - 정전 및 비상발전기 (Enterprise / 100% 호환 순정 아이콘 버전)]
 
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -95,19 +95,19 @@ class BlackoutManualPage extends StatelessWidget {
   Widget _buildStep1() {
     return _buildCard(
       title: "1단계: 정전 범위 확인 및 원인 파악 (Diagnosis)",
-      icon: Icons.search_outlined,
+      icon: Icons.search, // 🌟 [수정] search 순정
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text("가장 먼저 '한전 선로 사고'인지 '건물 내부 차단기 트립'인지 구분해야 합니다.", style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
           const SizedBox(height: 16),
-          _buildInfoRow(Icons.visibility_outlined, "주변 상황 확인", "창밖을 보거나 주변 건물, 가로등의 점등 여부 확인"),
+          _buildInfoRow(Icons.visibility, "주변 상황 확인", "창밖을 보거나 주변 건물, 가로등의 점등 여부 확인"), // 🌟 [수정] visibility 순정
           const SizedBox(height: 8),
           _buildCaseBox("외부 요인", "주변도 깜깜함", "한전(123) 측 선로 정전 발생"),
           const SizedBox(height: 8),
           _buildCaseBox("내부 요인", "우리 건물만 정전", "건물 내 메인 차단기(VCB, ACB) 트립 또는 변압기 문제"),
           const SizedBox(height: 12),
-          _buildHighlightBox(Icons.electric_meter_outlined, "수변전실 이동", "전기실로 이동하여 수신반의 전압계(V-Meter)가 '0'인지 확인", isDanger: true),
+          _buildHighlightBox(Icons.speed, "수변전실 이동", "전기실로 이동하여 수신반의 전압계(V-Meter)가 '0'인지 확인", isDanger: true), // 🌟 [수정] speed 순정 (계기판)
         ],
       ),
     );
@@ -117,16 +117,16 @@ class BlackoutManualPage extends StatelessWidget {
   Widget _buildStep2() {
     return _buildCard(
       title: "2단계: 비상발전기 및 ATS 기동 확인 (Emergency Power)",
-      icon: Icons.power_outlined,
+      icon: Icons.power, // 🌟 [수정] power 순정
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text("정전 직후 10~20초 이내에 비상발전기가 자동으로 돌아가야 합니다.", style: TextStyle(fontSize: 15, color: Color(0xFF334155))),
           const SizedBox(height: 16),
-          _buildHighlightBox(Icons.settings_power_outlined, "발전기 기동 확인", "비상발전기가 자동으로 시동되었는지 확인. 만약 가동되지 않았다면 수동 기동(Manual Start) 실시"),
+          _buildHighlightBox(Icons.settings_power, "발전기 기동 확인", "비상발전기가 자동으로 시동되었는지 확인. 만약 가동되지 않았다면 수동 기동(Manual Start) 실시"), // 🌟 [수정] settings_power 순정
           const SizedBox(height: 8),
-          _buildInfoRow(Icons.swap_horiz_outlined, "ATS(자동절체스위치) 확인", "한전 전원에서 발전기 전원으로 스위치가 넘어갔는지 확인"),
-          _buildInfoRow(Icons.lightbulb_outline, "비상 부하 확인", "승강기, 복도 비상등, 소방 펌프, 지하주차장 일부 전등에 불이 들어오는지 체크"),
+          _buildInfoRow(Icons.swap_horiz, "ATS(자동절체스위치) 확인", "한전 전원에서 발전기 전원으로 스위치가 넘어갔는지 확인"), // 🌟 [수정] swap_horiz 순정
+          _buildInfoRow(Icons.wb_incandescent, "비상 부하 확인", "승강기, 복도 비상등, 소방 펌프, 지하주차장 일부 전등에 불이 들어오는지 체크"), // 🌟 [수정] wb_incandescent 순정 (가장 안전한 전구 아이콘)
         ],
       ),
     );
@@ -136,15 +136,15 @@ class BlackoutManualPage extends StatelessWidget {
   Widget _buildStep3() {
     return _buildCard(
       title: "3단계: 긴급 현장 순찰 및 승강기 대응 (Safety)",
-      icon: Icons.directions_run_outlined,
+      icon: Icons.directions_run, // 🌟 [수정] directions_run 순정
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text("전기가 끊기면 가장 위험한 곳은 승강기입니다.", style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
           const SizedBox(height: 16),
-          _buildHighlightBox(Icons.elevator_outlined, "승강기 갇힘 확인", "비상발전기 가동 후에도 승강기가 멈춰있다면 인터폰으로 승객 갇힘 여부 전수 확인 (사고 시 매뉴얼 No.03 실행)", isDanger: true),
+          _buildHighlightBox(Icons.unfold_more, "승강기 갇힘 확인", "비상발전기 가동 후에도 승강기가 멈춰있다면 인터폰으로 승객 갇힘 여부 전수 확인 (사고 시 매뉴얼 No.03 실행)", isDanger: true), // 🌟 [수정] unfold_more 순정 (승강기 대체)
           const SizedBox(height: 12),
-          _buildInfoRow(Icons.water_damage_outlined, "전기 집약 시설 점검", "배수 펌프(지하 침수 방지)가 비상 전원으로 작동하는지 확인"),
+          _buildInfoRow(Icons.opacity, "전기 집약 시설 점검", "배수 펌프(지하 침수 방지)가 비상 전원으로 작동하는지 확인"), // 🌟 [수정] opacity 순정
           const SizedBox(height: 12),
           Container(
             padding: const EdgeInsets.all(16),
@@ -154,7 +154,7 @@ class BlackoutManualPage extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Icon(Icons.campaign_outlined, color: Color(0xFF475569), size: 20),
+                    Icon(Icons.announcement, color: Color(0xFF475569), size: 20), // 🌟 [수정] announcement 순정
                     SizedBox(width: 8),
                     Text("입주민 방송 안내", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
                   ],
@@ -174,16 +174,16 @@ class BlackoutManualPage extends StatelessWidget {
   Widget _buildStep4() {
     return _buildCard(
       title: "4단계: 한전 복구 및 정상 전원 복귀 (Recovery)",
-      icon: Icons.restore_outlined,
+      icon: Icons.restore, // 🌟 [수정] restore 순정
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text("한전 전원이 복구되었을 때 기기 손상을 막기 위한 절차입니다.", style: TextStyle(fontSize: 15, color: Color(0xFF334155))),
           const SizedBox(height: 16),
-          _buildInfoRow(Icons.check_circle_outline, "복구 확인", "수변전실 전압계가 정상(220V/380V)으로 돌아왔는지 확인"),
-          _buildInfoRow(Icons.swap_horiz_outlined, "절체 확인", "ATS가 발전기에서 다시 한전 전원으로 넘어가는지 확인"),
-          _buildInfoRow(Icons.format_list_numbered_outlined, "순차 투입", "부하가 큰 설비(동력반, 펌프 등)는 전압 서지를 막기 위해 순차적으로 차단기를 올림"),
-          _buildInfoRow(Icons.power_settings_new_outlined, "발전기 정지", "발전기를 '무부하 운전' 후 서서히 식혀서 정지 (보통 자동 설정되어 있음)"),
+          _buildInfoRow(Icons.check_circle, "복구 확인", "수변전실 전압계가 정상(220V/380V)으로 돌아왔는지 확인"), // 🌟 [수정] check_circle 순정
+          _buildInfoRow(Icons.swap_horiz, "절체 확인", "ATS가 발전기에서 다시 한전 전원으로 넘어가는지 확인"), // 🌟 [수정] swap_horiz 순정
+          _buildInfoRow(Icons.format_list_numbered, "순차 투입", "부하가 큰 설비(동력반, 펌프 등)는 전압 서지를 막기 위해 순차적으로 차단기를 올림"), // 🌟 [수정] format_list_numbered 순정
+          _buildInfoRow(Icons.power_settings_new, "발전기 정지", "발전기를 '무부하 운전' 후 서서히 식혀서 정지 (보통 자동 설정되어 있음)"), // 🌟 [수정] power_settings_new 순정
         ],
       ),
     );
@@ -202,7 +202,7 @@ class BlackoutManualPage extends StatelessWidget {
             const Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.account_tree_outlined, color: Color(0xFF475569)),
+                Icon(Icons.account_tree, color: Color(0xFF475569)), // 🌟 [수정] account_tree 순정
                 SizedBox(width: 8),
                 Text("정전 대응 로직 흐름도", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF334155))),
               ],
@@ -287,7 +287,7 @@ class BlackoutManualPage extends StatelessWidget {
   Widget _buildStep5() {
     return _buildCard(
       title: "5단계: 책임 소재 및 사고 예방 (Liability)",
-      icon: Icons.gavel_outlined,
+      icon: Icons.gavel, // 🌟 [수정] gavel 순정
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -313,7 +313,7 @@ class BlackoutManualPage extends StatelessWidget {
             child: const Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.shield_outlined, color: Color(0xFF64748B), size: 20),
+                Icon(Icons.security, color: Color(0xFF64748B), size: 20), // 🌟 [수정] security 순정
                 SizedBox(width: 10),
                 Expanded(
                   child: Text("SM종합관리의 포인트: \"우리는 정기적인 전기안전점검을 수행하였으며, 비상발전기 및 ATS의 정상 작동 여부를 매달 확인(점검 일지 증거)했으므로 관리상 과실이 없음\"을 명확히 함.",
@@ -331,7 +331,7 @@ class BlackoutManualPage extends StatelessWidget {
   Widget _buildStep6() {
     return _buildCard(
       title: "6단계: 현장 담당자 체크리스트 (Mobile Check-list)",
-      icon: Icons.checklist_rtl_outlined,
+      icon: Icons.playlist_add_check, // 🌟 [수정] playlist_add_check 순정
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -387,7 +387,7 @@ class BlackoutManualPage extends StatelessWidget {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           padding: EdgeInsets.zero,
         ),
-        icon: Icon(Icons.phone_in_talk, size: 20, color: itemColor),
+        icon: Icon(Icons.phone, size: 20, color: itemColor), // 🌟 [수정] phone 순정
         label: Text("$title\n$number", textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: itemColor, height: 1.3)),
         onPressed: isCallable ? () => _makePhoneCall(number) : null,
       ),
@@ -537,7 +537,7 @@ class BlackoutManualPage extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(isAlert ? Icons.cancel_outlined : Icons.check_box_outlined, color: isAlert ? Colors.red.shade600 : primaryNavy, size: 22),
+          Icon(isAlert ? Icons.cancel : Icons.check_box, color: isAlert ? Colors.red.shade600 : primaryNavy, size: 22), // 🌟 [수정] cancel / check_box 순정
           const SizedBox(width: 10),
           Expanded(
             child: Text(text, style: TextStyle(fontSize: 15, color: isAlert ? Colors.red.shade800 : const Color(0xFF1E293B), fontWeight: isAlert ? FontWeight.bold : FontWeight.w500, height: 1.4)),

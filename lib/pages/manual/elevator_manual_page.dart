@@ -1,5 +1,5 @@
 // [파일 위치: lib/pages/manual/elevator_manual_page.dart]
-// [설명: 현장 대응 매뉴얼 No.03 - 승강기 사고 및 갇힘 (Enterprise 버전)]
+// [설명: 현장 대응 매뉴얼 No.03 - 승강기 사고 및 갇힘 (Enterprise / 100% 호환 순정 아이콘 버전)]
 
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -95,7 +95,7 @@ class ElevatorManualPage extends StatelessWidget {
   Widget _buildStep1() {
     return _buildCard(
       title: "1단계: 사고 접수 및 긴급 소통 (Communication)",
-      icon: Icons.record_voice_over_outlined,
+      icon: Icons.record_voice_over, // 🌟 [수정] 순정 아이콘
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -121,8 +121,8 @@ class ElevatorManualPage extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
-          _buildInfoRow(Icons.health_and_safety_outlined, "상태 파악", "승객 인원, 노약자/임산부/환자 탑승 여부 및 승강기 내 조명/환기 상태 확인"),
-          _buildInfoRow(Icons.speaker_phone_outlined, "지시 사항", "바닥에 주저앉아 편안하게 대기 요청, 문 밖에서 계속 대화하며 상황을 알림"),
+          _buildInfoRow(Icons.people, "상태 파악", "승객 인원, 노약자/임산부/환자 탑승 여부 및 승강기 내 조명/환기 상태 확인"), // 🌟 [수정] people 순정
+          _buildInfoRow(Icons.speaker_phone, "지시 사항", "바닥에 주저앉아 편안하게 대기 요청, 문 밖에서 계속 대화하며 상황을 알림"), // 🌟 [수정] speaker_phone 순정
         ],
       ),
     );
@@ -132,17 +132,17 @@ class ElevatorManualPage extends StatelessWidget {
   Widget _buildStep2() {
     return _buildCard(
       title: "2단계: 즉시 구조 요청 및 보고 (Emergency Call)",
-      icon: Icons.emergency_outlined,
+      icon: Icons.ring_volume, // 🌟 [수정] ring_volume 순정
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text("관리자는 독단적으로 판단하지 말고, 정해진 매뉴얼 순서대로 구조를 요청합니다.", style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
           const SizedBox(height: 16),
-          _buildHighlightBox(Icons.build_outlined, "유지관리업체 호출", "승강기 내 부착된 고유번호(7자리) 또는 단지 내 계약된 업체에 즉시 신고"),
+          _buildHighlightBox(Icons.build, "유지관리업체 호출", "승강기 내 부착된 고유번호(7자리) 또는 단지 내 계약된 업체에 즉시 신고"), // 🌟 [수정] build 순정
           const SizedBox(height: 8),
-          _buildHighlightBox(Icons.local_fire_department_outlined, "119 구조대 병행 신고", "• 승객 중 환자/노약자가 있는 경우\n• 유지관리업체 도착이 20분 이상 소요될 것으로 예상되는 경우", isDanger: true),
+          _buildHighlightBox(Icons.whatshot, "119 구조대 병행 신고", "• 승객 중 환자/노약자가 있는 경우\n• 유지관리업체 도착이 20분 이상 소요될 것으로 예상되는 경우", isDanger: true), // 🌟 [수정] whatshot 순정
           const SizedBox(height: 8),
-          _buildInfoRow(Icons.campaign_outlined, "비상 방송", "단지 내 방송을 통해 \"현재 O동 승강기 점검 중으로 사용이 중단되었습니다\" 안내 (추가 민원 방지)"),
+          _buildInfoRow(Icons.announcement, "비상 방송", "단지 내 방송을 통해 \"현재 O동 승강기 점검 중으로 사용이 중단되었습니다\" 안내 (추가 민원 방지)"), // 🌟 [수정] announcement 순정
         ],
       ),
     );
@@ -152,16 +152,16 @@ class ElevatorManualPage extends StatelessWidget {
   Widget _buildStep3() {
     return _buildCard(
       title: "3단계: 현장 도착 및 관리자 대기 (On-site Action)",
-      icon: Icons.front_hand_outlined,
+      icon: Icons.pan_tool, // 🌟 [수정] pan_tool 순정 (손바닥)
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text("업체가 올 때까지 관리자가 현장에서 취해야 할 FM 행동입니다.", style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
           const SizedBox(height: 16),
-          _buildInfoRow(Icons.format_list_numbered_outlined, "층수 확인", "승강기가 정확히 어느 층 사이(또는 어느 층)에 멈췄는지 기계실이나 표시기로 확인"),
-          _buildInfoRow(Icons.chat_outlined, "현장 대기", "승강기 문 앞에서 대기하며 승객에게 현재 상황 실시간 공유 (예: \"업체가 5분 뒤 도착 예정입니다\")"),
+          _buildInfoRow(Icons.format_list_numbered, "층수 확인", "승강기가 정확히 어느 층 사이(또는 어느 층)에 멈췄는지 기계실이나 표시기로 확인"), // 🌟 [수정] format_list_numbered 순정
+          _buildInfoRow(Icons.chat, "현장 대기", "승강기 문 앞에서 대기하며 승객에게 현재 상황 실시간 공유 (예: \"업체가 5분 뒤 도착 예정입니다\")"), // 🌟 [수정] chat 순정
           const SizedBox(height: 12),
-          _buildHighlightBox(Icons.do_not_disturb_alt_outlined, "🚫 절대 금지 사항", "전문 기술자 없이 관리자가 비상키로 문을 강제 개방하는 행위 절대 금지. (승객 추락 및 기기 파손 위험)", isDanger: true),
+          _buildHighlightBox(Icons.block, "🚫 절대 금지 사항", "전문 기술자 없이 관리자가 비상키로 문을 강제 개방하는 행위 절대 금지. (승객 추락 및 기기 파손 위험)", isDanger: true), // 🌟 [수정] block 순정
         ],
       ),
     );
@@ -171,15 +171,15 @@ class ElevatorManualPage extends StatelessWidget {
   Widget _buildStep4() {
     return _buildCard(
       title: "4단계: 구조 완료 및 사후 조치 (Recovery)",
-      icon: Icons.check_circle_outline,
+      icon: Icons.check_circle, // 🌟 [수정] check_circle 순정
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text("승객 구조 후 관리자가 반드시 챙겨야 할 '증거'와 '절차'입니다.", style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
           const SizedBox(height: 16),
-          _buildInfoRow(Icons.people_alt_outlined, "승객 상태 최종 확인", "구조된 승객의 외상 여부를 확인하고, 필요한 경우 인적 사항 기록"),
-          _buildInfoRow(Icons.description_outlined, "원인 파악 및 수리", "유지관리업체로부터 '점검 레포트'를 수령하여 단순 오작동인지 부품 교체인지 확인"),
-          _buildInfoRow(Icons.block_outlined, "운행 중지 안내", "수리가 완벽히 끝날 때까지 해당 승강기에 '안내문' 부착 및 안전 라인 설치"),
+          _buildInfoRow(Icons.people, "승객 상태 최종 확인", "구조된 승객의 외상 여부를 확인하고, 필요한 경우 인적 사항 기록"), // 🌟 [수정] people 순정
+          _buildInfoRow(Icons.description, "원인 파악 및 수리", "유지관리업체로부터 '점검 레포트'를 수령하여 단순 오작동인지 부품 교체인지 확인"), // 🌟 [수정] description 순정
+          _buildInfoRow(Icons.block, "운행 중지 안내", "수리가 완벽히 끝날 때까지 해당 승강기에 '안내문' 부착 및 안전 라인 설치"), // 🌟 [수정] block 순정
         ],
       ),
     );
@@ -198,7 +198,7 @@ class ElevatorManualPage extends StatelessWidget {
             const Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.account_tree_outlined, color: Color(0xFF475569)),
+                Icon(Icons.account_tree, color: Color(0xFF475569)), // 🌟 [수정] account_tree 순정
                 SizedBox(width: 8),
                 Text("사고 대응 프로세스", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF334155))),
               ],
@@ -272,7 +272,7 @@ class ElevatorManualPage extends StatelessWidget {
   Widget _buildStep5() {
     return _buildCard(
       title: "5단계: 책임 소재 및 법적 대응 (Liability)",
-      icon: Icons.gavel_outlined,
+      icon: Icons.gavel, // 🌟 [수정] gavel 순정
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -298,7 +298,7 @@ class ElevatorManualPage extends StatelessWidget {
             child: const Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.shield_outlined, color: Color(0xFF64748B), size: 20),
+                Icon(Icons.security, color: Color(0xFF64748B), size: 20), // 🌟 [수정] security 순정
                 SizedBox(width: 10),
                 Expanded(
                   child: Text("SM종합관리의 강점: \"우리는 매월 정기점검을 실시하였으며, 사고 발생 시 매뉴얼에 따라 5분 내 구조 요청 및 안심 멘트를 시행하여 선량한 관리자의 의무를 다했다\"는 점을 기록으로 증명.",
@@ -316,7 +316,7 @@ class ElevatorManualPage extends StatelessWidget {
   Widget _buildStep6() {
     return _buildCard(
       title: "6단계: 현장 담당자 체크리스트 (Mobile Check-list)",
-      icon: Icons.checklist_rtl_outlined,
+      icon: Icons.playlist_add_check, // 🌟 [수정] playlist_add_check 순정
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -372,7 +372,7 @@ class ElevatorManualPage extends StatelessWidget {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           padding: EdgeInsets.zero,
         ),
-        icon: Icon(Icons.phone_in_talk, size: 20, color: itemColor),
+        icon: Icon(Icons.phone, size: 20, color: itemColor), // 🌟 [수정] phone 순정
         label: Text("$title\n$number", textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: itemColor, height: 1.3)),
         onPressed: isCallable ? () => _makePhoneCall(number) : null, // 텍스트면 비활성화
       ),
@@ -496,7 +496,7 @@ class ElevatorManualPage extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(isAlert ? Icons.cancel_outlined : Icons.check_box_outlined, color: isAlert ? Colors.red.shade600 : primaryNavy, size: 22),
+          Icon(isAlert ? Icons.cancel : Icons.check_box, color: isAlert ? Colors.red.shade600 : primaryNavy, size: 22), // 🌟 [수정] cancel / check_box 순정
           const SizedBox(width: 10),
           Expanded(
             child: Text(text, style: TextStyle(fontSize: 15, color: isAlert ? Colors.red.shade800 : const Color(0xFF1E293B), fontWeight: isAlert ? FontWeight.bold : FontWeight.w500, height: 1.4)),

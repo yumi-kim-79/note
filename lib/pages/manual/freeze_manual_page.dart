@@ -1,5 +1,5 @@
 // [파일 위치: lib/pages/manual/freeze_manual_page.dart]
-// [설명: 현장 대응 매뉴얼 No.02 - 동파 방지 및 해빙 (Enterprise 버전)]
+// [설명: 현장 대응 매뉴얼 No.02 - 동파 방지 및 해빙 (Enterprise / 100% 호환 순정 아이콘 버전)]
 
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -93,16 +93,16 @@ class FreezeManualPage extends StatelessWidget {
   Widget _buildStep1() {
     return _buildCard(
       title: "1단계: 동절기 사전 예방 조치 (Pre-Winter Check)",
-      icon: Icons.ac_unit,
+      icon: Icons.ac_unit, // 🌟 순정 아이콘 유지
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text("기온이 영하 5도 이하로 떨어지기 전, 현장 담당자가 반드시 완료해야 하는 예방 리스트입니다.", style: TextStyle(fontSize: 15, color: Color(0xFF334155))),
           const SizedBox(height: 16),
-          _buildInfoRow(Icons.inventory_2_outlined, "계량기함 밀폐 보온", "헌 옷, 에어캡(뽁뽁이), 보온재를 활용하여 계량기함 내부 틈새를 완전히 밀폐"),
-          _buildHighlightBox(Icons.cable, "열선(Heater Cable) 안전 점검", "• 과열 방지: 열선이 겹쳐지면 국부 과열(화재) 위험이 크므로 겹침 부위 확인\n• 절연 상태: 피복 손상 여부 및 누전 차단기 정상 작동 확인", isWarning: true),
+          _buildInfoRow(Icons.archive, "계량기함 밀폐 보온", "헌 옷, 에어캡(뽁뽁이), 보온재를 활용하여 계량기함 내부 틈새를 완전히 밀폐"), // 🌟 [수정] archive
+          _buildHighlightBox(Icons.power, "열선(Heater Cable) 안전 점검", "• 과열 방지: 열선이 겹쳐지면 국부 과열(화재) 위험이 크므로 겹침 부위 확인\n• 절연 상태: 피복 손상 여부 및 누전 차단기 정상 작동 확인", isWarning: true), // 🌟 [수정] power
           const SizedBox(height: 8),
-          _buildInfoRow(Icons.water_damage_outlined, "퇴수 조치", "외부 노출 배관, 옥상 수전, 소방 배관 말단 드레인 밸브의 잔류수 제거"),
+          _buildInfoRow(Icons.opacity, "퇴수 조치", "외부 노출 배관, 옥상 수전, 소방 배관 말단 드레인 밸브의 잔류수 제거"), // 🌟 [수정] opacity
         ],
       ),
     );
@@ -112,7 +112,7 @@ class FreezeManualPage extends StatelessWidget {
   Widget _buildStep2() {
     return _buildCard(
       title: "2단계: 동파 발생 시 초동 진단 (Initial Diagnosis)",
-      icon: Icons.search_outlined,
+      icon: Icons.search, // 🌟 [수정] search 순정
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -130,16 +130,16 @@ class FreezeManualPage extends StatelessWidget {
   Widget _buildStep3() {
     return _buildCard(
       title: "3단계: FM 해빙 작업 지침 (Safe Thawing)",
-      icon: Icons.water_drop_outlined,
+      icon: Icons.opacity, // 🌟 [수정] opacity 순정
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text("해빙 작업 중 발생하는 '배관 파손'과 '화재'를 막기 위한 엄격한 수칙입니다.", style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
           const SizedBox(height: 16),
-          _buildInfoRow(Icons.thermostat_outlined, "단계적 온수 사용", "처음부터 50도 이상의 뜨거운 물을 부으면 온도 차로 배관/계량기 파손. 미지근한 물(30도)부터 서서히 온도 상승"),
-          _buildInfoRow(Icons.air_outlined, "헤어드라이어 활용", "배관에 직접 대지 않고 10cm 이상 거리를 두고 열기를 순환시켜 해빙"),
+          _buildInfoRow(Icons.whatshot, "단계적 온수 사용", "처음부터 50도 이상의 뜨거운 물을 부으면 온도 차로 배관/계량기 파손. 미지근한 물(30도)부터 서서히 온도 상승"), // 🌟 [수정] whatshot
+          _buildInfoRow(Icons.waves, "헤어드라이어 활용", "배관에 직접 대지 않고 10cm 이상 거리를 두고 열기를 순환시켜 해빙"), // 🌟 [수정] waves
           const SizedBox(height: 8),
-          _buildHighlightBox(Icons.do_not_disturb_alt_outlined, "토치(직화) 절대 금지", "가스 토치를 배관에 직접 대는 행위는 화재 및 배관 변형의 주범이므로 SM종합관리 현장 담당자 절대 금기 사항임", isDanger: true),
+          _buildHighlightBox(Icons.block, "토치(직화) 절대 금지", "가스 토치를 배관에 직접 대는 행위는 화재 및 배관 변형의 주범이므로 SM종합관리 현장 담당자 절대 금기 사항임", isDanger: true), // 🌟 [수정] block
         ],
       ),
     );
@@ -149,7 +149,7 @@ class FreezeManualPage extends StatelessWidget {
   Widget _buildStep4() {
     return _buildCard(
       title: "4단계: 책임 소재 및 비용 부담 기준 (Liability)",
-      icon: Icons.gavel_outlined,
+      icon: Icons.gavel, // 🌟 [수정] gavel 순정
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -174,7 +174,7 @@ class FreezeManualPage extends StatelessWidget {
             child: const Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.shield_outlined, color: Color(0xFF64748B), size: 20),
+                Icon(Icons.security, color: Color(0xFF64748B), size: 20), // 🌟 [수정] security 순정
                 SizedBox(width: 10),
                 Expanded(
                   child: Text("SM종합관리의 방어: \"관리회사는 공용부에 대한 보온 조치 및 세대별 예방 안내문을 배부함으로써 선량한 관리자의 주의 의무(집합건물법)를 다했음\"을 강조.",
@@ -192,13 +192,13 @@ class FreezeManualPage extends StatelessWidget {
   Widget _buildStep5() {
     return _buildCard(
       title: "5단계: 현장 기록 및 증거 확보 (Evidence)",
-      icon: Icons.camera_alt_outlined,
+      icon: Icons.camera_alt, // 🌟 [수정] camera_alt 순정
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildInfoRow(Icons.add_a_photo_outlined, "조치 전 사진 촬영", "동파된 배관의 상태, 계량기 파손 여부를 날짜/시간이 나오게 촬영"),
-          _buildInfoRow(Icons.edit_document, "해빙 일지 작성", "조치 시간, 사용 장비, 복구 확인 시간 등을 상세히 기록하여 추후 관리비 부과 근거로 활용"),
-          _buildInfoRow(Icons.mark_email_read_outlined, "안내문 부착", "해빙 완료 후 해당 세대에 \"수도꼭지 미세 개방\" 등 사후 예방 수칙을 서면으로 전달"),
+          _buildInfoRow(Icons.add_a_photo, "조치 전 사진 촬영", "동파된 배관의 상태, 계량기 파손 여부를 날짜/시간이 나오게 촬영"), // 🌟 [수정] add_a_photo 순정
+          _buildInfoRow(Icons.edit, "해빙 일지 작성", "조치 시간, 사용 장비, 복구 확인 시간 등을 상세히 기록하여 추후 관리비 부과 근거로 활용"), // 🌟 [수정] edit 순정
+          _buildInfoRow(Icons.assignment, "안내문 부착", "해빙 완료 후 해당 세대에 \"수도꼭지 미세 개방\" 등 사후 예방 수칙을 서면으로 전달"), // 🌟 [수정] assignment 순정
         ],
       ),
     );
@@ -208,7 +208,7 @@ class FreezeManualPage extends StatelessWidget {
   Widget _buildStep6() {
     return _buildCard(
       title: "6단계: 상황별 대응 체크리스트 (Mobile Check-list)",
-      icon: Icons.checklist_rtl_outlined,
+      icon: Icons.playlist_add_check, // 🌟 [수정] playlist_add_check 순정
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -259,7 +259,7 @@ class FreezeManualPage extends StatelessWidget {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           padding: EdgeInsets.zero,
         ),
-        icon: Icon(Icons.phone_in_talk, size: 20, color: itemColor),
+        icon: Icon(Icons.phone, size: 20, color: itemColor), // 🌟 [수정] phone 순정
         label: Text("$title\n$number", textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: itemColor, height: 1.3)),
         onPressed: () => _makePhoneCall(number),
       ),
@@ -409,7 +409,7 @@ class FreezeManualPage extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(isAlert ? Icons.cancel_outlined : Icons.check_box_outlined, color: isAlert ? Colors.red.shade600 : primaryNavy, size: 22),
+          Icon(isAlert ? Icons.cancel : Icons.check_box, color: isAlert ? Colors.red.shade600 : primaryNavy, size: 22), // 🌟 [수정] cancel / check_box 순정 아이콘
           const SizedBox(width: 10),
           Expanded(
             child: Text(text, style: TextStyle(fontSize: 15, color: isAlert ? Colors.red.shade800 : const Color(0xFF1E293B), fontWeight: isAlert ? FontWeight.bold : FontWeight.w500, height: 1.4)),
