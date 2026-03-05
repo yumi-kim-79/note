@@ -1,11 +1,11 @@
 // [파일 위치: lib/pages/field_info/field_info_page.dart]
-// [페이지 설명: 현장 업무 지원 센터 메인 허브 (메뉴판)]
+// [페이지 설명: 현장 정보 업무 지원 센터 메인 허브 (메뉴판)]
 // [업데이트 내역: 반응형 레이아웃 적용 (태블릿/웹 화면 대응), 매뉴얼 페이지 연결]
 
 import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
 import 'field_contact_page.dart'; // 📞 공유 전화번호부 페이지
-import 'field_manual_page.dart';  // 📚 [추가] 현장 관리 매뉴얼 페이지
+import '../manual/field_manual_page.dart';  // 📚 [추가] 현장 관리 매뉴얼 페이지
 
 class FieldInfoPage extends StatelessWidget {
   const FieldInfoPage({super.key});
