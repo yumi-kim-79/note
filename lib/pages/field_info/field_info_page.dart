@@ -1,11 +1,12 @@
 // [파일 위치: lib/pages/field_info/field_info_page.dart]
-// [페이지 설명: 현장 정보 업무 지원 센터 메인 허브 (메뉴판)]
+// [페이지 설명: 현장 업무 지원 센터 메인 허브 (메뉴판)]
 // [업데이트 내역: 반응형 레이아웃 적용 (태블릿/웹 화면 대응), 매뉴얼 페이지 연결]
 
 import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
 import 'field_contact_page.dart'; // 📞 공유 전화번호부 페이지
 import '../manual/field_manual_page.dart';  // 📚 [추가] 현장 관리 매뉴얼 페이지
+import '../safety/field_safety_page.dart'; // 🌟 프로젝트 이름에 상관없이 정확하게 찾아가는 상대 경로
 
 class FieldInfoPage extends StatelessWidget {
   const FieldInfoPage({super.key});
@@ -26,19 +27,19 @@ class FieldInfoPage extends StatelessWidget {
               const Padding(
                 padding: EdgeInsets.only(top: 8, bottom: 20),
                 child: Text(
-                    "🚧 현장 업무 지원 센터",
+                    "🚧 현장 지원 센터",
                     style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppTheme.textMain)
                 ),
               ),
 
               // -----------------------------------------------------
-              // 1. 문제해결형 공유 전화번호부 (기능 100% 유지)
+              // 1. 공유 전화번호부 (기능 100% 유지)
               // -----------------------------------------------------
               _buildMenuCard(
                 context,
                 icon: Icons.contact_phone,
                 color: Colors.blue,
-                title: "문제해결형 공유 전화번호부",
+                title: "공유 전화번호부",
                 subtitle: "증상(태그) 검색, 검증된 업체 전화 연결 및 네이버 검색",
                 onTap: () {
                   // 전화번호부 상세 페이지로 이동
@@ -47,13 +48,13 @@ class FieldInfoPage extends StatelessWidget {
               ),
 
               // -----------------------------------------------------
-              // 2. 현장 관리 매뉴얼 (🌟 매뉴얼 페이지 연결)
+              // 2. 현장 대응 매뉴얼 (🌟 매뉴얼 페이지 연결)
               // -----------------------------------------------------
               _buildMenuCard(
                 context,
                 icon: Icons.menu_book,
                 color: Colors.green,
-                title: "현장 관리 매뉴얼",
+                title: "현장 대응 매뉴얼",
                 subtitle: "현장 상황별 대처법 및 가이드라인",
                 onTap: () {
                   // 매뉴얼 리스트 페이지로 이동
@@ -62,15 +63,21 @@ class FieldInfoPage extends StatelessWidget {
               ),
 
               // -----------------------------------------------------
-              // 3. 현장 업무 시 주의점 (현재 준비 중)
+              // 3. 현장 업무 시 주의점 (안전 10계명 연결 완료)
               // -----------------------------------------------------
               _buildMenuCard(
                 context,
-                icon: Icons.warning_amber_rounded,
+                icon: Icons.warning, // 🌟 [수정] 모바일 100% 호환 순정 경고 아이콘
                 color: Colors.orange,
                 title: "현장 업무 시 주의점",
                 subtitle: "안전 수칙 및 필수 확인 사항",
-                onTap: () => _showReadySnackbar(context),
+                onTap: () {
+                  // 🚀 방금 만든 안전 관리(Safety) 페이지로 이동!
+                  Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const FieldSafetyPage())
+                  );
+                },
               ),
 
               // -----------------------------------------------------

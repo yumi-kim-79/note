@@ -9,6 +9,8 @@ import 'elevator_manual_page.dart';
 import 'blackout_manual_page.dart';
 import 'fire_manual_page.dart';
 import 'parking_tower_manual_page.dart';
+import 'cctv_manual_page.dart';
+import 'defect_manual_page.dart';
 
 class FieldManualPage extends StatelessWidget {
   const FieldManualPage({super.key});
@@ -19,7 +21,7 @@ class FieldManualPage extends StatelessWidget {
       backgroundColor: AppTheme.backgroundColor,
       appBar: AppBar(
         title: const Text(
-            "현장 관리 매뉴얼",
+            "현장 대응 매뉴얼",
             style: TextStyle(color: AppTheme.textMain, fontSize: 18, fontWeight: FontWeight.bold)
         ),
         backgroundColor: Colors.white,
@@ -81,7 +83,7 @@ class FieldManualPage extends StatelessWidget {
               // 5. 소방 매뉴얼
               _buildManualItem(
                 context,
-                title: "소방 시설 및 전기 설비 구동 시 매뉴얼",
+                title: "화재 또는 소방 시설 및 전기 설비 구동 시 매뉴얼",
                 date: "2026.03.05",
                 icon: Icons.whatshot, // 🌟 [수정] 모바일 100% 호환 불꽃(소방) 순정 아이콘
                 color: Colors.redAccent,
@@ -96,6 +98,26 @@ class FieldManualPage extends StatelessWidget {
                 icon: Icons.directions_car, // 🌟 [수정] 모바일 100% 호환 자동차(주차) 순정 아이콘
                 color: Colors.blueGrey,
                 destinationPage: const ParkingTowerManualPage(),
+              ),
+
+              // 7. CCTV 매뉴얼
+              _buildManualItem(
+                context,
+                title: "CCTV 열람 및 개인정보 대응 매뉴얼",
+                date: "2026.03.05",
+                icon: Icons.videocam, // 🌟 절대 깨지지 않는 순정 캠코더 아이콘
+                color: Colors.teal,
+                destinationPage: const CctvManualPage(),
+              ),
+
+              // 8. 하자 민원 매뉴얼
+              _buildManualItem(
+                context,
+                title: "하자 민원 대응 및 책임 소재 매뉴얼",
+                date: "2026.03.05",
+                icon: Icons.plumbing, // 🌟 순정 수리/배관 아이콘
+                color: Colors.indigo,
+                destinationPage: const DefectManualPage(),
               ),
 
               const SizedBox(height: 24), // 하단 여백 추가
