@@ -21,13 +21,15 @@ dependencies:
   image_picker: ^1.2.1
   firebase_storage: ^13.0.6
   firebase_auth: ^6.1.4
-  pdf: ^3.11.1
-  printing: ^5.14.0
+  pdf: ^3.11.3
+  printing: ^5.14.2
   google_fonts: ^6.2.1
   share_plus: ^12.0.1
   url_launcher: ^6.2.4
   geolocator: ^14.0.2
   http: ^1.6.0
+  # ✅ [추가] 국토부 API 데이터(XML) 처리를 위한 라이브러리 추가
+  xml: ^6.5.0
   excel: ^4.0.6
   flutter_naver_map: any
   universal_html: ^2.3.0
@@ -44,20 +46,18 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
-  # ✅ [추가] 아이콘 생성 도구 (기존 dev_dependencies 유지하며 추가됨)
+  # ✅ [유지] 아이콘 생성 도구
   flutter_launcher_icons: "^0.13.1"
 
-# ✅ [추가] 아이콘 상세 설정 (PC웹, 안드로이드, iOS 통합)
+# ✅ [유지] 아이콘 상세 설정
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: true
-  # 웹(PC) 아이콘 생성 설정
   web:
     generate: true
     image_path: "assets/images/app_icon.png"
     background_color: "#F5F7FA"
     theme_color: "#F5F7FA"
-  # 모바일 공통 아이콘 경로
   image_path: "assets/images/app_icon.png"
   min_sdk_android: 21
 
@@ -65,5 +65,5 @@ flutter:
   uses-material-design: true
   assets:
     - assets/images/sm_logo.png
-    - assets/images/app_icon.png # ✅ 아이콘 원본 파일 경로 등록
+    - assets/images/app_icon.png
     - assets/service-account.json

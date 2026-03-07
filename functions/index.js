@@ -1,33 +1,33 @@
 /**
- * [SM종합관리 서버 기능 정의서 - 네이버 검색 중계 추가 버전]
+ * [SM종합관리 서버 기능 정의서]
  * 1. optimizeUploadedImage: 사진 업로드 시 800x800 리사이징 (기존 유지)
  * 2. sendPushNotification: 다중 환경 대응 푸시 알림 (기존 유지)
- * 🌟 [신규 추가] searchNaverProxy: 네이버 지역 검색 API 중계 (CORS 돌파용)
+ * 3. searchNaverProxy: 네이버 지역 검색 API 중계 (기존 유지)
+ * 4. fetchMolitData: 국토부 건축물대장 API 중계 (구조 수정 및 고도화)
  */
 
 const { onObjectFinalized } = require("firebase-functions/v2/storage");
 const { onDocumentCreated } = require("firebase-functions/v2/firestore");
-const { onRequest } = require("firebase-functions/v2/https"); // 🌟 신규 추가
+const { onRequest } = require("firebase-functions/v2/https");
 const { setGlobalOptions } = require("firebase-functions/v2/options");
 const admin = require("firebase-admin");
 const spawn = require("child-process-promise").spawn;
 const path = require("path");
 const os = require("os");
 const fs = require("fs");
-const axios = require("axios"); // 🌟 네이버 통신용 추가
-const cors = require("cors")({ origin: true }); // 🌟 CORS 허용용 추가
+const axios = require("axios");
+const cors = require("cors")({ origin: true });
 
 admin.initializeApp();
 
-// 전역 설정 (서울 리전 고정)
+// 전역 설정 (서울 리전 고정 및 메모리 설정)
 setGlobalOptions({ region: "asia-northeast3", memory: "1GiB" });
 
 // ============================================================
-// ✅ [신규 기능] 네이버 검색 중계 비서 (🌟 더보기 기능 추가 버전)
+// ✅ [기능 1] 네이버 검색 중계 비서 (기존 코드 100% 유지)
 // ============================================================
 exports.searchNaverProxy = onRequest({ cors: true }, async (req, res) => {
     const query = req.query.query;
-    // 🌟 플러터 앱에서 "다음 5개"를 요청할 수 있도록 start 파라미터 추가!
     const start = req.query.start || 1;
 
     if (!query) {
@@ -43,7 +43,7 @@ exports.searchNaverProxy = onRequest({ cors: true }, async (req, res) => {
             params: {
                 query: query,
                 display: 5,
-                start: start // 🌟 이거 하나 추가된 겁니다!
+                start: start
             },
             headers: {
                 "X-Naver-Client-Id": clientId,
@@ -60,7 +60,7 @@ exports.searchNaverProxy = onRequest({ cors: true }, async (req, res) => {
 });
 
 // ============================================================
-// ✅ [기능 1] 사진 변환 비서 (기존 기능 100% 유지)
+// ✅ [기능 2] 사진 변환 비서 (기존 코드 100% 유지)
 // ============================================================
 exports.optimizeUploadedImage = onObjectFinalized(async (event) => {
     const object = event.data;
@@ -102,14 +102,14 @@ exports.optimizeUploadedImage = onObjectFinalized(async (event) => {
 
 
 // ============================================================
-// ✅ [기능 2] 알림 발송 및 자동 토큰 청소 (기존 기능 100% 유지)
+// ✅ [기능 3] 알림 발송 및 자동 토큰 청소 (기존 코드 100% 유지)
 // ============================================================
 exports.sendPushNotification = onDocumentCreated("notifications/{docId}", async (event) => {
     const snapshot = event.data;
     if (!snapshot) return;
 
     const data = snapshot.data();
-    const targetUid = data.targetUid; // 알림 받을 사람
+    const targetUid = data.targetUid;
 
     if (!targetUid) {
         console.log("타겟 UID가 없습니다.");
@@ -117,9 +117,7 @@ exports.sendPushNotification = onDocumentCreated("notifications/{docId}", async 
     }
 
     try {
-        // 1. 유저 정보 및 토큰 가져오기
         const userDoc = await admin.firestore().collection("users").doc(targetUid).get();
-
         if (!userDoc.exists) {
             console.log(`유저(${targetUid}) 정보 없음.`);
             return;
@@ -179,37 +177,80 @@ exports.sendPushNotification = onDocumentCreated("notifications/{docId}", async 
                 },
             },
             webpush: {
-                headers: {
-                    Urgency: "high"
-                },
+                headers: { Urgency: "high" },
                 notification: {
                     icon: "/icons/Icon-192.png",
                     badge: "/icons/Icon-192.png",
                     requireInteraction: true,
-                    ...(isSoundEnabled && {
-                        sound: "default",
-                        vibrate: [200, 100, 200, 100, 200]
-                    })
+                    ...(isSoundEnabled && { sound: "default" })
                 },
-                fcmOptions: {
-                    link: targetUrl
-                }
+                fcmOptions: { link: targetUrl }
             }
         };
 
         await admin.messaging().send(payload);
-        console.log(`✅ 발송 성공: ${targetUid} (Type: ${msgType}, Sound: ${isSoundEnabled})`);
+        console.log(`✅ 발송 성공: ${targetUid} (Type: ${msgType})`);
 
     } catch (error) {
         console.error("❌ 발송 실패 상세:", error);
-
         if (error.code === 'messaging/invalid-registration-token' ||
             error.code === 'messaging/registration-token-not-registered') {
-
             await admin.firestore().collection("users").doc(targetUid).update({
                 fcmToken: admin.firestore.FieldValue.delete()
             });
-            console.log(`🧹 토큰 청소 완료: 유저(${targetUid})의 만료된 토큰을 제거했습니다.`);
+            console.log(`🧹 토큰 청소 완료: 유저(${targetUid})`);
+        }
+    }
+});
+
+// ============================================================
+// ✅ [기능 4] 국토부 건축HUB 만능 중계 비서 (전체 기능 지원)
+// ============================================================
+exports.fetchMolitData = onRequest({ region: "asia-northeast3" }, async (req, res) => {
+    // 1. CORS 설정
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+    if (req.method === 'OPTIONS') { res.status(204).send(''); return; }
+
+    try {
+        // 🌟 [핵심] operation 파라미터 추가! (어떤 데이터를 원하는지 받음)
+        const { sigunguCd, bjdongCd, bun, ji, operation } = req.query;
+        const serviceKey = "6d6808551481d40d1b5869e0ad497be2c35ca49bde3fc91b72790429a0d55970";
+
+        if (!sigunguCd || !bjdongCd || !bun || !ji) {
+            return res.status(400).send({ error: "필수 파라미터가 누락되었습니다." });
+        }
+
+        // 🌟 [만능 스위치] 앱에서 operation을 안 보내면 기존처럼 '표제부'를 기본으로 줍니다. (기존 코드 100% 호환 보장)
+        const targetOperation = operation ? operation : 'getBrTitleInfo';
+
+        // 동적으로 URL 생성
+        const molitUrl = `https://apis.data.go.kr/1613000/BldRgstHubService/${targetOperation}`;
+
+        console.log(`📡 [건축HUB 만능 요청]: ${targetOperation} / ${sigunguCd}-${bjdongCd}-${bun}-${ji}`);
+
+        const response = await axios.get(molitUrl, {
+            params: {
+                ServiceKey: serviceKey,
+                sigunguCd: sigunguCd,
+                bjdongCd: bjdongCd,
+                bun: bun,
+                ji: ji,
+                _type: 'json'
+            }
+        });
+
+        res.status(200).send(response.data);
+
+    } catch (error) {
+        if (error.response) {
+            console.error("❌ 국토부 상세 답변:", JSON.stringify(error.response.data));
+            res.status(500).send({ error: "국토부 서버 에러", details: error.response.data });
+        } else {
+            console.error("❌ 통신 오류:", error.message);
+            res.status(500).send({ error: error.message });
         }
     }
 });

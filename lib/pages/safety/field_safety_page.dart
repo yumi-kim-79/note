@@ -55,7 +55,7 @@ class FieldSafetyPage extends StatelessWidget {
               // 2. 지하실 및 계단 안전으로 연결 완료
               _buildSafetyItem(
                 context,
-                title: "2. 지하실 및 계단실 순회 안전 수칙",
+                title: "2. 지하실 및 계단실 순회\n안전 수칙",
                 date: "2026.03.05",
                 icon: Icons.flashlight_on, // 🌟 순정 랜턴 아이콘
                 color: Colors.orange,
@@ -65,7 +65,7 @@ class FieldSafetyPage extends StatelessWidget {
               // 3. 고소 및 옥상 (사다리/옥상)
               _buildSafetyItem(
                 context,
-                title: "3. 고소(사다리 및 옥상) 작업 안전 수칙",
+                title: "3. 고소(사다리 및 옥상) 작업\n안전 수칙",
                 date: "2026.03.05",
                 icon: Icons.warning,
                 color: Colors.orange,
@@ -75,7 +75,7 @@ class FieldSafetyPage extends StatelessWidget {
               // 4. 전기 및 기계 작업 안전 (전기 작업 페이지로 연결)
               _buildSafetyItem(
                 context,
-                title: "4. 전기 활선 및 설비 교체 작업 안전 수칙",
+                title: "4. 전기 활선 및 설비 교체 작업\n안전 수칙",
                 date: "2026.03.05",
                 icon: Icons.power, // 🌟 순정 전기 아이콘
                 color: Colors.redAccent,
@@ -85,7 +85,7 @@ class FieldSafetyPage extends StatelessWidget {
               // 5. 밀폐공간 및 정화조 안전
               _buildSafetyItem(
                 context,
-                title: "5. 정화조 및 지하 밀폐공간 진입 수칙",
+                title: "5. 정화조 및 지하 밀폐공간 진입시\n안전 수칙",
                 date: "2026.03.05",
                 icon: Icons.warning, // 🌟 순정 경고/가스 아이콘
                 color: Colors.deepPurple,
@@ -95,7 +95,7 @@ class FieldSafetyPage extends StatelessWidget {
               // 6. 기계실 회전체 점검 안전
               _buildSafetyItem(
                 context,
-                title: "6. 기계실 회전체(펌프/휀) 점검 안전 수칙",
+                title: "6. 기계실 회전체(펌프/휀) 점검\n안전 수칙",
                 date: "2026.03.05",
                 icon: Icons.autorenew, // 🌟 순정 회전/기계 아이콘
                 color: Colors.brown,
@@ -105,7 +105,7 @@ class FieldSafetyPage extends StatelessWidget {
               // 7. 화기 및 연마 작업 (새로 추가)
               _buildSafetyItem(
                 context,
-                title: "7. 용접, 그라인더 등 화기/연마 작업 안전 수칙",
+                title: "7. 용접, 그라인더 등 화기,연마 작업\n안전 수칙",
                 date: "2026.03.05",
                 icon: Icons.local_fire_department, // 🌟 순정 소방/화재 아이콘
                 color: Colors.red,
@@ -115,7 +115,7 @@ class FieldSafetyPage extends StatelessWidget {
               // 8. 중량물 취급 및 운반 안전
               _buildSafetyItem(
                 context,
-                title: "8. 중량물 취급 및 운반 안전 수칙(근골격계 예방)",
+                title: "8. 중량물 취급 및 운반\n안전 수칙(근골격계 예방)",
                 date: "2026.03.05",
                 icon: Icons.fitness_center, // 🌟 순정 중량물/운동 아이콘
                 color: Colors.teal,
@@ -125,7 +125,7 @@ class FieldSafetyPage extends StatelessWidget {
               // 9. 화학물질 취급 안전 (새로 추가)
               _buildSafetyItem(
                 context,
-                title: "9. 락스 및 유해 화학물질 취급 안전 수칙",
+                title: "9. 락스 및 유해 화학물질 취급\n안전 수칙",
                 date: "2026.03.05",
                 icon: Icons.science, // 🌟 순정 화학/과학 아이콘
                 color: Colors.indigo,
@@ -135,7 +135,7 @@ class FieldSafetyPage extends StatelessWidget {
               // 10. 현장 채증 및 사후 복구
               _buildSafetyItem(
                 context,
-                title: "10. 현장 채증(타임스탬프) 및 사후 복구 수칙",
+                title: "10. 현장 채증(타임스탬프) 및\n사후 복구 수칙",
                 date: "2026.03.05",
                 icon: Icons.camera_alt, // 🌟 순정 카메라 아이콘
                 color: Colors.blueGrey,

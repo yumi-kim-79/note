@@ -1,6 +1,6 @@
 // [파일 위치: lib/pages/field_info/field_contact_page.dart]
 // [페이지 설명: 현장 문제해결형 공유 전화번호부 (내부DB + 네이버 지역 검색 API 연동)]
-// [기능: 증상/상호명 검색, 하이브리드 리스트 노출, 🌟네이버 업체 원클릭 저장, 🌟폐업/결번 즉시 신고, 전화 걸기, 🗺️네이버 지도 연동 및 클립보드 자동완성, 🏆신뢰도 랭킹 및 더보기]
+// [기능: 증상/상호명 검색, 하이브리드 리스트 노출, 🌟다중 연락처(본사/팩스 등) 지원, 네이버 업체 원클릭 저장, 폐업/결번 즉시 신고, 개별 전화 걸기, 네이버 지도 연동 및 클립보드 자동완성, 신뢰도 랭킹 및 더보기]
 
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -12,44 +12,72 @@ import '../../theme/app_theme.dart';
 import 'package:firebase_auth/firebase_auth.dart'; // 🌟 유저 신분 확인용
 
 // =======================================================
-// 🗂️ 1. 데이터 모델 (우리 DB와 네이버 결과를 하나로 묶어주는 그릇)
+// 🗂️ 1-1. 하위 데이터 모델 (개별 연락처 관리용)
+// =======================================================
+class PhoneEntry {
+  String label; // 예: 본사, 현장소장, 팩스 등
+  String number;
+
+  PhoneEntry({required this.label, required this.number});
+
+  Map<String, dynamic> toMap() => {'label': label, 'number': number};
+
+  factory PhoneEntry.fromMap(Map<String, dynamic> map) {
+    return PhoneEntry(
+      label: map['label'] ?? '기본',
+      number: map['number'] ?? '',
+    );
+  }
+}
+
+// =======================================================
+// 🗂️ 1-2. 데이터 모델 (다중 연락처 배열 탑재)
 // =======================================================
 class FieldContact {
   String id;
   String name;
-  String phone;
+  List<PhoneEntry> phones; // 🌟 [고도화] 단일 phone -> 다중 phones 리스트로 변경
   List<String> tags;
   double rating; // 내부 DB 평점
   String memo;
   String status; // 'active' 또는 'closed'
   bool isFromNaver; // 네이버 출신인지 구분하는 꼬리표
-  int trustScore; // 🌟 [신규] 네이버 데이터 신뢰도 점수 (100점 만점)
+  int trustScore; // 네이버 데이터 신뢰도 점수 (100점 만점)
 
   FieldContact({
     required this.id,
     required this.name,
-    required this.phone,
+    required this.phones,
     this.tags = const [],
     this.rating = 0.0,
     this.memo = '',
     this.status = 'active',
     this.isFromNaver = false,
-    this.trustScore = 0, // 기본값 0점
+    this.trustScore = 0,
   });
 
   // 파이어베이스(DB) 데이터를 객체로 변환
   factory FieldContact.fromFirestore(DocumentSnapshot doc) {
     Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+
+    // 🌟 [하위 호환성 유지] 과거에 등록된 단일 phone 데이터도 오류 없이 불러옵니다.
+    List<PhoneEntry> parsedPhones = [];
+    if (data['phones'] != null) {
+      parsedPhones = (data['phones'] as List).map((e) => PhoneEntry.fromMap(e)).toList();
+    } else if (data['phone'] != null && data['phone'].toString().isNotEmpty) {
+      parsedPhones.add(PhoneEntry(label: '기본', number: data['phone']));
+    }
+
     return FieldContact(
       id: doc.id,
       name: data['name'] ?? '',
-      phone: data['phone'] ?? '',
+      phones: parsedPhones,
       tags: List<String>.from(data['tags'] ?? []),
       rating: (data['rating'] ?? 0.0).toDouble(), // 숫자 형변환 안전처리
       memo: data['memo'] ?? '',
       status: data['status'] ?? 'active',
       isFromNaver: false,
-      trustScore: 100, // 🌟 우리 DB에 등록된 업체는 이미 검증되었으므로 100점 만점 부여
+      trustScore: 100, // 우리 DB에 등록된 업체는 검증되었으므로 100점 만점 부여
     );
   }
 
@@ -57,7 +85,7 @@ class FieldContact {
   Map<String, dynamic> toMap() {
     return {
       'name': name,
-      'phone': phone,
+      'phones': phones.map((p) => p.toMap()).toList(), // 🌟 리스트로 DB에 저장
       'tags': tags,
       'rating': rating,
       'memo': memo,
@@ -82,36 +110,31 @@ class _FieldContactPageState extends State<FieldContactPage> {
   String _searchQuery = "";
   List<FieldContact> _naverContacts = [];
   bool _isNaverSearching = false;
-  int _naverSearchStart = 1; // 🌟 [신규] 네이버 추가 5개 불러오기를 위한 페이징 시작점
+  int _naverSearchStart = 1; // 네이버 추가 5개 불러오기를 위한 페이징 시작점
   int _currentPage = 1;
 
-  // 👑 [수정됨] 접속한 사람이 '진짜 관리자'인지 검사하는 로직
+  // 👑 관리자 권한 검사
   bool get _isSuperAdmin {
     final user = FirebaseAuth.instance.currentUser;
-    // 🚨 'admin@sm.com' 부분을 대표님이 실제로 로그인하실 때 쓰는 이메일로 반드시 바꿔주세요!
     return user != null && user.email == 'yuseok8052@gmail.com';
   }
 
   // -----------------------------------------------------
-  // 🗺️ 네이버 지도 연동 (🌟 주소 압축 고도화)
+  // 🗺️ 네이버 지도 연동 (주소 압축 고도화 유지)
   // -----------------------------------------------------
   Future<void> _openNaverMap(FieldContact contact) async {
-    // 🌟 1. 너무 긴 주소 때문에 네이버 지도가 못 찾는 현상 방지: 앞 2어절만 추출
     String shortAddress = '';
     if (contact.memo.isNotEmpty) {
       List<String> parts = contact.memo.split(' ');
       if (parts.length >= 2) {
-        shortAddress = "${parts[0]} ${parts[1]}"; // 예: "인천광역시 중구"
+        shortAddress = "${parts[0]} ${parts[1]}";
       } else {
         shortAddress = contact.memo;
       }
     }
 
-    // 🌟 2. 상호명과 압축된 주소를 합쳐서 정확도 극대화
     final String fullQuery = "${contact.name} $shortAddress".trim();
     final encodedQuery = Uri.encodeComponent(fullQuery);
-
-    // 네이버 지도 검색 URL
     final url = Uri.parse("https://map.naver.com/v5/search/$encodedQuery");
 
     if (await canLaunchUrl(url)) {
@@ -123,7 +146,7 @@ class _FieldContactPageState extends State<FieldContactPage> {
   }
 
   // -----------------------------------------------------
-  // 🌐 네이버 지역 검색 API (🌟 신뢰도 채점 및 더보기 기능 추가)
+  // 🌐 네이버 지역 검색 API (신뢰도 채점 유지)
   // -----------------------------------------------------
   Future<void> _searchNaver(String query, {bool isLoadMore = false}) async {
     if (query.trim().isEmpty) {
@@ -134,19 +157,17 @@ class _FieldContactPageState extends State<FieldContactPage> {
     setState(() {
       _isNaverSearching = true;
       if (!isLoadMore) {
-        _naverSearchStart = 1; // 새 검색이면 시작점 초기화
+        _naverSearchStart = 1;
         _naverContacts.clear();
       } else {
-        _naverSearchStart += 5; // 더보기면 시작점 +5 이동
+        _naverSearchStart += 5;
       }
     });
 
     try {
       const firebaseFuncUrl = "https://searchnaverproxy-pjaqc5w3jq-du.a.run.app";
-      // 🌟 start 파라미터를 붙여서 서버에 보냄 (더 검색하기 지원)
       final requestUrl = "$firebaseFuncUrl?query=${Uri.encodeQueryComponent(query)}&start=$_naverSearchStart";
 
-      print("📡 전용 서버로 네이버 검색 요청: $query (시작점: $_naverSearchStart)");
       final response = await http.get(Uri.parse(requestUrl));
 
       if (response.statusCode == 200) {
@@ -158,7 +179,6 @@ class _FieldContactPageState extends State<FieldContactPage> {
         }
 
         List<FieldContact> newResults = items.map((item) {
-          // <b> 태그 등 불필요한 문자 제거
           String cleanName = item['title'].toString().replaceAll(RegExp(r'<[^>]*>'), '').replaceAll('&amp;', '&');
           String category = item['category']?.toString().split('>').last ?? '일반업체';
 
@@ -166,41 +186,36 @@ class _FieldContactPageState extends State<FieldContactPage> {
           String address = item['roadAddress']?.toString().trim() ?? item['address']?.toString().trim() ?? '';
           String link = item['link']?.toString().trim() ?? '';
 
-          // 🌟 [핵심] SM 신뢰도 자동 채점 로직 (100점 만점)
           int score = 0;
-          if (address.isNotEmpty) score += 50; // 1순위: 주소가 정확히 있는가? (50점)
-          if (link.isNotEmpty) score += 30;    // 2순위: 홈페이지/블로그 링크가 있는가? (30점)
-          if (phoneNum.isNotEmpty) score += 20; // 3순위: 전화번호가 즉시 제공되는가? (20점)
+          if (address.isNotEmpty) score += 50;
+          if (link.isNotEmpty) score += 30;
+          if (phoneNum.isNotEmpty) score += 20;
 
           if (phoneNum.isEmpty) phoneNum = '전화번호 미제공';
 
           return FieldContact(
             id: 'naver_${item['mapx']}_${item['mapy']}',
             name: cleanName,
-            phone: phoneNum,
+            phones: [PhoneEntry(label: '기본', number: phoneNum)], // 🌟 네이버 결과는 '기본' 라벨로 1개 저장
             tags: ['#$category'],
             isFromNaver: true,
             memo: address,
-            trustScore: score, // 🌟 채점된 점수 탑재!
+            trustScore: score,
           );
         }).toList();
 
         setState(() {
           if (isLoadMore) {
-            _naverContacts.addAll(newResults); // 더보기일 경우 기존 리스트 뒤에 추가
+            _naverContacts.addAll(newResults);
           } else {
-            _naverContacts = newResults; // 새 검색일 경우 덮어쓰기
+            _naverContacts = newResults;
           }
-          // 🌟 신뢰도 점수가 높은 알짜배기 업체부터 위로 오도록 자동 내림차순 정렬!
           _naverContacts.sort((a, b) => b.trustScore.compareTo(a.trustScore));
         });
-        print("✅ 네이버 검색 성공: 총 ${_naverContacts.length}건 정렬 완료");
-
       } else {
         _showSnackBar("서버 통신 실패 (에러코드: ${response.statusCode})", isError: true);
       }
     } catch (e) {
-      print("🚨 치명적 통신 오류: $e");
       _showSnackBar("인터넷 연결 또는 서버 상태를 확인하세요.", isError: true);
     } finally {
       setState(() => _isNaverSearching = false);
@@ -208,9 +223,13 @@ class _FieldContactPageState extends State<FieldContactPage> {
   }
 
   // -----------------------------------------------------
-  // 📞 전화 걸기
+  // 📞 전화 걸기 (비어있는 번호 예외처리 추가)
   // -----------------------------------------------------
   Future<void> _makePhoneCall(String phoneNumber) async {
+    if (phoneNumber.isEmpty || phoneNumber == '전화번호 미제공') {
+      _showSnackBar("유효한 전화번호가 아닙니다.", isError: true);
+      return;
+    }
     final cleanPhone = phoneNumber.replaceAll(RegExp(r'[^0-9]'), '');
     final Uri launchUri = Uri(scheme: 'tel', path: cleanPhone);
     try {
@@ -224,32 +243,22 @@ class _FieldContactPageState extends State<FieldContactPage> {
     }
   }
 
-  // 👑 [추가 2] 관리자 전용 영구 삭제 함수 (여기에 복사해 넣으세요!)
+  // -----------------------------------------------------
+  // 🚨 상태 변경 (삭제 / 폐업 / 복구) 유지
   // -----------------------------------------------------
   Future<void> _confirmDeleteByAdmin(FieldContact contact) async {
     bool? confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: Colors.white,
-        title: const Row(
-          children: [
-            Icon(Icons.delete_forever, color: Colors.red),
-            SizedBox(width: 8),
-            Text("영구 삭제 (관리자 전용)", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
-          ],
-        ),
+        title: const Row(children: [Icon(Icons.delete_forever, color: Colors.red), SizedBox(width: 8), Text("영구 삭제 (관리자)", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red))]),
         content: Text("⚠️ 주의\n'${contact.name}' 업체를 DB에서 완전히 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다!"),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("취소", style: TextStyle(color: Colors.grey))),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text("영구 삭제", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-          ),
+          ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.red), onPressed: () => Navigator.pop(ctx, true), child: const Text("영구 삭제", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
         ],
       ),
     );
-
     if (confirm == true) {
       try {
         await FirebaseFirestore.instance.collection('field_contacts').doc(contact.id).delete();
@@ -260,33 +269,19 @@ class _FieldContactPageState extends State<FieldContactPage> {
     }
   }
 
-  // -----------------------------------------------------
-  // 🚨 폐업/결번 신고 확인 팝업 (DB 상태 업데이트)
-  // -----------------------------------------------------
   Future<void> _confirmReportClosed(FieldContact contact) async {
     bool? confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: Colors.white,
-        title: const Row(
-          children: [
-            Icon(Icons.warning_amber_rounded, color: Colors.red),
-            SizedBox(width: 8),
-            Text("폐업/결번 신고", style: TextStyle(fontWeight: FontWeight.bold)),
-          ],
-        ),
+        title: const Row(children: [Icon(Icons.warning_amber_rounded, color: Colors.red), SizedBox(width: 8), Text("폐업/결번 신고", style: TextStyle(fontWeight: FontWeight.bold))]),
         content: Text("'${contact.name}' 업체를 폐업(결번) 처리하시겠습니까?\n이후로는 다른 직원들이 헛걸음하지 않도록 비활성화됩니다."),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("취소", style: TextStyle(color: Colors.grey))),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text("신고하기", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-          ),
+          ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.red), onPressed: () => Navigator.pop(ctx, true), child: const Text("신고하기", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
         ],
       ),
     );
-
     if (confirm == true) {
       try {
         await FirebaseFirestore.instance.collection('field_contacts').doc(contact.id).update({'status': 'closed'});
@@ -296,35 +291,22 @@ class _FieldContactPageState extends State<FieldContactPage> {
       }
     }
   }
-  // 🌟 [여기 추가!] 실수로 누른 폐업 신고를 다시 살려내는 '복구' 팝업
-  // -----------------------------------------------------
+
   Future<void> _confirmRestoreClosed(FieldContact contact) async {
     bool? confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: Colors.white,
-        title: const Row(
-          children: [
-            Icon(Icons.restore, color: Colors.green),
-            SizedBox(width: 8),
-            Text("폐업 신고 취소 (복구)", style: TextStyle(fontWeight: FontWeight.bold)),
-          ],
-        ),
+        title: const Row(children: [Icon(Icons.restore, color: Colors.green), SizedBox(width: 8), Text("폐업 신고 취소 (복구)", style: TextStyle(fontWeight: FontWeight.bold))]),
         content: Text("'${contact.name}' 업체를 다시 '정상 영업' 상태로 복구하시겠습니까?"),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("취소", style: TextStyle(color: Colors.grey))),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text("복구하기", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-          ),
+          ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.green), onPressed: () => Navigator.pop(ctx, true), child: const Text("복구하기", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
         ],
       ),
     );
-
     if (confirm == true) {
       try {
-        // status를 다시 'active'로 돌려놓습니다!
         await FirebaseFirestore.instance.collection('field_contacts').doc(contact.id).update({'status': 'active'});
         _showSnackBar("정상 영업 상태로 복구되었습니다.");
       } catch (e) {
@@ -339,14 +321,11 @@ class _FieldContactPageState extends State<FieldContactPage> {
   void _showAddDialog({FieldContact? initialData}) async {
     String clipboardText = "";
 
-    // 🌟 [버그 수정됨] 클립보드를 깐깐하게 스캔합니다!
+    // 클립보드 스캔
     ClipboardData? data = await Clipboard.getData('text/plain');
     if (data != null && data.text != null) {
       String text = data.text!.trim();
-      // 글자에서 숫자만 쏙 빼서 몇 개인지 셉니다.
       String numbersOnly = text.replaceAll(RegExp(r'[^0-9]'), '');
-
-      // 전체 길이가 20자 미만이고, 숫자가 최소 8개 이상(일반 전화번호 길이)일 때만 전화번호로 인정!
       if (text.length < 20 && numbersOnly.length >= 8) {
         clipboardText = text;
       }
@@ -355,17 +334,41 @@ class _FieldContactPageState extends State<FieldContactPage> {
     if (!mounted) return;
 
     final nameCtrl = TextEditingController(text: initialData?.name ?? '');
-    String initialPhone = (initialData?.phone == '전화번호 미제공') ? '' : (initialData?.phone ?? '');
-    final phoneCtrl = TextEditingController(text: initialPhone.isEmpty ? clipboardText : initialPhone);
     final tagsCtrl = TextEditingController(text: initialData?.tags.join(', ') ?? '');
     final memoCtrl = TextEditingController(text: initialData?.memo ?? '');
+    double currentRating = (initialData != null && !initialData.isFromNaver && initialData.rating > 0) ? initialData.rating : 5.0;
 
-    // 🌟 [수정 포인트] 기본 별점 5.0이지만, 기존 데이터가 있으면 그 별점을 가져옴
-    double currentRating = (initialData != null && !initialData.isFromNaver && initialData.rating > 0)
-        ? initialData.rating
-        : 5.0;
+    // 🌟 동적으로 늘어나는 연락처 입력 컨트롤러 리스트
+    List<TextEditingController> labelCtrls = [];
+    List<TextEditingController> numCtrls = [];
 
-    // 🌟 [수정 포인트] 팝업창 제목을 상황에 맞게 변경
+    // 동적 필드 추가 함수
+    void addPhoneField(String label, String number) {
+      labelCtrls.add(TextEditingController(text: label));
+      numCtrls.add(TextEditingController(text: number));
+    }
+
+    // 🌟 [버그 수정 1] 클립보드 번호가 실제 텍스트창에 들어갔는지 체크하는 변수
+    bool isClipboardUsed = false;
+
+    // 초기 데이터 세팅
+    if (initialData != null && initialData.phones.isNotEmpty) {
+      for (var p in initialData.phones) {
+        String numText = p.number == '전화번호 미제공' ? '' : p.number;
+
+        // 🌟 [버그 수정 2] 네이버 번호가 비어있는데 내가 복사해온 번호가 있다면 자동 붙여넣기!
+        if (numText.isEmpty && clipboardText.isNotEmpty) {
+          numText = clipboardText;
+          isClipboardUsed = true;
+        }
+        addPhoneField(p.label, numText);
+      }
+    } else {
+      // 신규 등록이면 기본 1세트 + 클립보드 번호 세팅
+      addPhoneField('기본', clipboardText);
+      if (clipboardText.isNotEmpty) isClipboardUsed = true;
+    }
+
     String dialogTitle = "새 업체 등록";
     if (initialData != null) {
       dialogTitle = initialData.isFromNaver ? "⭐ 우리 DB로 저장" : "📝 업체 정보 수정";
@@ -383,8 +386,10 @@ class _FieldContactPageState extends State<FieldContactPage> {
             child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (clipboardText.isNotEmpty && initialPhone.isEmpty)
+                  // 🌟 [버그 수정 3] 신규 등록이 아니더라도 복사한 번호를 썼다면 파란색 안내창 띄우기
+                  if (isClipboardUsed)
                     Container(
                       margin: const EdgeInsets.only(bottom: 12),
                       padding: const EdgeInsets.all(8),
@@ -398,8 +403,76 @@ class _FieldContactPageState extends State<FieldContactPage> {
                       ),
                     ),
                   TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: "업체명 (상호)", border: OutlineInputBorder())),
-                  const SizedBox(height: 12),
-                  TextField(controller: phoneCtrl, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: "전화번호", hintText: "직접 입력 혹은 붙여넣기", border: OutlineInputBorder())),
+                  const SizedBox(height: 16),
+
+                  // 🌟 다중 연락처 입력 UI 영역
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(8)),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text("📞 연락처 목록", style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryColor)),
+                        const SizedBox(height: 8),
+
+                        // 🌟 리스트 길이만큼 반복해서 텍스트 필드를 그림
+                        ...List.generate(labelCtrls.length, (index) {
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  flex: 2,
+                                  child: TextField(
+                                    controller: labelCtrls[index],
+                                    decoration: const InputDecoration(hintText: "구분 (예: 본사, 팩스)", isDense: true, contentPadding: EdgeInsets.all(10)),
+                                    style: const TextStyle(fontSize: 13),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  flex: 3,
+                                  child: TextField(
+                                    controller: numCtrls[index],
+                                    keyboardType: TextInputType.phone,
+                                    decoration: const InputDecoration(hintText: "전화번호", isDense: true, contentPadding: EdgeInsets.all(10)),
+                                    style: const TextStyle(fontSize: 13),
+                                  ),
+                                ),
+                                // 🌟 항목이 2개 이상일 때만 삭제 버튼 표시
+                                if (labelCtrls.length > 1)
+                                  IconButton(
+                                    icon: const Icon(Icons.remove_circle, color: Colors.red, size: 20),
+                                    onPressed: () {
+                                      setDialogState(() {
+                                        labelCtrls.removeAt(index);
+                                        numCtrls.removeAt(index);
+                                      });
+                                    },
+                                  )
+                                else
+                                  const SizedBox(width: 40), // 공간 채우기 용도
+                              ],
+                            ),
+                          );
+                        }),
+
+                        // 🌟 연락처 추가(+) 버튼
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton.icon(
+                            onPressed: () {
+                              setDialogState(() => addPhoneField('', ''));
+                            },
+                            icon: const Icon(Icons.add, size: 18),
+                            label: const Text("연락처 추가"),
+                            style: TextButton.styleFrom(foregroundColor: AppTheme.primaryColor),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
                   const SizedBox(height: 16),
                   Row(
                     children: [
@@ -409,12 +482,8 @@ class _FieldContactPageState extends State<FieldContactPage> {
                     ],
                   ),
                   Slider(
-                    value: currentRating, min: 1.0, max: 5.0,
-                    divisions: 8,
-                    activeColor: Colors.amber,
-                    onChanged: (val) {
-                      setDialogState(() => currentRating = val);
-                    },
+                    value: currentRating, min: 1.0, max: 5.0, divisions: 8, activeColor: Colors.amber,
+                    onChanged: (val) { setDialogState(() => currentRating = val); },
                   ),
                   const SizedBox(height: 12),
                   TextField(controller: tagsCtrl, decoration: const InputDecoration(labelText: "태그 (쉼표로 구분)", border: OutlineInputBorder())),
@@ -429,8 +498,24 @@ class _FieldContactPageState extends State<FieldContactPage> {
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryColor),
               onPressed: () async {
-                if (nameCtrl.text.trim().isEmpty || phoneCtrl.text.trim().isEmpty) {
-                  _showSnackBar("상호명과 전화번호는 필수입니다.", isError: true);
+                if (nameCtrl.text.trim().isEmpty) {
+                  _showSnackBar("상호명은 필수입니다.", isError: true);
+                  return;
+                }
+
+                // 🌟 등록된 여러 연락처 수집 (빈 칸 필터링)
+                List<PhoneEntry> finalPhones = [];
+                for (int i = 0; i < labelCtrls.length; i++) {
+                  String lbl = labelCtrls[i].text.trim();
+                  String num = numCtrls[i].text.trim();
+                  if (num.isNotEmpty) {
+                    if (lbl.isEmpty) lbl = "연락처 ${i + 1}"; // 라벨을 안 적었으면 자동 부여
+                    finalPhones.add(PhoneEntry(label: lbl, number: num));
+                  }
+                }
+
+                if (finalPhones.isEmpty) {
+                  _showSnackBar("최소 1개의 전화번호를 입력해주세요.", isError: true);
                   return;
                 }
 
@@ -439,22 +524,18 @@ class _FieldContactPageState extends State<FieldContactPage> {
 
                 final newContactMap = {
                   'name': nameCtrl.text.trim(),
-                  'phone': phoneCtrl.text.trim(),
+                  'phones': finalPhones.map((p) => p.toMap()).toList(), // 🌟 리스트 형태로 DB 저장
                   'tags': formattedTags,
                   'rating': currentRating,
                   'memo': memoCtrl.text.trim(),
-                  // status와 createdAt는 기존 것을 유지하기 위해 생략하거나 아래에서 분기 처리
                 };
 
                 try {
-                  // 🌟 [핵심 수정 포인트] 수정인지 등록인지 구별해서 처리합니다!
                   if (initialData != null && !initialData.isFromNaver && initialData.id.isNotEmpty) {
-                    // 1. 우리 DB에 있던 데이터면 -> '수정(업데이트)'
                     await FirebaseFirestore.instance.collection('field_contacts').doc(initialData.id).update(newContactMap);
                     if (mounted) Navigator.pop(ctx);
                     _showSnackBar("성공적으로 수정되었습니다!");
                   } else {
-                    // 2. 신규 등록이거나 네이버 업체 가져오기면 -> '새로 추가(add)'
                     newContactMap['status'] = 'active';
                     newContactMap['createdAt'] = FieldValue.serverTimestamp();
                     await FirebaseFirestore.instance.collection('field_contacts').add(newContactMap);
@@ -549,7 +630,6 @@ class _FieldContactPageState extends State<FieldContactPage> {
         }
 
         if (_searchQuery.isNotEmpty) {
-          // 🌟 1. 검색어를 띄어쓰기 기준으로 쪼갭니다. (예: "구리 수도꼭지" -> ["구리", "수도꼭지"])
           List<String> searchTerms = _searchQuery.toLowerCase().split(' ').where((s) => s.isNotEmpty).toList();
 
           internalContacts = internalContacts.where((c) {
@@ -557,18 +637,18 @@ class _FieldContactPageState extends State<FieldContactPage> {
             String memoLower = c.memo.toLowerCase();
             String tagsLower = c.tags.join(' ').toLowerCase();
 
-            // 🌟 2. 쪼갠 단어들이 업체명, 메모(주소), 태그 중 어디든 '모두' 포함되어야 합격! (AND 검색)
             return searchTerms.every((term) =>
             nameLower.contains(term) || tagsLower.contains(term) || memoLower.contains(term)
             );
           }).toList();
         }
 
+        // 중복 제거 검사 (여러 번호 중 하나라도 겹치면 중복 처리)
         List<FieldContact> uniqueNaverContacts = _naverContacts.where((naver) {
           bool isDuplicate = internalContacts.any((internal) {
-            String internalCleanPhone = internal.phone.replaceAll(RegExp(r'[^0-9]'), '');
-            String naverCleanPhone = naver.phone.replaceAll(RegExp(r'[^0-9]'), '');
-            return internalCleanPhone == naverCleanPhone || internal.name == naver.name;
+            String naverCleanPhone = naver.phones.first.number.replaceAll(RegExp(r'[^0-9]'), '');
+            bool phoneMatch = internal.phones.any((p) => p.number.replaceAll(RegExp(r'[^0-9]'), '') == naverCleanPhone);
+            return phoneMatch || internal.name == naver.name;
           });
           return !isDuplicate;
         }).toList();
@@ -579,18 +659,15 @@ class _FieldContactPageState extends State<FieldContactPage> {
           return const Center(child: Text("검색 결과가 없습니다.\n우측 하단 버튼을 눌러 등록해주세요.", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)));
         }
 
-        // 🌟 [페이징 핵심 로직] 전체 데이터를 5개씩 쪼갭니다!
         int itemsPerPage = 5;
         int totalPages = (finalContacts.length / itemsPerPage).ceil();
         if (totalPages == 0) totalPages = 1;
         if (_currentPage > totalPages) _currentPage = totalPages;
 
-        // 🌟 현재 페이지에 해당하는 딱 5개의 데이터만 잘라내기
         List<FieldContact> pageContacts = finalContacts.skip((_currentPage - 1) * itemsPerPage).take(itemsPerPage).toList();
 
         return Column(
           children: [
-            // 1. 잘라낸 5개의 리스트만 화면에 뿌려줍니다.
             Expanded(
               child: ListView.builder(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -600,58 +677,28 @@ class _FieldContactPageState extends State<FieldContactPage> {
                 },
               ),
             ),
-
-            // 2. 하단 페이지 넘기기 버튼 ( < 1 / 3 > )
             Container(
               padding: const EdgeInsets.symmetric(vertical: 8),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // 이전 페이지 버튼
-                  IconButton(
-                    icon: const Icon(Icons.chevron_left, size: 30),
-                    color: _currentPage > 1 ? AppTheme.primaryColor : Colors.grey,
-                    onPressed: _currentPage > 1 ? () => setState(() => _currentPage--) : null,
-                  ),
-
-                  // 현재 페이지 / 전체 페이지 표시
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Text("$_currentPage / $totalPages", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                  ),
-
-                  // 다음 페이지 버튼
-                  IconButton(
-                    icon: const Icon(Icons.chevron_right, size: 30),
-                    color: _currentPage < totalPages ? AppTheme.primaryColor : Colors.grey,
-                    onPressed: _currentPage < totalPages ? () => setState(() => _currentPage++) : null,
-                  ),
+                  IconButton(icon: const Icon(Icons.chevron_left, size: 30), color: _currentPage > 1 ? AppTheme.primaryColor : Colors.grey, onPressed: _currentPage > 1 ? () => setState(() => _currentPage--) : null,),
+                  Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: Text("$_currentPage / $totalPages", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),),
+                  IconButton(icon: const Icon(Icons.chevron_right, size: 30), color: _currentPage < totalPages ? AppTheme.primaryColor : Colors.grey, onPressed: _currentPage < totalPages ? () => setState(() => _currentPage++) : null,),
                 ],
               ),
             ),
-
-            // 3. 검색어가 있을 때 (네이버 결과 연동 중일 때) '더 검색하기' 버튼
             if (_searchQuery.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(bottom: 16),
                 child: ElevatedButton.icon(
                   onPressed: _isNaverSearching ? null : () async {
-                    // 서버에 추가 5개 요청
                     await _searchNaver(_searchQuery, isLoadMore: true);
-                    // 데이터를 더 불러오면 자동으로 맨 마지막 페이지로 이동시킴!
-                    setState(() {
-                      _currentPage = ((finalContacts.length + 5) / itemsPerPage).ceil();
-                    });
+                    setState(() { _currentPage = ((finalContacts.length + 5) / itemsPerPage).ceil(); });
                   },
-                  icon: _isNaverSearching
-                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Icon(Icons.add_circle_outline),
+                  icon: _isNaverSearching ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.add_circle_outline),
                   label: const Text("네이버 더 검색하기 (추가 5개)", style: TextStyle(fontWeight: FontWeight.bold)),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: AppTheme.primaryColor,
-                    side: const BorderSide(color: AppTheme.primaryColor),
-                  ),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: AppTheme.primaryColor, side: const BorderSide(color: AppTheme.primaryColor)),
                 ),
               ),
           ],
@@ -660,7 +707,7 @@ class _FieldContactPageState extends State<FieldContactPage> {
     );
   }
 
-  // 📇 업체 카드 UI (🌟 업체명, 연락처 라벨 추가 및 버튼 완벽 복구)
+  // 📇 업체 카드 UI (🌟 다중 연락처 리스트 및 개별 통화 버튼 출력)
   Widget _buildContactCard(FieldContact contact) {
     bool isClosed = contact.status == 'closed';
     bool isNaver = contact.isFromNaver;
@@ -673,24 +720,16 @@ class _FieldContactPageState extends State<FieldContactPage> {
           side: BorderSide(color: isNaver ? Colors.green.withOpacity(0.3) : Colors.transparent, width: 1.5)
       ),
       color: isClosed ? Colors.grey[200] : Colors.white,
-      child: ListTile(
-        contentPadding: const EdgeInsets.all(16),
-
-        // 🌟 [수정 1] 업체명 라벨 부착!
-        title: Text(
-          "업체명 : ${contact.name}",
-          style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
-              color: isClosed ? Colors.grey : AppTheme.textMain,
-              decoration: isClosed ? TextDecoration.lineThrough : null
-          ),
-        ),
-
-        subtitle: Column(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // 업체명 라벨
+            Text("업체명 : ${contact.name}", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: isClosed ? Colors.grey : AppTheme.textMain, decoration: isClosed ? TextDecoration.lineThrough : null)),
             const SizedBox(height: 8),
+
+            // 신뢰도 및 별점
             Row(
               children: [
                 if (isNaver)
@@ -704,81 +743,70 @@ class _FieldContactPageState extends State<FieldContactPage> {
                   Row(children: [const Icon(Icons.star, color: Colors.amber, size: 16), Text(" ${contact.rating}", style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold))]),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
 
-            // 🌟 [수정 2] 연락처 라벨 부착!
-            Text("연락처 : ${contact.phone}", style: TextStyle(color: isClosed ? Colors.grey : AppTheme.primaryColor, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 6),
+            // 🌟 다중 연락처 박스 (개별 전화걸기 아이콘 탑재)
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(color: isClosed ? Colors.grey[300] : Colors.blue[50], borderRadius: BorderRadius.circular(8)),
+              child: Column(
+                children: contact.phones.map((p) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(color: isClosed ? Colors.grey[400] : Colors.blue[300], borderRadius: BorderRadius.circular(4)),
+                          child: Text(p.label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white)),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(p.number, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: isClosed ? Colors.grey : AppTheme.primaryColor)),
+                        ),
+                        // 🌟 개별 번호 전화걸기 아이콘
+                        InkWell(
+                          onTap: isClosed ? null : () => _makePhoneCall(p.number),
+                          child: CircleAvatar(
+                            radius: 16,
+                            backgroundColor: isClosed ? Colors.grey : Colors.green,
+                            child: const Icon(Icons.call, color: Colors.white, size: 16),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+            const SizedBox(height: 8),
 
             Wrap(spacing: 6, children: contact.tags.map((tag) => Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: isClosed ? Colors.grey[300] : AppTheme.primaryLight, borderRadius: BorderRadius.circular(4)), child: Text(tag, style: TextStyle(fontSize: 11, color: isClosed ? Colors.grey[600] : AppTheme.primaryColor)))).toList()),
 
-            // 🌟 [수정 3] 주소/메모 라벨 부착!
             if (contact.memo.isNotEmpty)
-              Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Text("주소/메모 : ${contact.memo}", style: TextStyle(fontSize: 12, color: Colors.grey[600]))
+              Padding(padding: const EdgeInsets.only(top: 8), child: Text("주소/메모 : ${contact.memo}", style: TextStyle(fontSize: 12, color: Colors.grey[600]))),
+
+            // 🌟 하단 조작 버튼들 (전화걸기 버튼은 위로 올라갔으므로 제거됨)
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (isClosed) ...[
+                    const Text("폐업/결번", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 12)),
+                    if (!isNaver) IconButton(tooltip: "폐업 신고 취소 (정상 복구)", icon: const Icon(Icons.restore, color: Colors.green, size: 28), onPressed: () => _confirmRestoreClosed(contact)),
+                    if (_isSuperAdmin) IconButton(tooltip: "영구 삭제 (관리자)", icon: const Icon(Icons.delete_forever, color: Colors.red, size: 28), onPressed: () => _confirmDeleteByAdmin(contact)),
+                  ] else ...[
+                    if (!isNaver && _isSuperAdmin) IconButton(tooltip: "영구 삭제 (관리자)", icon: const Icon(Icons.delete_forever, color: Colors.red, size: 28), onPressed: () => _confirmDeleteByAdmin(contact)),
+                    if (!isNaver) IconButton(tooltip: "정보 수정", icon: const Icon(Icons.edit_note, color: Colors.blue, size: 30), onPressed: () => _showAddDialog(initialData: contact)),
+                    if (!isNaver) IconButton(tooltip: "폐업/결번 신고", icon: const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28), onPressed: () => _confirmReportClosed(contact)),
+                    if (isNaver) IconButton(tooltip: "네이버 지도 보기 (전화번호 찾기)", icon: const Icon(Icons.map_outlined, color: Colors.green, size: 28), onPressed: () => _openNaverMap(contact)),
+                    if (isNaver) IconButton(tooltip: "우리 DB로 저장", icon: const Icon(Icons.add_circle_outline, color: Colors.blue, size: 28), onPressed: () => _showAddDialog(initialData: contact)),
+                  ],
+                ],
               ),
-          ],
-        ),
-
-        // 🌟 버튼들 완벽 복구 (폐업 신고, 정보 수정, 관리자 삭제 등 모두 포함)
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (isClosed) ...[
-              const Text("폐업/결번", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 12)),
-              // 🌟 [여기에 추가됨!] 실수로 폐업 처리했을 때 다시 살려내는 복구 버튼
-              if (!isNaver)
-                IconButton(
-                  tooltip: "폐업 신고 취소 (정상 복구)",
-                  icon: const Icon(Icons.restore, color: Colors.green, size: 28),
-                  onPressed: () => _confirmRestoreClosed(contact),
-                ),
-
-              if (_isSuperAdmin)
-                IconButton(
-                  tooltip: "영구 삭제 (관리자)",
-                  icon: const Icon(Icons.delete_forever, color: Colors.red, size: 28),
-                  onPressed: () => _confirmDeleteByAdmin(contact),
-                ),
-
-            ] else ...[
-              if (!isNaver && _isSuperAdmin)
-                IconButton(
-                  tooltip: "영구 삭제 (관리자)",
-                  icon: const Icon(Icons.delete_forever, color: Colors.red, size: 28),
-                  onPressed: () => _confirmDeleteByAdmin(contact),
-                ),
-              if (!isNaver)
-                IconButton(
-                  tooltip: "정보 수정",
-                  icon: const Icon(Icons.edit_note, color: Colors.blue, size: 30),
-                  onPressed: () => _showAddDialog(initialData: contact),
-                ),
-              if (!isNaver)
-                IconButton(
-                  tooltip: "폐업/결번 신고",
-                  icon: const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28),
-                  onPressed: () => _confirmReportClosed(contact),
-                ),
-              if (isNaver)
-                IconButton(
-                  tooltip: "네이버 지도 보기 (전화번호 찾기)",
-                  icon: const Icon(Icons.map_outlined, color: Colors.green, size: 28),
-                  onPressed: () => _openNaverMap(contact),
-                ),
-              if (isNaver)
-                IconButton(
-                  tooltip: "우리 DB로 저장",
-                  icon: const Icon(Icons.add_circle_outline, color: Colors.blue, size: 28),
-                  onPressed: () => _showAddDialog(initialData: contact),
-                ),
-              IconButton(
-                tooltip: "전화 걸기",
-                icon: const Icon(Icons.phone_in_talk, color: Colors.green, size: 28),
-                onPressed: () => _makePhoneCall(contact.phone),
-              ),
-            ],
+            ),
           ],
         ),
       ),

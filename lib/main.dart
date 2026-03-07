@@ -19,6 +19,7 @@ import 'package:flutter/foundation.dart'; // kIsWeb 사용을 위해 필수
 import 'dart:async';
 import 'dart:html' as html; // 🌟 [추가됨] 웹(PWA) 뒤로가기 종료를 위한 패키지
 import 'pages/field_info/field_info_page.dart';
+import 'pages/field_info/field_contact_page.dart'; // 🌟 공유 전화번호부 불러오기
 
 // ✅ 알림/진동 패키지
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -301,7 +302,7 @@ class MainLayoutPageState extends State<MainLayoutPage> {
       // 🌟 [추가됨] 하단 바 전용 신규 페이지 3개 연결 (Index 14, 15, 16)
       const Scaffold(body: Center(child: Text("📊 영업 정보 페이지 (준비 중)"))),
       const FieldInfoPage(),
-      const Scaffold(body: Center(child: Text("📁 자료실 페이지 (준비 중)"))),
+      const FieldContactPage(), // 🚀 [기능 연결 완료] 가짜 텍스트 지우고 진짜 전화번호부 장착!
     ];
 
     _listenToNotifications(); // 포그라운드 처리
@@ -574,7 +575,7 @@ class MainLayoutPageState extends State<MainLayoutPage> {
     // 🌟 [추가됨] 신규 탭 타이틀
       case 14: return '영업 정보';
       case 15: return '현장 정보';
-      case 16: return '자료실';
+      case 16: return '공유 전화번호';
       default: return '';
     }
   }
@@ -1002,7 +1003,7 @@ class MainLayoutPageState extends State<MainLayoutPage> {
                       const Divider(height: 24, indent: 24, endIndent: 24, color: AppTheme.borderColor),
                       _buildMenuItem(icon: Icons.assessment, title: '영업 정보', index: 14), // trending_up 대신 assessment
                       _buildMenuItem(icon: Icons.business, title: '현장 정보', index: 15),   // Stack 제거하고 기본 business 사용
-                      _buildMenuItem(icon: Icons.folder, title: '자료실', index: 16),       // folder_open_outlined 대신 기본 folder 사용
+                      _buildMenuItem(icon: Icons.contact_phone, title: '공유 전화번호부', index: 16),
 
                       const Divider(height: 24, indent: 24, endIndent: 24, color: AppTheme.borderColor),
 
@@ -1182,7 +1183,7 @@ class MainLayoutPageState extends State<MainLayoutPage> {
     if (_selectedIndex == 0) bottomSelectedIndex = 0; // 홈
     else if (_selectedIndex == 14) bottomSelectedIndex = 1; // 영업
     else if (_selectedIndex == 15) bottomSelectedIndex = 2; // 현장
-    else if (_selectedIndex == 16) bottomSelectedIndex = 3; // 자료
+    else if (_selectedIndex == 16) bottomSelectedIndex = 3; // 공/전
 
     return Container(
       decoration: BoxDecoration(
@@ -1204,8 +1205,8 @@ class MainLayoutPageState extends State<MainLayoutPage> {
               // 3. 현장 (건물 아이콘 - Stack 제거)
               _buildBottomNavItem(icon: Icons.business, label: '현장', isSelected: bottomSelectedIndex == 2, onTap: () => _onMenuSelected(15, isDrawerClick: false)),
 
-              // 4. 자료 (폴더 아이콘)
-              _buildBottomNavItem(icon: Icons.folder, label: '자료', isSelected: bottomSelectedIndex == 3, onTap: () => _onMenuSelected(16, isDrawerClick: false)),
+              // 4. 공유 전화번호부 (연락처 아이콘)
+              _buildBottomNavItem(icon: Icons.contact_phone, label: '공/전', isSelected: bottomSelectedIndex == 3, onTap: () => _onMenuSelected(16, isDrawerClick: false)),
 
               _buildBottomNavItem(
                   icon: Icons.menu,

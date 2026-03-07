@@ -4,9 +4,11 @@
 
 import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
-import 'field_contact_page.dart'; // 📞 공유 전화번호부 페이지
 import '../manual/field_manual_page.dart';  // 📚 [추가] 현장 관리 매뉴얼 페이지
 import '../safety/field_safety_page.dart'; // 🌟 프로젝트 이름에 상관없이 정확하게 찾아가는 상대 경로
+import '../guide/field_guide_main_page.dart'; // 🌟 [추가] 방금 만든 가이드 허브 페이지 불러오기
+import '../subcontractor/field_outsource_guide_page.dart'; // 🌟 [추가] 4번: 용역업체 가이드용 새 주소 불러오기
+import '../meeting/meeting_hub_page.dart'; // 🌟 허브 페이지로 임포트 변경!
 
 class FieldInfoPage extends StatelessWidget {
   const FieldInfoPage({super.key});
@@ -33,22 +35,7 @@ class FieldInfoPage extends StatelessWidget {
               ),
 
               // -----------------------------------------------------
-              // 1. 공유 전화번호부 (기능 100% 유지)
-              // -----------------------------------------------------
-              _buildMenuCard(
-                context,
-                icon: Icons.contact_phone,
-                color: Colors.blue,
-                title: "공유 전화번호부",
-                subtitle: "증상(태그) 검색, 검증된 업체 전화 연결 및 네이버 검색",
-                onTap: () {
-                  // 전화번호부 상세 페이지로 이동
-                  Navigator.push(context, MaterialPageRoute(builder: (context) => const FieldContactPage()));
-                },
-              ),
-
-              // -----------------------------------------------------
-              // 2. 현장 대응 매뉴얼 (🌟 매뉴얼 페이지 연결)
+              // 1. 현장 대응 매뉴얼 (🌟 매뉴얼 페이지 연결)
               // -----------------------------------------------------
               _buildMenuCard(
                 context,
@@ -63,7 +50,7 @@ class FieldInfoPage extends StatelessWidget {
               ),
 
               // -----------------------------------------------------
-              // 3. 현장 업무 시 주의점 (안전 10계명 연결 완료)
+              // 2. 현장 업무 시 주의점 (안전 10계명 연결 완료)
               // -----------------------------------------------------
               _buildMenuCard(
                 context,
@@ -81,15 +68,55 @@ class FieldInfoPage extends StatelessWidget {
               ),
 
               // -----------------------------------------------------
-              // 4. 시설관리 메뉴얼 (현재 준비 중)
+              // 3. 시설관리 메뉴얼
               // -----------------------------------------------------
               _buildMenuCard(
                 context,
                 icon: Icons.build_circle,
                 color: Colors.purple,
                 title: "시설관리 매뉴얼",
-                subtitle: "건물 및 시설 유지보수 가이드",
-                onTap: () => _showReadySnackbar(context),
+                subtitle: "건물 및 시설 유지보수 가이드\n(체크리스트)",
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const FieldGuideMainPage()), // 🚀 목적지 연결!
+                  );
+                },
+              ),
+
+              // -----------------------------------------------------
+              // 4. 용역업체 관리 가이드
+              // -----------------------------------------------------
+              _buildMenuCard(
+                context,
+                icon: Icons.engineering, // 🛠️ 용역/외주 업체에 가장 잘 어울리는 헬멧 쓴 엔지니어 아이콘
+                color: Colors.teal, // 🎨 세련된 청록색
+                title: "용역업체 관리 가이드",
+                subtitle: "용역업체 관리 및 보고체계 가이드",
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const FieldOutsourceGuidePage()), // 🚀 새로운 전용 페이지로 완벽 연결!
+                  );
+                },
+              ),
+
+              // -----------------------------------------------------
+              // 🌟 5. 반상회 및 관리단 회의 가이드 (허브로 연결 변경)
+              // -----------------------------------------------------
+              _buildMenuCard(
+                context,
+                icon: Icons.groups,
+                color: Colors.indigo,
+                title: "반상회 및 회의 진행 가이드",
+                subtitle: "입주자대표/관리단 회의 준비 및\n분쟁 대처법",
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    // 🌟 MeetingGuidePage 대신 MeetingHubPage 로 변경!
+                    MaterialPageRoute(builder: (context) => const MeetingHubPage()),
+                  );
+                },
               ),
             ],
           ),
