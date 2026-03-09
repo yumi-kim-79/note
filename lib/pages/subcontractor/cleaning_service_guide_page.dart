@@ -96,7 +96,7 @@ class CleaningServiceGuidePage extends StatelessWidget {
 
   Widget _buildFMExpertTips() {
     return _buildSectionCard(
-      title: "🔥 고경력 전문가 인사이트 (보고 품질 관리)",
+      title: "🔥 고경력 전문가 인사이트\n (보고 품질 관리)",
       subtitle: "고경력 현장 관리자가 업체 보고서 승인 시 반드시 대조하는 포인트입니다.",
       accentColor: expertPurple,
       icon: Icons.workspace_premium,
@@ -119,19 +119,24 @@ class CleaningServiceGuidePage extends StatelessWidget {
         child: Column(
           children: [
             Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Icon(Icons.important_devices, color: primaryNavy),
                 const SizedBox(width: 8),
-                const Text("2. SM 스마트 보고 및 입주민 공개 프로세스", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
+                Expanded(
+                  child: const Text(
+                    "2. SM 스마트 보고 및 입주민 공개 프로세스",
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 24),
-            _buildFlowStep("🧹 미화 작업 실시 👉 지정된 구역 루틴 완벽 이행", const Color(0xFFF1F5F9)),
+            _buildFlowStep("🧹 미화 작업 실시 👉 지정된 구역 루틴\n 완벽 이행", const Color(0xFFF1F5F9)),
             const Padding(padding: EdgeInsets.symmetric(vertical: 4), child: Icon(Icons.arrow_downward, color: Color(0xFF94A3B8), size: 20)),
-            _buildFlowStep("📱 지정장소 이동 👉 QR 스캔 및 방문자 정보(성명/연락처) 입력", const Color(0xFFE2E8F0)),
+            _buildFlowStep("📱 지정장소 이동 👉 QR 스캔 및 방문자\n 정보(성명/연락처) 입력", const Color(0xFFE2E8F0)),
             const Padding(padding: EdgeInsets.symmetric(vertical: 4), child: Icon(Icons.arrow_downward, color: Color(0xFF94A3B8), size: 20)),
-            _buildFlowStep("📸 결과 보고서 작성 👉 작업 사진 및 특이사항 서버 전송", const Color(0xFFF1F5F9)),
+            _buildFlowStep("📸 결과 보고서 작성 👉 작업 사진 및\n 특이사항 서버 전송", const Color(0xFFF1F5F9)),
             const Padding(padding: EdgeInsets.symmetric(vertical: 4), child: Icon(Icons.arrow_downward, color: Color(0xFF94A3B8), size: 20)),
 
             // 👑 승인 및 공개 영역 (아이콘+글자 동시 중앙 정렬)

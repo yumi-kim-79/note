@@ -102,6 +102,9 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
   bool _isProcessing = false;
   List<bool> _showOtherCols = [false, false, false, false];
 
+  Set<ResidentRow> _processedReceipts = {}; // 기존에 추가하신 삭선 기억 바구니
+  ResidentRow? _activeReceiptRow; // 👇👇 🌟 [신규 추가] 현재 파란색으로 작업 중인 행을 기억! 👇👇
+
   // 🌟 [추가] 개별 병합 해제 엔진 (마이너스 버튼 클릭 시 작동)
   void _unmergeRow(ResidentRow row) {
     if (row.originalMain == null || row.originalSub == null) return;
@@ -139,6 +142,276 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
       }
     });
     _showSnackBar("${row.dong}동 ${row.ho}호 병합이 개별 해제되었습니다.");
+  }
+
+  // =======================================================
+  // 🌟 [고도화] 담당자 전용 '수납 팝업창' (비고/기타 이름까지 완벽 추출 탑재)
+  // =======================================================
+  void _showReceiptPopup() {
+    List<ResidentRow> matchedList = _residentList.where((r) => r.isMatched && !r.isCheckRequired).toList();
+
+    if (matchedList.isEmpty) {
+      _showSnackBar("매칭 완료된 데이터가 없습니다.");
+      return;
+    }
+
+    int sortMode = 0;
+
+    showDialog(
+        context: context,
+        builder: (ctx) {
+          return StatefulBuilder(
+              builder: (BuildContext context, StateSetter setDialogState) {
+
+                List<ResidentRow> displayList = List.from(matchedList);
+                if (sortMode == 1) {
+                  displayList.sort((a, b) => a.matchedDate.compareTo(b.matchedDate));
+                } else if (sortMode == 2) {
+                  displayList.sort((a, b) => b.matchedDate.compareTo(a.matchedDate));
+                }
+
+                return Dialog(
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    child: Container(
+                        width: 950, height: 700, padding: const EdgeInsets.all(24),
+                        child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(Icons.fact_check, color: Colors.blue[700], size: 28),
+                                      const SizedBox(width: 8),
+                                      const Text("수납 전산처리 (매칭완료 세대)", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                                    ],
+                                  ),
+                                  IconButton(icon: const Icon(Icons.close, size: 28), onPressed: () => Navigator.pop(ctx)),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+
+                              Container(
+                                  padding: const EdgeInsets.symmetric(vertical: 8),
+                                  decoration: BoxDecoration(color: Colors.grey[200], border: Border.all(color: Colors.grey[300]!), borderRadius: const BorderRadius.vertical(top: Radius.circular(8))),
+                                  child: Row(
+                                      crossAxisAlignment: CrossAxisAlignment.center,
+                                      children: [
+                                        Expanded(flex: 3, child: InkWell(
+                                            onTap: () { setDialogState(() { sortMode = (sortMode + 1) % 3; }); },
+                                            child: Row(
+                                                mainAxisAlignment: MainAxisAlignment.center,
+                                                children: [
+                                                  const Text("거래일", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                                  const SizedBox(width: 2),
+                                                  Icon(
+                                                    sortMode == 0 ? Icons.sort : (sortMode == 1 ? Icons.arrow_upward : Icons.arrow_downward),
+                                                    size: 16, color: sortMode == 0 ? Colors.grey : Colors.blue[700],
+                                                  ),
+                                                  if (sortMode == 1) const Text("(빠른순)", style: TextStyle(fontSize: 10, color: Colors.blue)),
+                                                  if (sortMode == 2) const Text("(느린순)", style: TextStyle(fontSize: 10, color: Colors.blue)),
+                                                ]
+                                            )
+                                        )),
+                                        const Expanded(flex: 3, child: Center(child: Text("입금액", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
+                                        Expanded(
+                                            flex: 7,
+                                            child: Container(
+                                              decoration: BoxDecoration(border: Border.symmetric(vertical: BorderSide(color: Colors.grey[300]!))),
+                                              child: Column(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Container(
+                                                    width: double.infinity, alignment: Alignment.center, padding: const EdgeInsets.only(bottom: 4),
+                                                    decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey[300]!))),
+                                                    child: const Text("SM명부자료", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.blueGrey)),
+                                                  ),
+                                                  Padding(
+                                                    padding: const EdgeInsets.only(top: 4),
+                                                    child: Row(
+                                                      children: const [
+                                                        Expanded(flex: 2, child: Center(child: Text("동", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)))),
+                                                        Expanded(flex: 2, child: Center(child: Text("호", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)))),
+                                                        Expanded(flex: 3, child: Center(child: Text("매칭이름", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)))),
+                                                      ],
+                                                    ),
+                                                  )
+                                                ],
+                                              ),
+                                            )
+                                        ),
+                                        const Expanded(flex: 6, child: Center(child: Text("내용 및 거래내용", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
+                                        const Expanded(flex: 4, child: Center(child: Text("상대은행", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
+                                      ]
+                                  )
+                              ),
+
+                              Expanded(
+                                child: Container(
+                                  decoration: BoxDecoration(border: Border.all(color: Colors.grey[200]!)),
+                                  child: ListView.builder(
+                                      itemCount: displayList.length,
+                                      itemBuilder: (context, index) {
+                                        var row = displayList[index];
+
+                                        // ==========================================================
+                                        // 🌟 [핵심 고도화] 비고, 기타 4명 전체를 포함한 초정밀 이름 추출 로직
+                                        // ==========================================================
+                                        String matchedName = "";
+                                        String bankTextNoSpace = row.matchedBankText.replaceAll(' ', '').toLowerCase();
+
+                                        // 도우미 함수: 해당 이름이 은행 적요에 존재하는지 확인
+                                        bool checkNameMatched(String name) {
+                                          if (name.isEmpty || name == "-") return false;
+                                          String cleanName = name.replaceAll(' ', '').toLowerCase();
+                                          if (cleanName.length < 2 || RegExp(r'[0-9]').hasMatch(cleanName)) return false;
+                                          return bankTextNoSpace.contains(cleanName);
+                                        }
+
+                                        // 1. 소유자 확인
+                                        if (checkNameMatched(row.owner)) {
+                                          matchedName = row.owner;
+                                        }
+                                        // 2. 입주자 확인
+                                        else if (checkNameMatched(row.resident)) {
+                                          matchedName = row.resident;
+                                        }
+                                        // 3. 기타 인원 (4개 슬롯 전부) 확인
+                                        else {
+                                          for (var o in row.others) {
+                                            if (checkNameMatched(o)) {
+                                              matchedName = o;
+                                              break;
+                                            }
+                                          }
+                                        }
+
+                                        // 4. 비고란 확인 (위에서 못 찾았을 경우)
+                                        // 비고란에는 "홍길동, 이몽룡" 처럼 여러 명이 적힐 수 있으므로 쪼개서 검사
+                                        if (matchedName.isEmpty && row.remark.isNotEmpty) {
+                                          List<String> remarkParts = row.remark.split(RegExp(r'[,/.;|]'));
+                                          for (var part in remarkParts) {
+                                            String cleanPart = part.trim();
+                                            if (checkNameMatched(cleanPart)) {
+                                              matchedName = cleanPart;
+                                              break;
+                                            }
+                                          }
+                                        }
+
+                                        // 5. 그래도 못 찾았다면 (동호수로만 매칭된 경우) 대표 이름 표기
+                                        if (matchedName.isEmpty) {
+                                          matchedName = row.owner.isNotEmpty ? row.owner : row.resident;
+                                        }
+                                        // ==========================================================
+
+                                        bool isActive = _activeReceiptRow == row;
+                                        bool isProcessed = _processedReceipts.contains(row) && !isActive;
+
+                                        Color bgColor;
+                                        if (isActive) bgColor = Colors.blue.withOpacity(0.15);
+                                        else if (isProcessed) bgColor = Colors.grey[100]!;
+                                        else bgColor = index % 2 == 0 ? Colors.white : Colors.grey[50]!;
+
+                                        TextStyle _rowStyle(Color baseColor, {bool isBold = false, double size = 12}) {
+                                          if (isActive) {
+                                            return TextStyle(
+                                              fontSize: size * 1.4,
+                                              fontWeight: FontWeight.w900,
+                                              color: Colors.blue[900],
+                                            );
+                                          } else if (isProcessed) {
+                                            return TextStyle(
+                                              fontSize: size,
+                                              fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+                                              color: Colors.grey[400],
+                                              decoration: TextDecoration.lineThrough,
+                                              decorationColor: Colors.grey[500],
+                                            );
+                                          } else {
+                                            return TextStyle(
+                                              fontSize: size,
+                                              fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+                                              color: baseColor,
+                                            );
+                                          }
+                                        }
+
+                                        Widget _safeText(String text, TextStyle style, int flex) {
+                                          return Expanded(
+                                            flex: flex,
+                                            child: Container(
+                                              alignment: Alignment.center,
+                                              padding: const EdgeInsets.symmetric(horizontal: 4),
+                                              child: FittedBox(
+                                                fit: BoxFit.scaleDown,
+                                                child: Text(text, style: style),
+                                              ),
+                                            ),
+                                          );
+                                        }
+
+                                        return InkWell(
+                                            onTap: () {
+                                              setDialogState(() {
+                                                if (_activeReceiptRow == row) {
+                                                  _processedReceipts.add(row);
+                                                  _activeReceiptRow = null;
+                                                } else {
+                                                  if (_activeReceiptRow != null) {
+                                                    _processedReceipts.add(_activeReceiptRow!);
+                                                  }
+                                                  _activeReceiptRow = row;
+                                                  _processedReceipts.remove(row);
+                                                }
+                                              });
+                                            },
+                                            child: Container(
+                                                decoration: BoxDecoration(color: bgColor, border: Border(bottom: BorderSide(color: Colors.grey[200]!))),
+                                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                                child: Row(
+                                                    children: [
+                                                      _safeText(row.matchedDate.split(' ')[0], _rowStyle(Colors.black87), 3),
+                                                      _safeText("${_formatCurrency(row.matchedAmount)}원", _rowStyle(Colors.blue[800]!, isBold: true, size: 13), 3),
+
+                                                      _safeText(row.dong, _rowStyle(Colors.black87, isBold: true), 2),
+                                                      _safeText(row.ho, _rowStyle(Colors.black87, isBold: true), 2),
+                                                      _safeText(matchedName, _rowStyle(Colors.teal[700]!, isBold: true), 3),
+
+                                                      _safeText(row.matchedBankText, _rowStyle(Colors.black87), 6),
+                                                      _safeText(row.matchedBankName, _rowStyle(Colors.grey), 4),
+                                                    ]
+                                                )
+                                            )
+                                        );
+                                      }
+                                  ),
+                                ),
+                              ),
+
+                              Padding(
+                                  padding: const EdgeInsets.only(top: 16.0),
+                                  child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text("✅ 총 ${displayList.length}건 중 ${_processedReceipts.length}건 수납체크 완료", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blue[800])),
+                                        ElevatedButton(
+                                            onPressed: () => Navigator.pop(ctx),
+                                            style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16), backgroundColor: Colors.grey[800]),
+                                            child: const Text("닫기", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))
+                                        )
+                                      ]
+                                  )
+                              )
+                            ]
+                        )
+                    )
+                );
+              }
+          );
+        }
+    );
   }
 
   // 🌟 [핵심] 지능형 병합 엔진 (흡수 데이터 기억 로직 추가)
@@ -573,75 +846,117 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
           .replaceAll(RegExp(r'010[.\-]?\d{3,4}[.\-]?\d{4}'), '')
           .replaceAll(RegExp(r'\d{9,11}'), '');
 
+      String exDong = "";
+      String exHo = "";
+      bool hasExplicitPattern = false;
+      bool hasExplicitHoOnly = false;
+      bool isSwappedPossible = false; // 🌟 새로 추가: "1508-101" 처럼 동호가 뒤집힌 경우 허용
+
+      // 1. "101동 1508호"
+      var m1 = RegExp(r'(\d+)동\s*(\d+)호?').firstMatch(cleanDescNoSpace);
+      if (m1 != null) { exDong = m1.group(1)!; exHo = m1.group(2)!; hasExplicitPattern = true; }
+
+      // 2. "1508호 101동" 또는 "1508호"
+      if (!hasExplicitPattern) {
+        var m2 = RegExp(r'(\d+)호(?:\s*(\d+)동)?').firstMatch(cleanDescNoSpace);
+        if (m2 != null) {
+          exHo = m2.group(1)!;
+          if (m2.group(2) != null) { exDong = m2.group(2)!; hasExplicitPattern = true; }
+          else { hasExplicitHoOnly = true; }
+        }
+      }
+
+      // 3. 기호 "101-1508" 또는 "101.1508" (🌟 마침표 추가됨)
+      if (!hasExplicitPattern && !hasExplicitHoOnly) {
+        var m3 = RegExp(r'(\d+)(?:-|_|/|,|:|\.)(\d+)').firstMatch(cleanDescNoSpace);
+        if (m3 != null) {
+          exDong = m3.group(1)!; exHo = m3.group(2)!;
+          hasExplicitPattern = true;
+          isSwappedPossible = true; // 🌟 기호로 쓴 경우 앞뒤가 바뀌었을 수 있음
+        }
+      }
+
+      List<String> rawNumbers = RegExp(r'\d+').allMatches(cleanDescNoSpace).map((m) => m.group(0)!).toList();
+
+      // 4. "101 1508" 띄어쓰기로만 구분된 경우
+      if (!hasExplicitPattern && !hasExplicitHoOnly) {
+        if (rawNumbers.length >= 2) {
+          exDong = rawNumbers[0]; exHo = rawNumbers[1];
+          hasExplicitPattern = true;
+          isSwappedPossible = true; // 🌟 띄어쓰기도 앞뒤가 바뀌었을 수 있음
+        }
+      }
+
       ResidentRow? bestMatchRow;
       int highestScore = 0;
       String bestMatchReason = "";
       bool bestNeedsCheck = false;
 
       for (var row in _residentList) {
-        String ho = row.ho.replaceAll(RegExp(r'[^0-9]'), '');
-        String dong = row.dong.replaceAll(RegExp(r'[^0-9]'), '');
-        if (ho.isEmpty) continue;
+        String cleanHo = row.ho.replaceAll(RegExp(r'[^0-9]'), '');
+        String cleanDong = row.dong.replaceAll(RegExp(r'[^0-9]'), '');
+        if (cleanHo.isEmpty) continue;
 
         int currentScore = 0;
         List<String> hitReasons = [];
         bool isEmptyRecord = row.owner.trim().isEmpty && row.resident.trim().isEmpty && row.others.every((e) => e.trim() == "-" || e.trim().isEmpty) && row.remark.trim().isEmpty;
 
+        String targetHoNum = int.tryParse(cleanHo)?.toString() ?? "";
+        String targetDongNum = int.tryParse(cleanDong)?.toString() ?? "";
+
         bool isDongHoMatch = false;
-        bool hasExplicitDongHo = false;
+        bool isHoMatch = false;
+        bool isJoinedMatch = false;
+        bool isStrongJoinedMatch = false; // 🌟 새로 추가: "1011508" 같이 자릿수가 길어서 확실한 경우
 
-        var hoDongRegex = RegExp(r'(\d+)호\s*(\d+)동?');
-        var dongHoRegex = RegExp(r'(\d+)동\s*(\d+)호?');
-        var symbolRegex = RegExp(r'(\d+)(?:-|_|/|,|:)(\d+)');
+        if (hasExplicitPattern) {
+          bool dongMatches = targetDongNum.isEmpty || targetDongNum == int.tryParse(exDong)?.toString() || cleanDong.contains(exDong) || exDong == "1";
+          bool hoMatches = targetHoNum == int.tryParse(exHo)?.toString();
 
-        List<Map<String, String>> extractedPairs = [];
-        for (var m in hoDongRegex.allMatches(cleanDescNoSpace)) {
-          extractedPairs.add({"dong": m.group(2)!, "ho": m.group(1)!});
-        }
-        for (var m in dongHoRegex.allMatches(cleanDescNoSpace)) {
-          extractedPairs.add({"dong": m.group(1)!, "ho": m.group(2)!});
-        }
-        for (var m in symbolRegex.allMatches(cleanDescNoSpace)) {
-          extractedPairs.add({"dong": m.group(1)!, "ho": m.group(2)!});
-        }
-
-        if (extractedPairs.isNotEmpty) hasExplicitDongHo = true;
-
-        for (var pair in extractedPairs) {
-          String exDong = pair["dong"]!;
-          String exHo = int.parse(pair["ho"]!).toString();
-          String targetHo = int.parse(ho).toString();
-          bool isDongValid = dong.isEmpty || (dong == exDong) || (dong.contains(exDong)) || (exDong.contains(dong)) || (exDong == "1");
-
-          if (isDongValid && exHo == targetHo) {
+          if (dongMatches && hoMatches) {
             isDongHoMatch = true;
-            break;
+          }
+          // 🌟 [핵심 고도화] 만약 정방향이 틀렸다면 역방향(호-동)으로 한번 더 검사! (1508-101 대비)
+          else if (isSwappedPossible) {
+            bool swappedDongMatches = targetDongNum.isEmpty || targetDongNum == int.tryParse(exHo)?.toString() || cleanDong.contains(exHo) || exHo == "1";
+            bool swappedHoMatches = targetHoNum == int.tryParse(exDong)?.toString();
+            if (swappedDongMatches && swappedHoMatches) {
+              isDongHoMatch = true;
+            }
+          }
+        } else if (hasExplicitHoOnly) {
+          if (targetHoNum == int.tryParse(exHo)?.toString()) isHoMatch = true;
+        } else {
+          if (rawNumbers.length == 1) {
+            String numStr = rawNumbers[0];
+            String joinedTarget = cleanDong + cleanHo; // 101 + 1508 = 1011508
+            String joinedTargetReverse = cleanHo + cleanDong; // 1508 + 101 = 1508101 (순서 바뀜 대비)
+
+            if (targetHoNum.isNotEmpty && int.tryParse(numStr)?.toString() == targetHoNum) {
+              isHoMatch = true;
+            }
+            else if (joinedTarget.length >= 3 && numStr == joinedTarget) {
+              isJoinedMatch = true;
+              if (joinedTarget.length >= 5) isStrongJoinedMatch = true; // 🌟 5자리 이상이면 무조건 확실함!
+            }
+            else if (joinedTargetReverse.length >= 3 && numStr == joinedTargetReverse) {
+              isJoinedMatch = true;
+              if (joinedTargetReverse.length >= 5) isStrongJoinedMatch = true; // 🌟 역방향이어도 확실함!
+            }
           }
         }
 
-        if (!isDongHoMatch) {
-          String cleanDong = dong.replaceAll(RegExp(r'[^0-9]'), '');
-          String cleanHo = ho.replaceAll(RegExp(r'[^0-9]'), '');
-          String joinedTarget = cleanDong + cleanHo;
-
-          if (joinedTarget.length >= 4 && cleanDescNoSpace.contains(joinedTarget)) {
-            isDongHoMatch = true;
-            hasExplicitDongHo = true;
-          }
-        }
-
+        // 🌟 [핵심 고도화] 점수 차등화
         if (isDongHoMatch) {
-          currentScore += 60;
-          hitReasons.add("동-호");
-        }
-
-        bool hoMatch = false;
-        if (!isDongHoMatch && !hasExplicitDongHo) {
-          Iterable<Match> numMatches = RegExp(r'\d+').allMatches(cleanDescNoSpace);
-          for (var m in numMatches) {
-            if (int.tryParse(m.group(0)!)?.toString() == int.tryParse(ho)?.toString()) { hoMatch = true; break; }
+          currentScore += 60; hitReasons.add("동-호");
+        } else if (isHoMatch) {
+          currentScore += 50; hitReasons.add("호수");
+        } else if (isJoinedMatch) {
+          if (isStrongJoinedMatch) {
+            currentScore += 40; hitReasons.add("동호완벽유추"); // 🌟 5자리 이상(1011508)은 40점으로 단독 매칭 통과!
+          } else {
+            currentScore += 20; hitReasons.add("동호단순유추"); // 🌟 4자리 이하(1201)는 20점으로 이름이 맞아야만 통과!
           }
-          if (hoMatch) { currentScore += 40; hitReasons.add("호수"); }
         }
 
         bool exactNameHit = false; bool typoNameHit = false; String matchedNameType = "";
@@ -651,7 +966,7 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
           String cleanName = name.replaceAll(' ', '').toLowerCase();
           if (cleanName.length < 2 || RegExp(r'[0-9]').hasMatch(cleanName)) return;
           if (descNoSpace.contains(cleanName)) { exactNameHit = true; matchedNameType = type; }
-          else if (!exactNameHit && (isDongHoMatch) && bankNameCandidate.isNotEmpty) {
+          else if (!exactNameHit && (isDongHoMatch || isHoMatch || isJoinedMatch) && bankNameCandidate.isNotEmpty) {
             if (_calculateSimilarity(cleanName, bankNameCandidate) >= 0.6) { typoNameHit = true; matchedNameType = "$type(오타추정)"; }
           }
         }
@@ -1068,11 +1383,19 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
     _showSnackBar("${tx.inputDong}동 ${tx.inputHo}호 이동이 완료되었습니다.");
   }
 
+  // =======================================================
+  // 🌟 [수정 3] "수납 확인" 탭 클릭 시 전용 심플 UI 헤더 적용
+  // =======================================================
   Widget _buildDataTable() {
     List<dynamic> displayList = [];
 
+    // 🌟 리스트 분기 처리 로직
     if (_currentFilter == "unconfirmed") {
-      displayList = _bankList.where((tx) => !tx.isUsed && tx.amount > 0).toList();
+      // 순수 미확인 (PG 제외)
+      displayList = _bankList.where((tx) => !tx.isUsed && tx.amount > 0 && !_isAutoPaymentTx(tx.description)).toList();
+    } else if (_currentFilter == "auto_paid") {
+      // 🌟 새로 추가된 "수납 확인" 필터 (PG 전용)
+      displayList = _bankList.where((tx) => !tx.isUsed && tx.amount > 0 && _isAutoPaymentTx(tx.description)).toList();
     } else {
       List<Map<String, dynamic>> wrappedList = [];
       for (int i = 0; i < _residentList.length; i++) {
@@ -1094,20 +1417,14 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
           return (a['index'] as int).compareTo(b['index'] as int);
         });
       } else if (_sortAiMode == 2) {
-        // 🌟 [추가됨] 거래일자 가장 빠른 순(오름차순) 정렬 기능
         wrappedList.sort((a, b) {
           ResidentRow rowA = a['item'];
           ResidentRow rowB = b['item'];
-
-          // 1. 매칭이 안 된 빈 데이터들은 무조건 맨 뒤로 보냅니다.
           if (!rowA.isMatched && rowB.isMatched) return 1;
           if (rowA.isMatched && !rowB.isMatched) return -1;
           if (!rowA.isMatched && !rowB.isMatched) return (a['index'] as int).compareTo(b['index'] as int);
-
-          // 2. 날짜를 비교해서 빠른 날짜가 위로 오게 정렬합니다.
           int dateCmp = rowA.matchedDate.compareTo(rowB.matchedDate);
           if (dateCmp != 0) return dateCmp;
-
           return (a['index'] as int).compareTo(b['index'] as int);
         });
       } else if (_sortTypeMode != 0) {
@@ -1115,7 +1432,6 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
           ResidentRow rowA = a['item'];
           ResidentRow rowB = b['item'];
           int scoreA = 0; int scoreB = 0;
-
           if (_sortTypeMode == 1) {
             if (rowA.type.contains("소유주")) scoreA = 1;
             if (rowB.type.contains("소유주")) scoreB = 1;
@@ -1123,7 +1439,6 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
             if (rowA.type.contains("임차인")) scoreA = 1;
             if (rowB.type.contains("임차인")) scoreB = 1;
           }
-
           if (scoreA != scoreB) return scoreB.compareTo(scoreA);
           return (a['index'] as int).compareTo(b['index'] as int);
         });
@@ -1139,65 +1454,55 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
           Container(
             color: Colors.grey[100], padding: const EdgeInsets.symmetric(vertical: 8),
             child: Row(
-              children: [
+              children: _currentFilter == "auto_paid"
+              // 🌟 [비율 수정] 아래 실제 데이터 열의 flex 비율과 100% 똑같이 맞췄습니다!
+                  ? [
+                _headerCell("거래일시", 10),
+                _headerCell("구분 (자동이체 세대 등)", 15),
+                _headerCell("적요 (입금된 내역)", 20), // 🚨 (기존 25 -> 20으로 수정) 이것이 우측 쏠림의 원인이었습니다!
+                _headerCell("입금액", 10),
+                _headerCell("상대은행", 10),
+                _headerCell("담당자 메모", 20),
+              ]
+              // 일반 탭일 때의 헤더
+                  : [
                 _headerCell("동", 5), _headerCell("호", 6),
                 _searchHeaderCell("소유자", 10, _ownerCtrl, (v) => setState(() => _ownerSearch = v)),
                 _searchHeaderCell("입주자", 10, _residentCtrl, (v) => setState(() => _residentSearch = v)),
                 _headerCell("기타", 10),
-
-                Expanded(
-                  flex: 6,
-                  child: InkWell(
-                    onTap: () => setState(() { _sortTypeMode = (_sortTypeMode + 1) % 3; _sortAiMode = 0; }),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text("구분", textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: _sortTypeMode > 0 ? AppTheme.primaryColor : AppTheme.textMain)),
-                            Icon(Icons.sort, size: 14, color: _sortTypeMode > 0 ? AppTheme.primaryColor : Colors.grey),
-                          ],
-                        ),
-                        if (_sortTypeMode == 1) const Text("(소유주)", style: TextStyle(fontSize: 10, color: AppTheme.primaryColor, fontWeight: FontWeight.bold)),
-                        if (_sortTypeMode == 2) const Text("(임차인)", style: TextStyle(fontSize: 10, color: AppTheme.primaryColor, fontWeight: FontWeight.bold)),
-                      ],
-                    ),
+                Expanded(flex: 6, child: InkWell(
+                  onTap: () => setState(() { _sortTypeMode = (_sortTypeMode + 1) % 3; _sortAiMode = 0; }),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center, mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(mainAxisAlignment: MainAxisAlignment.center, mainAxisSize: MainAxisSize.min, children: [Text("구분", textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: _sortTypeMode > 0 ? AppTheme.primaryColor : AppTheme.textMain)), Icon(Icons.sort, size: 14, color: _sortTypeMode > 0 ? AppTheme.primaryColor : Colors.grey)]),
+                      if (_sortTypeMode == 1) const Text("(소유주)", style: TextStyle(fontSize: 10, color: AppTheme.primaryColor, fontWeight: FontWeight.bold)),
+                      if (_sortTypeMode == 2) const Text("(임차인)", style: TextStyle(fontSize: 10, color: AppTheme.primaryColor, fontWeight: FontWeight.bold)),
+                    ],
                   ),
-                ),
-
-                _headerCell("비고", 10),
-                _headerCell("상태(보내기)", 11),
-
-                Expanded(
-                  flex: 20,
-                  child: _currentFilter == "unconfirmed"
-                      ? const Text("미확인 은행 내역", textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppTheme.textMain))
-                      : InkWell(
-                    // 🌟 [수정됨] 토글 방식을 % 2 에서 % 3 으로 바꾸어 3단계 정렬이 가능하게 만듭니다.
-                    onTap: () => setState(() { _sortAiMode = (_sortAiMode + 1) % 3; _sortTypeMode = 0; }),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text("AI 분석 결과", textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: _sortAiMode > 0 ? AppTheme.primaryColor : AppTheme.textMain)),
-                            Icon(Icons.sort, size: 14, color: _sortAiMode > 0 ? AppTheme.primaryColor : Colors.grey),
-                          ],
-                        ),
-                        if (_sortAiMode == 1) const Text("(수동등록)", style: TextStyle(fontSize: 10, color: AppTheme.primaryColor, fontWeight: FontWeight.bold)),
-                        if (_sortAiMode == 2) const Text("(거래일순)", style: TextStyle(fontSize: 10, color: AppTheme.primaryColor, fontWeight: FontWeight.bold)), // 🌟 거래일순 글자 띄우기
-                      ],
-                    ),
+                )),
+                _headerCell("비고", 10), _headerCell("상태(보내기)", 11),
+                Expanded(flex: 20, child: _currentFilter == "unconfirmed" ? const Text("미확인 은행 내역", textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppTheme.textMain)) : InkWell(
+                  onTap: () => setState(() { _sortAiMode = (_sortAiMode + 1) % 3; _sortTypeMode = 0; }),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center, mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(mainAxisAlignment: MainAxisAlignment.center, mainAxisSize: MainAxisSize.min, children: [Text("AI 분석 결과", textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: _sortAiMode > 0 ? AppTheme.primaryColor : AppTheme.textMain)), Icon(Icons.sort, size: 14, color: _sortAiMode > 0 ? AppTheme.primaryColor : Colors.grey)]),
+                      if (_sortAiMode == 1) const Text("(수동등록)", style: TextStyle(fontSize: 10, color: AppTheme.primaryColor, fontWeight: FontWeight.bold)),
+                      if (_sortAiMode == 2) const Text("(거래일순)", style: TextStyle(fontSize: 10, color: AppTheme.primaryColor, fontWeight: FontWeight.bold)),
+                    ],
                   ),
-                ),
-
-                _headerCell("담당자 메모", 12),
+                )),
+                Expanded(flex: 12, child: _currentFilter == "matched" ? Column(
+                  mainAxisAlignment: MainAxisAlignment.center, mainAxisSize: MainAxisSize.min,
+                  children: [
+                    InkWell(
+                      onTap: _showReceiptPopup,
+                      child: Container(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4), decoration: BoxDecoration(color: Colors.blue[700], borderRadius: BorderRadius.circular(4), boxShadow: [BoxShadow(color: Colors.blue.withOpacity(0.3), blurRadius: 4, offset: const Offset(0, 2))]), child: const Text("수납 보기", style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold))),
+                    ),
+                    const SizedBox(height: 6), const Text("담당자 메모", textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppTheme.textMain)),
+                  ],
+                ) : const Text("담당자 메모", textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppTheme.textMain))),
               ],
             ),
           ),
@@ -1209,7 +1514,14 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
               itemCount: displayList.length,
               itemBuilder: (context, index) {
                 final item = displayList[index];
-                if (item is BankTx) return _buildUnconfirmedRow(item);
+
+                if (item is BankTx) {
+                  // 🌟 필터가 "수납 확인"일 때는 전용 UI 행을 호출, 아니면 기존 미확인 행 호출!
+                  if (_currentFilter == "auto_paid") {
+                    return _buildAutoPaidRow(item, index);
+                  }
+                  return _buildUnconfirmedRow(item);
+                }
 
                 bool isTop = false, isBottom = false, isGroup = false;
                 if (item is ResidentRow) {
@@ -1233,7 +1545,7 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
     BorderSide thickGreen = BorderSide(color: Colors.green.shade800, width: 2.5);
     BorderSide thinGrey = BorderSide(color: Colors.grey.shade200);
 
-    // 🌟 [최적화 완료] 텍스트 입력창 렌더링 부하 90% 감소
+    // 🌟 [핵심 수정 1] 텍스트 입력 후 UI를 즉시 갱신하도록 setState 추가
     Widget _editableCell(String fieldName, String value, Function(String) onChanged, int flex, {bool highlight = false, bool isType = false}) {
       Color borderColor = row.isCheckRequired ? Colors.orange[300]! : (row.isMatched ? Colors.green[300]! : Colors.grey[300]!);
 
@@ -1243,7 +1555,12 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
             margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 6), height: 28,
             child: InlineEditableText(
               text: value,
-              onChanged: onChanged,
+              // 🚨 여기서 화면 새로고침 지시!
+              onChanged: (v) {
+                setState(() {
+                  onChanged(v);
+                });
+              },
               isHighlight: highlight,
               isType: isType,
               borderColor: borderColor,
@@ -1252,7 +1569,7 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
       );
     }
 
-    // 🌟 [최적화 완료] 기타 인원 셀 최적화
+    // 🌟 [핵심 수정 2] 기타 인원 셀 수정 시에도 UI 즉시 갱신
     Widget _editableOthersCell(int flex) {
       String initVal = (row.others.isNotEmpty && row.others[0] != "-") ? row.others[0] : "";
       Color borderColor = row.isCheckRequired ? Colors.orange[300]! : (row.isMatched ? Colors.green[300]! : Colors.grey[300]!);
@@ -1266,9 +1583,12 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                   margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 6), height: 28,
                   child: InlineEditableText(
                     text: initVal,
+                    // 🚨 여기서 화면 새로고침 지시!
                     onChanged: (v) {
-                      if (row.others.isEmpty) row.others = [v, "-", "-", "-"];
-                      else row.others[0] = v.isEmpty ? "-" : v;
+                      setState(() {
+                        if (row.others.isEmpty) row.others = [v, "-", "-", "-"];
+                        else row.others[0] = v.isEmpty ? "-" : v;
+                      });
                     },
                     borderColor: borderColor,
                   ),
@@ -1296,14 +1616,12 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
       ),
       child: Row(
         children: [
-          // 🌟 [UI 고도화] '동' 앞에 더하기(+) 아이콘 및 파란색 [합] 뱃지 적용
           Expanded(
             flex: 5,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 if (isTop)
-                // 1. 합칠 수 있는 그룹일 때: 초록색 꽉 찬 [+] 버튼을 왼쪽에 배치
                   Padding(
                     padding: const EdgeInsets.only(left: 4.0),
                     child: InkWell(
@@ -1316,11 +1634,10 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                     ),
                   )
                 else if (row.isMerged)
-                // 2. 이미 병합이 완료된 행일 때: 빨간색 마이너스(-) 버튼 노출 (개별 병합 해제)
                   Padding(
                     padding: const EdgeInsets.only(left: 4.0),
                     child: InkWell(
-                      onTap: () => _unmergeRow(row), // 개별 해제 로직 호출
+                      onTap: () => _unmergeRow(row),
                       child: Container(
                         padding: const EdgeInsets.all(2),
                         decoration: BoxDecoration(color: Colors.red[400], borderRadius: BorderRadius.circular(4)),
@@ -1329,7 +1646,6 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                     ),
                   )
                 else
-                // 3. 아무것도 없을 때: 줄맞춤을 위한 투명 여백
                   const SizedBox(width: 20),
 
                 Expanded(
@@ -1402,7 +1718,6 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        // 🌟 [포맷팅 적용] 시간을 잘라내고 연.월.일. 로 깔끔하게 정제
                         Builder(
                             builder: (context) {
                               String displayDate = "";
@@ -1462,7 +1777,7 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
   }
 
   Widget _buildUnconfirmedRow(BankTx tx) {
-    // 🌟 [최적화 완료] 미확인 입금 수동 입력창도 인라인 에디터 적용
+    // 🌟 [핵심 수정 3] 미확인 입금 수동 입력창도 UI 즉시 갱신
     Widget _inputCell(String hint, String value, Function(String) onChanged, int flex) {
       return Expanded(
           flex: flex,
@@ -1472,7 +1787,12 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
             child: InlineEditableText(
               text: value,
               hintText: hint,
-              onChanged: onChanged,
+              // 🚨 여기서 화면 새로고침 지시!
+              onChanged: (v) {
+                setState(() {
+                  onChanged(v);
+                });
+              },
               borderColor: Colors.grey[300]!,
             ),
           )
@@ -1592,6 +1912,139 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
     );
   }
 
+  // =======================================================
+  // 🌟 [추가 4] "수납 확인" 전용 심플 UI (모든 항목 완벽 중앙 정렬)
+  // =======================================================
+  Widget _buildAutoPaidRow(BankTx tx, int index) {
+    return Container(
+      decoration: BoxDecoration(
+        color: index % 2 == 0 ? Colors.white : Colors.indigo.withOpacity(0.03), // 연한 남색 톤
+        border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+      ),
+      child: Row(
+        children: [
+          // 1. 거래일시
+          Expanded(
+              flex: 10,
+              child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 4),
+                  alignment: Alignment.center,
+                  child: Text(
+                      tx.date,
+                      textAlign: TextAlign.center, // 🌟 텍스트 완벽 중앙 정렬
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.black87)
+                  )
+              )
+          ),
+
+          // 2. 구분 (자동 뱃지)
+          Expanded(
+              flex: 15,
+              child: Container(
+                  alignment: Alignment.center,
+                  child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(color: Colors.indigo, borderRadius: BorderRadius.circular(4)),
+                      child: const Text(
+                          "자동납부(PG) 내역",
+                          textAlign: TextAlign.center, // 🌟 텍스트 완벽 중앙 정렬
+                          style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)
+                      )
+                  )
+              )
+          ),
+
+          // 3. 입금된 내역
+          Expanded(
+              flex: 20,
+              child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  alignment: Alignment.center,
+                  child: Text(
+                      tx.description,
+                      textAlign: TextAlign.center, // 🌟 텍스트 완벽 중앙 정렬
+                      style: TextStyle(color: Colors.indigo[900], fontWeight: FontWeight.bold, fontSize: 13),
+                      overflow: TextOverflow.ellipsis
+                  )
+              )
+          ),
+
+          // 4. 입금액
+          Expanded(
+              flex: 10,
+              child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  alignment: Alignment.center,
+                  child: Text(
+                      "${_formatCurrency(tx.amount)}원",
+                      textAlign: TextAlign.center, // 🌟 텍스트 완벽 중앙 정렬
+                      style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 13) // 크기 밸런스 조정 (12->13)
+                  )
+              )
+          ),
+
+          // 5. 상대은행
+          Expanded(
+              flex: 10,
+              child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  alignment: Alignment.center,
+                  child: Text(
+                      tx.bankName.isEmpty ? "-" : tx.bankName,
+                      textAlign: TextAlign.center, // 🌟 텍스트 완벽 중앙 정렬
+                      style: const TextStyle(color: Colors.grey, fontSize: 12) // 크기 밸런스 조정 (11->12)
+                  )
+              )
+          ),
+
+          // 6. 담당자 메모 (클릭 시 작성 가능)
+          Expanded(
+              flex: 20,
+              child: InkWell(
+                  onTap: () {
+                    TextEditingController ctrl = TextEditingController(text: tx.managerMemo);
+                    showDialog(
+                        context: context,
+                        builder: (ctx) => AlertDialog(
+                            title: const Text("수납 메모", style: TextStyle(fontWeight: FontWeight.bold)),
+                            content: TextField(controller: ctrl, maxLines: 3, decoration: const InputDecoration(hintText: "특이사항을 입력하세요", border: OutlineInputBorder())),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("취소")),
+                              ElevatedButton(
+                                  onPressed: () {
+                                    String newText = ctrl.text.trim();
+                                    if (newText.isNotEmpty && newText != tx.managerMemo) {
+                                      final now = DateTime.now();
+                                      String timestamp = "[${now.month}/${now.day} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}]";
+                                      if (!newText.startsWith('[')) newText = "$timestamp $newText";
+                                    }
+                                    setState(() => tx.managerMemo = newText);
+                                    Navigator.pop(ctx);
+                                  },
+                                  child: const Text("저장")
+                              )
+                            ]
+                        )
+                    );
+                  },
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    padding: const EdgeInsets.all(8),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(color: tx.managerMemo.isEmpty ? Colors.white : Colors.yellow[100], border: Border.all(color: tx.managerMemo.isEmpty ? Colors.grey[300]! : Colors.yellow[400]!), borderRadius: BorderRadius.circular(4)),
+                    child: Text(
+                      tx.managerMemo.isEmpty ? "+ 메모입력" : tx.managerMemo,
+                      textAlign: TextAlign.center, // 🌟 메모 텍스트도 완벽 중앙 정렬
+                      style: TextStyle(fontSize: 11, color: tx.managerMemo.isEmpty ? Colors.grey : Colors.black87), maxLines: 2, overflow: TextOverflow.ellipsis,
+                    ),
+                  )
+              )
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildOthersCell(ResidentRow row, int flex, {bool isHighlight = false}) {
     List<String> validOthers = row.others.where((e) => e != "-" && e.isNotEmpty).toList();
     Widget content;
@@ -1613,7 +2066,19 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
   }
 
   Widget _headerCell(String title, int flex) {
-    return Expanded(flex: flex, child: Text(title, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppTheme.textMain), overflow: TextOverflow.ellipsis));
+    return Expanded(
+        flex: flex,
+        child: Container(
+            alignment: Alignment.center, // 🌟 컨테이너 내부의 모든 요소를 정중앙으로!
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Text(
+                title,
+                textAlign: TextAlign.center, // 🌟 글씨 자체도 정중앙으로!
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppTheme.textMain),
+                overflow: TextOverflow.ellipsis
+            )
+        )
+    );
   }
 
   Widget _searchHeaderCell(String title, int flex, TextEditingController ctrl, Function(String) onChanged) {
@@ -1651,11 +2116,31 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
     return OutlinedButton.icon(onPressed: onPressed, icon: Icon(isDone ? Icons.check_circle : icon, color: isDone ? Colors.green : AppTheme.primaryColor), label: Text(isDone ? "$title 완료" : title), style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18), side: BorderSide(color: isDone ? Colors.green : AppTheme.borderColor)));
   }
 
+  // =======================================================
+  // 🌟 [추가 1] PG사, 카드납부, 아파트아이 등 자동이체 식별 엔진
+  // =======================================================
+  bool _isAutoPaymentTx(String desc) {
+    // 띄어쓰기 제거 및 모두 소문자로 변환하여 변수 원천 차단
+    String cleanDesc = desc.toLowerCase().replaceAll(RegExp(r'\s+'), '');
+
+    // 대표님이 말씀하신 키워드들 (여기에 앞으로 필요한 단어를 계속 추가하시면 됩니다)
+    return cleanDesc.contains('pg') ||
+        cleanDesc.contains('카드납부') ||
+        cleanDesc.contains('아파트아이') ||
+        cleanDesc.contains('자동이체');
+  }
+
+  // =======================================================
+  // 🌟 [수정 2] 요약 칩에 "수납 확인(PG)" 탭 추가 및 카운트 분리
+  // =======================================================
   Widget _buildSummaryBar() {
     int matchedCount = _residentList.where((r) => r.isMatched && !r.isCheckRequired).length;
     int checkCount = _residentList.where((r) => r.isMatched && r.isCheckRequired).length;
     int pendingCount = _residentList.length - (matchedCount + checkCount);
-    int unconfirmedCount = _bankList.where((tx) => !tx.isUsed && tx.amount > 0).length;
+
+    // 🌟 핵심: 일반 미확인 입금과 PG/카드납부(수납확인)를 철저히 분리해서 카운트합니다.
+    int unconfirmedCount = _bankList.where((tx) => !tx.isUsed && tx.amount > 0 && !_isAutoPaymentTx(tx.description)).length;
+    int autoPaidCount = _bankList.where((tx) => !tx.isUsed && tx.amount > 0 && _isAutoPaymentTx(tx.description)).length;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
@@ -1666,6 +2151,8 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
           _summaryChip("매칭 완료", "$matchedCount", Colors.green, "matched", "입주자명부와 은행데이터와 매칭된 세대"),
           _summaryChip("확인 필요", "$checkCount", Colors.orange, "check_required", "입주자명부와 은행데이터중 일부 매칭되어 확인이 필요한 세대"),
           _summaryChip("매칭 대기", "$pendingCount", Colors.grey, "pending", "입주자명부에는 있는데 은행데이터엔 없는 세대"),
+          // 🌟 새로 추가된 파란색 탭!
+          _summaryChip("수납 확인", "$autoPaidCount", Colors.indigo, "auto_paid", "PG사, 카드납부, 아파트아이 등 대행사 입금 내역"),
           _summaryChip("미확인 입금", "$unconfirmedCount", Colors.red, "unconfirmed", "은행데이터엔 있는데 입주자명부에 없는 세대 / 확인필요"),
         ],
       ),

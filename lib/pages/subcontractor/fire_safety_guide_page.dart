@@ -66,9 +66,9 @@ class FireSafetyGuidePage extends StatelessWidget {
         children: [
           const Icon(Icons.local_fire_department, color: Colors.white, size: 40),
           const SizedBox(height: 16),
-          const Text("소방안전 용역업체 관리 및 평가 지침", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+          const Text("소방안전 용역업체 관리 및\n평가 지침", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
           const SizedBox(height: 16),
-          const Text("• 관리 대상: 소방시설 점검 대행업체 / 안전관리자 업무 대행\n• 핵심 목표: 선(先)정밀점검 후(後)시스템보고, 지적사항 조치 내역 투명 공개", textAlign: TextAlign.center, style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.6)),
+          const Text("• 관리 대상: 소방시설 점검 대행업체\n / 안전관리자 업무 대행\n• 핵심 목표: 선(先)정밀점검 후(後)시스템보고,\n지적사항 조치 내역 투명 공개", textAlign: TextAlign.center, style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.6)),
         ],
       ),
     );
@@ -101,7 +101,7 @@ class FireSafetyGuidePage extends StatelessWidget {
   // 💡 고경력 소장 실무 노하우
   Widget _buildFMExpertTips() {
     return _buildSectionCard(
-      title: "🔥 고경력 전문가 인사이트 (눈속임 방지)",
+      title: "🔥 고경력 전문가 인사이트\n  (눈속임 방지)",
       subtitle: "고경력 현장 관리자가 업체를 관리할 때 짚고 넘어가는 디테일입니다.",
       accentColor: expertPurple,
       icon: Icons.workspace_premium,
@@ -135,11 +135,16 @@ class FireSafetyGuidePage extends StatelessWidget {
         child: Column(
           children: [
             Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Icon(Icons.important_devices, color: primaryNavy),
                 const SizedBox(width: 8),
-                const Text("2. SM 스마트 보고 및 입주민 공개 프로세스", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
+                Expanded(
+                  child: const Text(
+                    "2. SM 스마트 보고 및 입주민 공개 프로세스",
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 24),

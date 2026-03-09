@@ -66,9 +66,9 @@ class DisinfectionServiceGuidePage extends StatelessWidget {
         children: [
           const Icon(Icons.health_and_safety, color: Colors.white, size: 40),
           const SizedBox(height: 16),
-          const Text("소독·방역 용역업체 관리 및 평가 지침", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+          const Text("소독·방역 용역업체 관리 및\n 평가 지침", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
           const SizedBox(height: 16),
-          const Text("• 관리 대상: 방역소독업 신고 업체 / 유해생물 방제 서비스 업체\n• 핵심 목표: 법정 소독 이행률 100%, 민원 제로, 해충 없는 단지 조성", textAlign: TextAlign.center, style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.6)),
+          const Text("• 관리 대상: 방역소독업 신고 업체 / 유해생물 방제 서비스 업체\n• 핵심 목표: 법정 소독 이행률 100%, 민원 제로,\n 해충 없는 단지 조성", textAlign: TextAlign.center, style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.6)),
         ],
       ),
     );
@@ -77,7 +77,7 @@ class DisinfectionServiceGuidePage extends StatelessWidget {
   // 🔍 1. 용역업체 핵심 점검 가이드
   Widget _buildStep1_CoreCheckpoints() {
     return _buildSectionCard(
-      title: "1. 용역업체 핵심 점검 가이드 (Check-point)",
+      title: "1. 용역업체 핵심 점검 가이드\n (Check-point)",
       subtitle: "법적 의무 사항 준수 여부와 승인된 약품 사용 여부를 철저히 검증하십시오.",
       accentColor: safetyBlue,
       icon: Icons.manage_search,
@@ -104,7 +104,7 @@ class DisinfectionServiceGuidePage extends StatelessWidget {
   // 💡 고경력 소장 실무 노하우
   Widget _buildFMExpertTips() {
     return _buildSectionCard(
-      title: "🔥 고경력 전문가 인사이트 (민원 원천 차단)",
+      title: "🔥 고경력 전문가 인사이트\n (민원 원천 차단)",
       subtitle: "고경력 현장 관리자가 입주민 만족도를 높이기 위해 관리하는 포인트입니다.",
       accentColor: expertPurple,
       icon: Icons.workspace_premium,

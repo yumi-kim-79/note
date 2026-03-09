@@ -66,9 +66,9 @@ class IntegratedSecurityGuidePage extends StatelessWidget {
         children: [
           const Icon(Icons.security, color: Colors.white, size: 40),
           const SizedBox(height: 16),
-          const Text("통합 보안 용역업체 관리 및 평가 지침", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+          const Text("통합 보안 용역업체 관리 및\n 평가 지침", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
           const SizedBox(height: 16),
-          const Text("• 관리 대상: 기계보안 및 CCTV 유지보수 업체 (렌탈 파트너사)\n• 핵심 목표: 시스템 가동률 100%, 장애 발생 시 긴급 출동 대응력 강화", textAlign: TextAlign.center, style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.6)),
+          const Text("• 관리 대상: 기계보안 및 CCTV 유지보수 업체\n (렌탈 파트너사)\n• 핵심 목표: 시스템 가동률 100%, 장애 발생 시\n 긴급 출동 대응력 강화", textAlign: TextAlign.center, style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.6)),
         ],
       ),
     );
@@ -77,7 +77,7 @@ class IntegratedSecurityGuidePage extends StatelessWidget {
   // 🔍 1. 용역업체 핵심 점검 가이드
   Widget _buildStep1_CoreCheckpoints() {
     return _buildSectionCard(
-      title: "1. 파트너사 핵심 관리 가이드 (Check-point)",
+      title: "1. 파트너사 핵심 관리 가이드\n (Check-point)",
       subtitle: "단순 렌탈 계약을 넘어, 시스템 장애 시 대응 속도를 최우선으로 관리하십시오.",
       accentColor: safetyBlue,
       icon: Icons.manage_search,
@@ -101,7 +101,7 @@ class IntegratedSecurityGuidePage extends StatelessWidget {
   // 💡 고경력 소장 실무 노하우
   Widget _buildFMExpertTips() {
     return _buildSectionCard(
-      title: "🔥 고경력 전문가 인사이트 (계약 및 상생 관리)",
+      title: "🔥 고경력 전문가 인사이트\n (계약 및 상생 관리)",
       subtitle: "보안 파트너사와의 긴밀한 협력 관계 유지와 리스크 방지를 위한 팁입니다.",
       accentColor: expertPurple,
       icon: Icons.workspace_premium,

@@ -43,7 +43,7 @@ class FieldManualPage extends StatelessWidget {
               // 1. 누수 매뉴얼
               _buildManualItem(
                 context,
-                title: "1.누수 발생 시 단지 내\n초기 대응 매뉴얼",
+                title: "1. 누수 발생 시 단지 내\n  초기 대응 매뉴얼",
                 date: "2026.03.05",
                 icon: Icons.opacity, // 🌟 [수정] 모바일 100% 호환 순정 물방울 아이콘
                 color: Colors.blue,
@@ -53,7 +53,7 @@ class FieldManualPage extends StatelessWidget {
               // 2. 동파 매뉴얼
               _buildManualItem(
                 context,
-                title: "2.동절기 배관 동파 방지 및\n해빙 매뉴얼",
+                title: "2. 동절기 배관 동파 방지 및\n  해빙 매뉴얼",
                 date: "2026.03.05",
                 icon: Icons.ac_unit, // 🌟 눈송이 순정 (안전함)
                 color: Colors.lightBlueAccent,
@@ -63,7 +63,7 @@ class FieldManualPage extends StatelessWidget {
               // 3. 승강기 매뉴얼
               _buildManualItem(
                 context,
-                title: "3.승강기 오작동 및 \n갇힘 사고발생시 매뉴얼",
+                title: "3. 승강기 오작동 및 \n  갇힘 사고발생시 매뉴얼",
                 date: "2026.03.05",
                 icon: Icons.unfold_more, // 🌟 [수정] 모바일 100% 호환 상하(승강기) 순정 아이콘
                 color: Colors.orange,
@@ -73,7 +73,7 @@ class FieldManualPage extends StatelessWidget {
               // 4. 정전 매뉴얼
               _buildManualItem(
                 context,
-                title: "4.정전 및 발전기 기동 확인\n매뉴얼",
+                title: "4. 정전 및 발전기 기동 확인\n  매뉴얼",
                 date: "2026.03.05",
                 icon: Icons.flash_on, // 🌟 [수정] 모바일 100% 호환 번개 순정 아이콘
                 color: Colors.amber,
@@ -83,7 +83,7 @@ class FieldManualPage extends StatelessWidget {
               // 5. 소방 매뉴얼
               _buildManualItem(
                 context,
-                title: "5.화재 또는 소방 시설 및\n전기 설비 구동 시 매뉴얼",
+                title: "5. 화재 또는 소방 시설 및\n  전기 설비 구동 시 매뉴얼",
                 date: "2026.03.05",
                 icon: Icons.whatshot, // 🌟 [수정] 모바일 100% 호환 불꽃(소방) 순정 아이콘
                 color: Colors.redAccent,
@@ -93,7 +93,7 @@ class FieldManualPage extends StatelessWidget {
               // 6. 주차타워 매뉴얼
               _buildManualItem(
                 context,
-                title: "6.주차타워 차량파손\n전복 사고 매뉴얼",
+                title: "6. 주차타워 차량파손\n  전복 사고 매뉴얼",
                 date: "2026.03.05",
                 icon: Icons.directions_car, // 🌟 [수정] 모바일 100% 호환 자동차(주차) 순정 아이콘
                 color: Colors.blueGrey,
@@ -103,7 +103,7 @@ class FieldManualPage extends StatelessWidget {
               // 7. CCTV 매뉴얼
               _buildManualItem(
                 context,
-                title: "7.CCTV 열람 및\n개인정보 대응 매뉴얼",
+                title: "7. CCTV 열람 및\n  개인정보 대응 매뉴얼",
                 date: "2026.03.05",
                 icon: Icons.videocam, // 🌟 절대 깨지지 않는 순정 캠코더 아이콘
                 color: Colors.teal,
@@ -113,7 +113,7 @@ class FieldManualPage extends StatelessWidget {
               // 8. 하자 민원 매뉴얼
               _buildManualItem(
                 context,
-                title: "8.하자 민원 대응 및\n책임 소재 매뉴얼",
+                title: "8. 하자 민원 대응 및\n  책임 소재 매뉴얼",
                 date: "2026.03.05",
                 icon: Icons.plumbing, // 🌟 순정 수리/배관 아이콘
                 color: Colors.indigo,

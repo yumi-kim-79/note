@@ -37,7 +37,7 @@ class MeetingHubPage extends StatelessWidget {
                 context,
                 icon: Icons.menu_book,
                 color: Colors.indigo,
-                title: "1.회의 진행 및 대처 실무 가이드",
+                title: "1. 회의 진행 및 대처 실무 가이드",
                 subtitle: "적법한 절차 준수 및 분쟁 대처 노하우",
                 onTap: () {
                   Navigator.push(context, MaterialPageRoute(builder: (context) => const MeetingGuidePage()));
@@ -49,13 +49,14 @@ class MeetingHubPage extends StatelessWidget {
                 context,
                 icon: Icons.mic_external_on,
                 color: Colors.blue,
-                title: "2.[실무] 회의진행 (순서 및 멘트)",
+                title: "2. [실무] 회의진행 (순서 및 멘트)",
                 subtitle: "안건설정 후 회의진행 순서 및 멘트 자동생성",
                 onTap: () {
                   Navigator.push(context, MaterialPageRoute(builder: (context) => const MeetingScriptPage()));
                 },
               ),
 
+              if (false) // 3번 숨김 스위치
               // 3. 스마트 의사록 작성기
               _buildHubCard(
                 context,
@@ -66,6 +67,7 @@ class MeetingHubPage extends StatelessWidget {
                 onTap: () => _showReadySnackbar(context),
               ),
 
+              if (false) // 4번 숨김 스위치
               // 4. 필수 법정 양식 다운로드
               _buildHubCard(
                 context,
@@ -76,6 +78,7 @@ class MeetingHubPage extends StatelessWidget {
                 onTap: () => _showReadySnackbar(context),
               ),
 
+              if (false) // 5번 숨김 스위치
               // 5. 주요 분쟁 및 민원 판례집
               _buildHubCard(
                 context,

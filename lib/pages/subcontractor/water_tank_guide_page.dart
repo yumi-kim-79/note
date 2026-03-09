@@ -66,7 +66,7 @@ class WaterTankGuidePage extends StatelessWidget {
         children: [
           const Icon(Icons.water_drop, color: Colors.white, size: 40),
           const SizedBox(height: 16),
-          const Text("물탱크 청소 및 수질검사 용역업체 관리 지침", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+          const Text("물탱크 청소 및 수질검사 용역업체\n 관리 지침", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
           const SizedBox(height: 16),
           const Text("• 관리 대상: 저수조 청소업 등록 업체 / 수질검사 전문 기관\n• 핵심 목표: 먹는 물 안전성 확보, SM 업무 협조 체계 강화, 법적 주기 100% 이행", textAlign: TextAlign.center, style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.6)),
         ],
@@ -77,7 +77,7 @@ class WaterTankGuidePage extends StatelessWidget {
   // 🔍 1. 용역업체 핵심 점검 가이드
   Widget _buildStep1_CoreCheckpoints() {
     return _buildSectionCard(
-      title: "1. 용역업체 핵심 점검 가이드 (Check-point)",
+      title: "1. 용역업체 핵심 점검 가이드\n (Check-point)",
       subtitle: "입주민 단수 불편을 최소화하고 보이지 않는 탱크 내부를 완벽히 소독하는지 확인하십시오.",
       accentColor: safetyBlue,
       icon: Icons.manage_search,
@@ -104,7 +104,7 @@ class WaterTankGuidePage extends StatelessWidget {
   // 💡 고경력 소장 실무 노하우
   Widget _buildFMExpertTips() {
     return _buildSectionCard(
-      title: "🔥 고경력 전문가 인사이트 (업무 협조 강화)",
+      title: "🔥 고경력 전문가 인사이트\n (업무 협조 강화)",
       subtitle: "고경력 현장 관리자가 입주민 민원을 방지하기 위해 업체와 조율하는 핵심 노하우입니다.",
       accentColor: expertPurple,
       icon: Icons.workspace_premium,

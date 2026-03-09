@@ -66,9 +66,9 @@ class ParkingLiftSafetyGuidePage extends StatelessWidget {
         children: [
           const Icon(Icons.car_repair, color: Colors.white, size: 40),
           const SizedBox(height: 16),
-          const Text("주차/리프트 안전관리 용역업체 관리 및 평가 지침", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+          const Text("주차/리프트 안전관리 용역업체\n 관리 및 평가 지침", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
           const SizedBox(height: 16),
-          const Text("• 관리 대상: 주차타워 유지보수 업체 / 카리프트 전문 관리업체\n• 핵심 목표: 선(先)정밀점검 후(後)시스템보고, 차량 파손 및 추락사고 제로", textAlign: TextAlign.center, style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.6)),
+          const Text("• 관리 대상: 주차타워 유지보수 업체\n/ 카리프트 전문 관리업체\n• 핵심 목표: 선(先)정밀점검 후(後)시스템보고,\n차량 파손 및 추락사고 제로", textAlign: TextAlign.center, style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.6)),
         ],
       ),
     );
@@ -77,7 +77,7 @@ class ParkingLiftSafetyGuidePage extends StatelessWidget {
   // 🔍 1. 용역업체 핵심 점검 가이드
   Widget _buildStep1_CoreCheckpoints() {
     return _buildSectionCard(
-      title: "1. 용역업체 핵심 점검 가이드 (Check-point)",
+      title: "1. 용역업체 핵심 점검 가이드\n (Check-point)",
       subtitle: "눈에 보이는 외관보다 기계 내부의 '기름기'와 '센서'를 사진/영상으로 남기십시오.",
       accentColor: safetyBlue,
       icon: Icons.manage_search,
@@ -101,7 +101,7 @@ class ParkingLiftSafetyGuidePage extends StatelessWidget {
   // 💡 고경력 소장 실무 노하우
   Widget _buildFMExpertTips() {
     return _buildSectionCard(
-      title: "🔥 고경력 전문가 인사이트 (차량 파손 방지)",
+      title: "🔥 고경력 전문가 인사이트\n (차량 파손 방지)",
       subtitle: "고경력 현장 관리자가 주차/리프트 업체를 관리할 때 짚고 넘어가는 핵심입니다.",
       accentColor: expertPurple,
       icon: Icons.workspace_premium,
@@ -135,11 +135,16 @@ class ParkingLiftSafetyGuidePage extends StatelessWidget {
         child: Column(
           children: [
             Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Icon(Icons.important_devices, color: primaryNavy),
                 const SizedBox(width: 8),
-                const Text("2. SM 스마트 보고 및 입주민 공개 프로세스", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
+                Expanded(
+                  child: const Text(
+                    "2. SM 스마트 보고 및 입주민 공개 프로세스",
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 24),

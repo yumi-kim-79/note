@@ -39,7 +39,7 @@ class FieldOutsourceGuidePage extends StatelessWidget {
               // 1. 소방안전 용역업체 관리 (연결 완료!)
               _buildSubcontractorItem(
                 context,
-                title: "1. 소방안전관리 대행업체\n관리 지침",
+                title: "1. 소방안전관리 대행업체\n  관리 지침",
                 subtitle: "수신기 점검, 불량 내역 이행, 페널티 규정",
                 icon: Icons.local_fire_department,
                 color: Colors.redAccent,
@@ -49,7 +49,7 @@ class FieldOutsourceGuidePage extends StatelessWidget {
               // 2. 전기안전 용역업체 관리 (연결 완료!)
               _buildSubcontractorItem(
                 context,
-                title: "2. 전기안전관리 대행업체\n관리 지침",
+                title: "2. 전기안전관리 대행업체\n  관리 지침",
                 subtitle: "열화상 측정, 절연 수치 확인, 페널티 규정",
                 icon: Icons.electrical_services,
                 color: Colors.orange,
@@ -59,7 +59,7 @@ class FieldOutsourceGuidePage extends StatelessWidget {
               // 3. 승강기 유지보수 업체 (연결 완료!)
               _buildSubcontractorItem(
                 context,
-                title: "3. 승강기 유지보수 용역\n관리 지침",
+                title: "3. 승강기 유지보수 용역\n  관리 지침",
                 subtitle: "월간 정기점검, 갇힘 사고 대응, 부품 견적 검토",
                 icon: Icons.elevator,
                 color: Colors.blueAccent,
@@ -69,7 +69,7 @@ class FieldOutsourceGuidePage extends StatelessWidget {
               // 4. 주차/리프트 용역 관리 지침 (연결 완료!)
               _buildSubcontractorItem(
                 context,
-                title: "4. 기계식 주차/리프트 용역\n관리 지침",
+                title: "4. 기계식 주차/리프트 용역\n  관리 지침",
                 subtitle: "구동부 주유 상태, 센서 정밀 테스트, 페널티 규정",
                 icon: Icons.car_repair, // 🌟 자동차 수리 아이콘
                 color: Colors.indigo,
@@ -79,7 +79,7 @@ class FieldOutsourceGuidePage extends StatelessWidget {
               // 5. 청소/미화 용역 관리 지침 (연결 완료!)
               _buildSubcontractorItem(
                 context,
-                title: "5. 청소 및 미화 용역\n관리 지침", // 번호는 기존 리스트 순서에 맞게 조정하시면 됩니다 (예: 5번)
+                title: "5. 청소 및 미화 용역\n  관리 지침", // 번호는 기존 리스트 순서에 맞게 조정하시면 됩니다 (예: 5번)
                 subtitle: "구역별 QR 인증, 사각지대 점검, 민원 발생 시 페널티",
                 icon: Icons.cleaning_services,
                 color: Colors.green,
@@ -89,7 +89,7 @@ class FieldOutsourceGuidePage extends StatelessWidget {
               // 6. 물탱크(저수조) 용역 관리 지침 (연결 완료!)
               _buildSubcontractorItem(
                 context,
-                title: "6. 물탱크 청소 및 수질검사 용역\n관리 지침",
+                title: "6. 물탱크 청소 및 수질검사 용역\n  관리 지침",
                 subtitle: "단수 사전 공지, 채수 입회, 필증 시스템 등록",
                 icon: Icons.water_drop,
                 color: Colors.lightBlue,
@@ -99,7 +99,7 @@ class FieldOutsourceGuidePage extends StatelessWidget {
               // 7. 소독·방역 용역 관리 지침 (연결 완료!)
               _buildSubcontractorItem(
                 context,
-                title: "7. 소독 및 방역 용역\n관리 지침",
+                title: "7. 소독 및 방역 용역\n  관리 지침",
                 subtitle: "세대 방문율 체크, MSDS 확인, 민원 기반 평가",
                 icon: Icons.health_and_safety,
                 color: Colors.lightGreen,
@@ -109,7 +109,7 @@ class FieldOutsourceGuidePage extends StatelessWidget {
               // 8. 통합 보안(경비/CCTV) 용역 관리 지침 (연결 완료!)
               _buildSubcontractorItem(
                 context,
-                title: "8. 통합 보안(경비/CCTV) 용역\n관리 지침",
+                title: "8. 통합 보안(경비/CCTV) 용역\n  관리 지침",
                 subtitle: "인적/기술 보안 결합 관리, 위약금 없는 해지 조항",
                 icon: Icons.security,
                 color: Colors.blueGrey,

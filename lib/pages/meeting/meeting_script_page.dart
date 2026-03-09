@@ -91,6 +91,9 @@ class _MeetingScriptPageState extends State<MeetingScriptPage> {
   bool _isQuorumMet = false;
   double _attendanceRate = 0.0;
 
+  // 👇👇 🌟 [신규 추가] 담당자가 더블클릭해서 수정한 멘트를 영구적으로 기억하는 바구니 👇👇
+  Map<String, String> _userEdits = {};
+
   // 🌟 [추가] 100개 DB를 담아둘 메모리 캐시 변수
   List<Map<String, dynamic>> _dbTemplatesCache = [];
 
@@ -134,19 +137,22 @@ class _MeetingScriptPageState extends State<MeetingScriptPage> {
       return;
     }
 
-    // 🌟 새로 만든 스마트 검색 다이얼로그 띄우기
     final selectedAgenda = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (ctx) => AgendaSearchDialog(dbTemplates: _dbTemplatesCache),
     );
 
-    // 🌟 선택된 안건이 있다면 현재 인덱스의 입력칸에 쏙 넣기
     if (selectedAgenda != null) {
       setState(() {
         _agendaEntries[index]["title"]!.text = selectedAgenda["title"] ?? "";
         _agendaEntries[index]["reason"]!.text = selectedAgenda["reason"] ?? "";
         _agendaEntries[index]["content"]!.text = selectedAgenda["content"] ?? "";
         _agendaEntries[index]["legal"]!.text = selectedAgenda["legal"] ?? "";
+
+        // 🌟 [문제 해결] DB를 불러올 때 기존 이 안건에 대한 수동 수정 기억을 싹 지웁니다!
+        _userEdits.remove("agenda_${index}_desc");
+        _userEdits.remove("agenda_${index}_vote");
+        _userEdits.remove("agenda_${index}_resolve");
       });
     }
   }
@@ -171,6 +177,11 @@ class _MeetingScriptPageState extends State<MeetingScriptPage> {
               _agendaEntries[index]["reason"]!.text = reason;
               _agendaEntries[index]["content"]!.text = content;
               _agendaEntries[index]["legal"]!.text = legal;
+
+              // 🌟 [문제 해결] 여기서도 이전 수정 기억을 지워 새 내용이 스크립트에 바로 꽂히게 합니다!
+              _userEdits.remove("agenda_${index}_desc");
+              _userEdits.remove("agenda_${index}_vote");
+              _userEdits.remove("agenda_${index}_resolve");
             });
             Navigator.pop(ctx);
           },
@@ -192,25 +203,82 @@ class _MeetingScriptPageState extends State<MeetingScriptPage> {
     }
   }
 
+  // 🌟 [고도화 1] 성원 입력 없이도 일단 대본 초안을 만들어주는 기능
   void _generateScript() {
     FocusScope.of(context).unfocus();
     int total = int.tryParse(_totalHouseholdsCtrl.text) ?? 0;
     int online = int.tryParse(_onlineVotesCtrl.text) ?? 0;
     int offline = int.tryParse(_offlineAttendeesCtrl.text) ?? 0;
 
-    if (total <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("총 세대수를 정확히 입력해주세요."), backgroundColor: Colors.redAccent));
-      return;
-    }
-
     setState(() {
       _totalHouseholds = total; _onlineVotes = online; _offlineAttendees = offline;
       _totalAttendees = online + offline;
-      _requiredQuorum = (total / 2).floor() + 1;
-      _isQuorumMet = _totalAttendees >= _requiredQuorum;
-      _attendanceRate = (_totalAttendees / _totalHouseholds) * 100; // 🌟 [추가] 퍼센트 자동 계산
+      _requiredQuorum = total > 0 ? (total / 2).floor() + 1 : 0;
+
+      // 인원수가 0명이면 무조건 '성원 달성(성공)' 뼈대를 보여줍니다.
+      _isQuorumMet = total == 0 ? true : (_totalAttendees >= _requiredQuorum);
+      _attendanceRate = total > 0 ? (_totalAttendees / _totalHouseholds) * 100 : 0.0;
       _isScriptGenerated = true;
     });
+  }
+
+  // 🌟 [고도화 2] 담당자가 수정한 멘트는 100% 보존하고, 숫자만 정밀 교체하는 기능
+  void _refreshQuorumOnly() {
+    FocusScope.of(context).unfocus();
+    int total = int.tryParse(_totalHouseholdsCtrl.text) ?? 0;
+
+    setState(() {
+      // 1. 과거 숫자들 임시 저장 (치환용)
+      String oldTotal = _totalHouseholds.toString();
+      String oldOnline = _onlineVotes.toString();
+      String oldOffline = _offlineAttendees.toString();
+      String oldTotalAtt = _totalAttendees.toString();
+      String oldRate = _attendanceRate.toStringAsFixed(1);
+
+      // 2. 새로운 숫자 적용
+      _totalHouseholds = total;
+      _onlineVotes = int.tryParse(_onlineVotesCtrl.text) ?? 0;
+      _offlineAttendees = int.tryParse(_offlineAttendeesCtrl.text) ?? 0;
+      _totalAttendees = _onlineVotes + _offlineAttendees;
+      _requiredQuorum = total > 0 ? (total / 2).floor() + 1 : 0;
+      _isQuorumMet = total == 0 ? true : (_totalAttendees >= _requiredQuorum);
+      _attendanceRate = total > 0 ? (_totalAttendees / _totalHouseholds) * 100 : 0.0;
+      String newRate = _attendanceRate.toStringAsFixed(1);
+
+      // 3. 🌟 [핵심] 주변 단어까지 통째로 묶어서 바꿔치기하여 엉뚱한 숫자가 바뀌는 걸 원천 차단!
+      if (_userEdits.containsKey("intro_success")) {
+        String intro = _userEdits["intro_success"]!;
+        intro = intro.replaceAll('총 $oldTotal세대 중', '총 $_totalHouseholds세대 중');
+        intro = intro.replaceAll('통해 $oldOnline세대가', '통해 $_onlineVotes세대가');
+        intro = intro.replaceAll('현장에 $oldOffline세대가', '현장에 $_offlineAttendees세대가');
+        intro = intro.replaceAll('총 $oldTotalAtt세대,', '총 $_totalAttendees세대,');
+        intro = intro.replaceAll('출석률 $oldRate%', '출석률 $newRate%');
+        _userEdits["intro_success"] = intro;
+      }
+
+      if (_userEdits.containsKey("intro_fail")) {
+        String intro = _userEdits["intro_fail"]!;
+        intro = intro.replaceAll('투표 $oldOnline명', '투표 $_onlineVotes명');
+        intro = intro.replaceAll('참석 $oldOffline명', '참석 $_offlineAttendees명');
+        intro = intro.replaceAll('총 $oldTotalAtt명', '총 $_totalAttendees명');
+        intro = intro.replaceAll('출석률 $oldRate%', '출석률 $newRate%');
+        _userEdits["intro_fail"] = intro;
+      }
+    });
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("수정 멘트 보존 완료! 성원 숫자가 실시간 갱신되었습니다."), backgroundColor: Colors.green));
+  }
+
+  // (도우미) 숫자 계산 공통 함수
+  void _calculateQuorum() {
+    int total = int.tryParse(_totalHouseholdsCtrl.text) ?? 0;
+    int online = int.tryParse(_onlineVotesCtrl.text) ?? 0;
+    int offline = int.tryParse(_offlineAttendeesCtrl.text) ?? 0;
+
+    _totalHouseholds = total; _onlineVotes = online; _offlineAttendees = offline;
+    _totalAttendees = online + offline;
+    _requiredQuorum = total > 0 ? (total / 2).floor() + 1 : 0;
+    _isQuorumMet = total > 0 && _totalAttendees >= _requiredQuorum;
+    _attendanceRate = total > 0 ? (_totalAttendees / _totalHouseholds) * 100 : 0.0;
   }
 
   @override
@@ -445,14 +513,36 @@ class _MeetingScriptPageState extends State<MeetingScriptPage> {
             ),
           ),
           const SizedBox(height: 24),
-          SizedBox(
-            width: double.infinity, height: 56,
-            child: ElevatedButton.icon(
-              onPressed: _generateScript,
-              icon: const Icon(Icons.auto_awesome, color: Colors.white, size: 24),
-              label: const Text("프롬프터 대본 생성 (AI 최적화)", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16, letterSpacing: -0.5)),
-              style: ElevatedButton.styleFrom(backgroundColor: safetyBlue, elevation: 4, shadowColor: safetyBlue.withOpacity(0.4), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-            ),
+
+          // 👇👇 🌟 [수정] 대본 생성 버튼과 새로고침 버튼을 나란히 배치 👇👇
+          Row(
+            children: [
+              Expanded(
+                flex: 2,
+                child: SizedBox(
+                  height: 56,
+                  child: ElevatedButton.icon(
+                    onPressed: _generateScript,
+                    icon: const Icon(Icons.auto_awesome, color: Colors.white, size: 24),
+                    label: const Text("프롬프터 멘트 초안 세팅", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16, letterSpacing: -0.5)),
+                    style: ElevatedButton.styleFrom(backgroundColor: safetyBlue, elevation: 4, shadowColor: safetyBlue.withOpacity(0.4), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                  ),
+                ),
+              ),
+              if (_isScriptGenerated) const SizedBox(width: 12),
+              if (_isScriptGenerated) Expanded(
+                flex: 1,
+                child: SizedBox(
+                  height: 56,
+                  child: ElevatedButton.icon(
+                    onPressed: _refreshQuorumOnly,
+                    icon: const Icon(Icons.refresh, color: Colors.white, size: 20),
+                    label: const Text("성원 새로고침", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+                    style: ElevatedButton.styleFrom(backgroundColor: successGreen, elevation: 4, shadowColor: successGreen.withOpacity(0.4), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -573,7 +663,7 @@ class _MeetingScriptPageState extends State<MeetingScriptPage> {
   // 🎙️ 대본 출력 섹션 (자연스러운 구어체 + 현장 행동요령 탑재)
   // ---------------------------------------------------------
   Widget _buildScriptOutput(bool isMobile) {
-    String rateStr = _attendanceRate.toStringAsFixed(1); // 🌟 [추가] 소수점 1자리까지 깔끔하게 표시 (예: 55.2%)
+    String rateStr = _attendanceRate.toStringAsFixed(1); // 🌟 소수점 1자리까지 깔끔하게 표시
 
     return Container(
       padding: EdgeInsets.all(isMobile ? 20 : 40),
@@ -602,7 +692,6 @@ class _MeetingScriptPageState extends State<MeetingScriptPage> {
                   children: [
                     Icon(_isQuorumMet ? Icons.check_circle : Icons.warning_rounded, color: _isQuorumMet ? successGreen : dangerRed, size: 16),
                     const SizedBox(width: 6),
-                    // 🌟 [수정] 100%라는 오해 소지 단어를 빼고 실제 참석률을 표시
                     Text(_isQuorumMet ? "성원 달성 ($rateStr%)" : "성원 미달 ($rateStr%)", style: TextStyle(color: _isQuorumMet ? successGreen : dangerRed, fontSize: 13, fontWeight: FontWeight.bold)),
                   ],
                 ),
@@ -628,43 +717,46 @@ class _MeetingScriptPageState extends State<MeetingScriptPage> {
                   ],
                 ),
                 const SizedBox(height: 12),
-                const Text("1. 데스크에 '최신 입주자명부'가 비치되었는지 확인합니다.\n2. 현장에 오신 분들의 신분증 대조 및 참석자 명부 서명이 완료되었는지 점검합니다.\n3. 대리 참석자의 경우, 위임장 원본과 관계 증명 서류가 취합되었는지 최종 확인합니다.\n\n※ 위 절차가 완벽히 끝난 후, 안내 방송을 끄고 마이크를 잡아 부드럽게 시작하십시오.", style: TextStyle(color: Color(0xFF991B1B), fontSize: 14, height: 1.6)),
+                const Text("1. 데스크에 '최신 입주자명부'가 비치되었는지 확인합니다.\n2. 현장에 오신 분들의 신분증 대조 및 참석자 명부 서명이 완료되었는지 점검합니다.\n3. 대리 참석자의 경우, 위임장 원본과 관계 증명 서류가 취합되었는지 최종 확인합니다.\n4. 회의 시작 전 '정확한 의사록 작성을 위해 본 회의는 녹음됩니다.'\n    라고 선언한 후 스마트폰이나 녹음기를 중앙에 비치한다.\n\n※ 위 절차가 완벽히 끝난 후, 마이크를 잡아 부드럽게 시작하십시오.", style: TextStyle(color: Color(0xFF991B1B), fontSize: 14, height: 1.6)),
               ],
             ),
           ),
 
+          // 🌟 [핵심] 기존의 안전한 멘트 출력 함수로 100% 원복!
           _isQuorumMet ? _buildScriptSuccess(isMobile) : _buildScriptFailed(isMobile),
         ],
       ),
     );
   }
 
-  // 🟢 [상황 A] 성원 달성 (구어체 및 기타 건의사항 접수 포함)
+  // 🟢 [상황 A] 성원 달성 (ID를 "intro_success"로 분리)
   Widget _buildScriptSuccess(bool isMobile) {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      // 🌟 [복구 및 추가] 누락되었던 소장님의 오프닝 멘트 및 퍼센트 출석률 추가
       _buildActionHint("안내 방송을 끄고 마이크를 테스트한 뒤 부드럽게 시작합니다.", isMobile),
-      _buildDialog("관리소장\n(담당자)", "존경하는 소유주 및 입주민 여러분, 바쁘신 와중에도 우리 단지의 더 나은 내일을 위해 오늘 회의에 참석해 주셔서 진심으로 감사드립니다.\n\n회의를 시작하기에 앞서 잠시 성원 보고를 드리겠습니다. 우리 단지 총 $_totalHouseholds세대 중, 감사하게도 '반상회' 앱을 통해 $_onlineVotes세대가 미리 전자 투표를 해주셨고, 오늘 이 현장에 $_offlineAttendees세대가 귀한 걸음을 해주셨습니다. 합계 총 $_totalAttendees세대, 출석률 ${_attendanceRate.toStringAsFixed(1)}% 로 법적 의결 정족수를 넉넉히 넘겨 성원되었음을 기쁜 마음으로 보고드립니다.\n\n이어서 우리 단지를 위해 늘 애쓰시는 회장(대표)님의 짧은 인사 말씀과 함께 정식 개회 선언이 있겠습니다.", safetyBlue, isMobile),
 
-      _buildDialog("회장(대표)", "여러분, 반갑습니다. 귀한 시간 내어주셔서 대단히 감사합니다. 소장님 보고대로 성원이 완벽하게 되었으므로, 지금부터 정기 총회를 적법하게 개회하겠습니다.", primaryNavy, isMobile),
+      // 👇 여기 ID가 "intro_success" 로 변경되었습니다. (멘트는 원본 그대로 100% 동일) 👇
+      _buildDialog("intro_success", "관리소장\n(담당자)", "존경하는 소유주 및 입주민 여러분, 바쁘신 와중에도 우리 단지의 더 나은 내일을 위해 오늘 회의에 참석해 주셔서 진심으로 감사드립니다.\n\n회의를 시작하기에 앞서 잠시 성원 보고를 드리겠습니다. 우리 단지 총 $_totalHouseholds세대 중, 감사하게도 '반상회' 앱을 통해 $_onlineVotes세대가 미리 전자 투표를 해주셨고, 오늘 이 현장에 $_offlineAttendees세대가 귀한 걸음을 해주셨습니다. 합계 총 $_totalAttendees세대, 출석률 ${_attendanceRate.toStringAsFixed(1)}% 로 법적 의결 정족수를 넉넉히 넘겨 성원되었음을 기쁜 마음으로 보고드립니다.\n\n이어서 우리 단지를 위해 늘 애쓰시는 회장(대표)님의 짧은 인사 말씀과 함께 정식 개회 선언이 있겠습니다.", safetyBlue, isMobile),
+
+      _buildDialog("pres_1", "회장(대표)", "여러분, 반갑습니다. 귀한 시간 내어주셔서 대단히 감사합니다. 소장님 보고대로 성원이 완벽하게 되었으므로, 지금부터 정기 총회를 적법하게 개회하겠습니다.", primaryNavy, isMobile),
       _buildActionHint("🔨 회장님은 의사봉을 3번 두드립니다. (탕! 탕! 탕!)", isMobile),
 
-      // 🌟 [추가] 회의 진행 규칙 사전 안내 (경고 및 달래기)
       const SizedBox(height: 32),
       Container(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), decoration: BoxDecoration(color: const Color(0xFFFEF2F2), borderRadius: BorderRadius.circular(8)), child: const Text("📢 회의 진행 규칙 사전 안내", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFDC2626), fontSize: 16))),
       const SizedBox(height: 16),
-      _buildDialog("관리소장\n(담당자)", "본격적인 안건 심의에 앞서, 원활한 회의 진행을 위한 사전 안내 말씀 드립니다.\n\n회의 중 상정된 안건과 무관한 발언으로 회의 진행에 심각한 방해를 초래할 경우, 관련 법령 및 관리규약(의사 진행 규칙)에 따라 부득이하게 발언권 제한 및 퇴장(퇴정) 조치가 이루어질 수 있음을 양해 부탁드립니다.\n\n안건 외에 평소 궁금하셨던 점은 회의 마지막에 '기타 건의사항' 시간을 별도로 넉넉히 마련해 두었으니, 그때 자유롭게 말씀해 주시면 성심껏 답변해 드리겠습니다. 입주민 여러분의 성숙한 협조를 부탁드립니다.", safetyBlue, isMobile),
+      _buildDialog("rules", "관리소장\n(담당자)", "본격적인 안건 심의에 앞서, 원활한 회의 진행을 위한 사전 안내 말씀 드립니다.\n\n회의 중 상정된 안건과 무관한 발언으로 회의 진행에 심각한 방해를 초래할 경우, 관련 법령 및 관리규약(의사 진행 규칙)에 따라 부득이하게 발언권 제한 및 퇴장(퇴정) 조치가 이루어질 수 있음을 양해 부탁드립니다.\n\n안건 외에 평소 궁금하셨던 점은 회의 마지막에 '기타 건의사항' 시간을 별도로 넉넉히 마련해 두었으니, 그때 자유롭게 말씀해 주시면 성심껏 답변해 드리겠습니다. 입주민 여러분의 성숙한 협조를 부탁드립니다.", safetyBlue, isMobile),
 
       ..._agendaEntries.asMap().entries.map((e) {
         var data = e.value;
+        String spokenTitle = data["title"]!.text.replaceAll(RegExp(r'\[.*?\]\s*'), '').trim();
+
         return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const SizedBox(height: 40),
           Container(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(8)), child: Text("제 ${e.key + 1}안건 심의", style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF475569), fontSize: 16))),
           const SizedBox(height: 16),
-          _buildDialog("관리소장\n(담당자)", "자, 그럼 본격적으로 오늘 준비된 안건들을 하나씩 살펴보겠습니다. 제 ${e.key + 1}안건, [${data["title"]!.text}]에 대해 설명해 드리겠습니다.\n\n소유주 여러분, 이번 안건을 상정하게 된 배경을 짧게 말씀드리면, 다름이 아니라 ${data["reason"]!.text} 때문입니다. 입주민분들의 불편을 최소화하고 단지를 올바르게 운영하기 위해 꼭 필요한 조치입니다.\n\n이에 따라 저희 관리사무소에서는 다음과 같은 세부 방안을 준비했습니다. 화면(또는 유인물)을 봐주십시오.\n\n${data["content"]!.text}\n\n참고로 본 조치는 [${data["legal"]!.text}]에 의거하여 적법하게 진행된다는 점 안내해 드립니다. 본 안건에 대해 궁금하신 점이나 더 좋은 의견 있으시면 편하게 말씀해 주십시오.", safetyBlue, isMobile),
+          _buildDialog("agenda_${e.key}_desc", "관리소장\n(담당자)", "자, 그럼 본격적으로 오늘 준비된 안건들을 하나씩 살펴보겠습니다. 제 ${e.key + 1}안건, [$spokenTitle]에 대해 설명해 드리겠습니다.\n\n소유주 여러분, 이번 안건을 상정하게 된 배경을 짧게 말씀드리면, 다름이 아니라 ${data["reason"]!.text} 때문입니다. 입주민분들의 불편을 최소화하고 단지를 올바르게 운영하기 위해 꼭 필요한 조치입니다.\n\n이에 따라 저희 관리사무소에서는 다음과 같은 세부 방안을 준비했습니다. 화면(또는 유인물)을 봐주십시오.\n\n${data["content"]!.text}\n\n참고로 본 조치는 [${data["legal"]!.text}]에 의거하여 적법하게 진행된다는 점 안내해 드립니다. 본 안건에 대해 궁금하신 점이나 더 좋은 의견 있으시면 편하게 말씀해 주십시오.", safetyBlue, isMobile),
           _buildActionHint("⏱️ 주민들의 질의응답을 성심껏 받고 현장 찬반 거수를 진행합니다.", isMobile),
-          _buildDialog("관리소장\n(담당자)", "충분한 논의가 된 것 같습니다. 집계 결과, 사전 온라인 투표 찬성표와 방금 해주신 현장 거수를 합산하여 과반수 찬성이 확인되었습니다. 회장님, 최종 의결해 주십시오.", safetyBlue, isMobile),
-          _buildDialog("회장(대표)", "네, 이상 다른 반대 의견 없으시다면 제 ${e.key + 1}안건은 원안대로 가결되었음을 선포합니다.", primaryNavy, isMobile),
+          _buildDialog("agenda_${e.key}_vote", "관리소장\n(담당자)", "충분한 논의가 된 것 같습니다. 집계 결과, 사전 온라인 투표 찬성표와 방금 해주신 현장 거수를 합산하여 과반수 찬성이 확인되었습니다. 회장님, 최종 의결해 주십시오.", safetyBlue, isMobile),
+          _buildDialog("agenda_${e.key}_resolve", "회장(대표)", "네, 이상 다른 반대 의견 없으시다면 제 ${e.key + 1}안건은 원안대로 가결되었음을 선포합니다.", primaryNavy, isMobile),
           _buildActionHint("🔨 회장 의사봉 3번 타격 (탕! 탕! 탕!)", isMobile),
         ]);
       }).toList(),
@@ -673,29 +765,29 @@ class _MeetingScriptPageState extends State<MeetingScriptPage> {
       const Divider(),
       const SizedBox(height: 24),
 
-      // 🌟 추가 기획: 정식 안건 종료 후 기타 건의사항 접수 시간
-      _buildDialog("관리소장\n(담당자)", "이상으로 오늘 상정된 정식 안건에 대한 심의를 모두 마쳤습니다. 안건 통과에 협조해 주셔서 감사합니다.\n\n다음으로, 오늘 다룬 안건 외에 평소 단지 관리에 대해 궁금하셨던 점이나, 개선이 필요하다고 느끼신 '건의 사항'이 있으시면 자유롭게 말씀해 주시기 바랍니다.", safetyBlue, isMobile),
+      _buildDialog("close_1", "관리소장\n(담당자)", "이상으로 오늘 상정된 정식 안건에 대한 심의를 모두 마쳤습니다. 안건 통과에 협조해 주셔서 감사합니다.\n\n다음으로, 오늘 다룬 안건 외에 평소 단지 관리에 대해 궁금하셨던 점이나, 개선이 필요하다고 느끼신 '건의 사항'이 있으시면 자유롭게 말씀해 주시기 바랍니다.", safetyBlue, isMobile),
       _buildActionHint("⏱️ 주민 건의사항 청취 및 메모 (즉시 답변 가능한 것은 답변하고, 검토가 필요한 부분은 '차기 안건으로 적극 검토하겠다'고 정중히 답변합니다.)", isMobile),
-
-      _buildDialog("관리소장\n(담당자)", "다양한 의견과 애정 어린 조언 진심으로 감사드립니다. 오늘 주신 말씀은 저희 관리 업무에 적극 반영하도록 하겠습니다. 더 이상 의견이 없으시면, 회장님의 폐회 선언으로 오늘 자리를 마무리하겠습니다.", safetyBlue, isMobile),
-      _buildDialog("회장(대표)", "입주민 여러분, 긴 시간 정말 수고 많으셨습니다. 이것으로 오늘 회의를 모두 마치겠습니다. 조심히 돌아가십시오. 폐회를 선언합니다.", primaryNavy, isMobile),
+      _buildDialog("close_2", "관리소장\n(담당자)", "다양한 의견과 애정 어린 조언 진심으로 감사드립니다. 오늘 주신 말씀은 저희 관리 업무에 적극 반영하도록 하겠습니다. 더 이상 의견이 없으시면, 회장님의 폐회 선언으로 오늘 자리를 마무리하겠습니다.", safetyBlue, isMobile),
+      _buildDialog("close_3", "회장(대표)", "입주민 여러분, 긴 시간 정말 수고 많으셨습니다. 이것으로 오늘 회의를 모두 마치겠습니다. 조심히 돌아가십시오. 폐회를 선언합니다.", primaryNavy, isMobile),
       _buildActionHint("🔨 마지막 의사봉 3타 (탕! 탕! 탕!) 후 박수로 마무리합니다.", isMobile),
     ]);
   }
 
-  // 🔴 [상황 B] 성원 미달 (위기 대처 구어체 변환 및 건의사항 접수 포함)
+  // 🔴 [상황 B] 성원 미달 (ID를 "intro_fail"로 분리)
   Widget _buildScriptFailed(bool isMobile) {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       _buildActionHint("분위기가 가라앉지 않도록 밝고 긍정적인 톤으로 상황을 설명합니다.", isMobile),
-      _buildDialog("관리소장\n(담당자)", "존경하는 소유주 및 입주민 여러분, 바쁘신 와중에도 우리 단지를 위해 귀한 걸음 해주셔서 진심으로 감사드립니다.\n\n본 회의에 앞서 성원 현황을 확인해 본 결과, 앱 사전 투표 $_onlineVotes명, 오늘 현장 참석 $_offlineAttendees명으로 합계 총 $_totalAttendees명, 즉 출석률 ${_attendanceRate.toStringAsFixed(1)}% 에 그쳐 안타깝게도 법적 의결 정족수인 과반수에 조금 미달하였습니다.\n\n따라서 법적으로 안건을 확정 짓는 '공식 총회'는 열 수가 없게 되었습니다. 하지만 귀한 시간 내어 오신 만큼, 오늘 자리는 단지 현안에 대해 편하게 의견을 나누는 '주민 간담회'로 대신하고자 합니다. 먼저 회장님의 짧은 인사와 안내 말씀이 있겠습니다.", safetyBlue, isMobile),
-      _buildActionHint("🚨 (주의) 성원이 안 되었으므로 절대로 의사봉을 치지 마십시오.", isMobile),
-      _buildDialog("회장(대표)", "여러분, 반갑습니다. 정족수 부족으로 오늘 안건을 통과시키지 못해 개인적으로 많이 아쉽습니다. \n\n하지만 우리 단지 발전을 위해 꼭 처리해야 할 안건들인 만큼, 소장님의 브리핑을 잘 들어주시기 바랍니다. 그리고 오늘 자정이 지나기 전에 [ O일간 ] 반상회 앱 온라인 투표 기간을 연장 오픈하겠습니다. 댁에 돌아가시면 꼭 스마트폰으로 투표해 주시고, 이웃분들에게도 적극적인 독려를 부탁드립니다.", primaryNavy, isMobile),
 
-      // 🌟 [추가] 간담회 진행 규칙 사전 안내 (경고 및 달래기)
+      // 👇 여기 ID가 "intro_fail" 로 변경되었습니다. (멘트는 원본 그대로 100% 동일) 👇
+      _buildDialog("intro_fail", "관리소장\n(담당자)", "존경하는 소유주 및 입주민 여러분, 바쁘신 와중에도 우리 단지를 위해 귀한 걸음 해주셔서 진심으로 감사드립니다.\n\n본 회의에 앞서 성원 현황을 확인해 본 결과, 앱 사전 투표 $_onlineVotes명, 오늘 현장 참석 $_offlineAttendees명으로 합계 총 $_totalAttendees명, 즉 출석률 ${_attendanceRate.toStringAsFixed(1)}% 에 그쳐 안타깝게도 법적 의결 정족수인 과반수에 조금 미달하였습니다.\n\n따라서 법적으로 안건을 확정 짓는 '공식 총회'는 열 수가 없게 되었습니다. 하지만 귀한 시간 내어 오신 만큼, 오늘 자리는 단지 현안에 대해 편하게 의견을 나누는 '주민 간담회'로 대신하고자 합니다. 먼저 회장님의 짧은 인사와 안내 말씀이 있겠습니다.", safetyBlue, isMobile),
+
+      _buildActionHint("🚨 (주의) 성원이 안 되었으므로 절대로 의사봉을 치지 마십시오.", isMobile),
+      _buildDialog("pres_fail", "회장(대표)", "여러분, 반갑습니다. 정족수 부족으로 오늘 안건을 통과시키지 못해 개인적으로 많이 아쉽습니다. \n\n하지만 우리 단지 발전을 위해 꼭 처리해야 할 안건들인 만큼, 소장님의 브리핑을 잘 들어주시기 바랍니다. 그리고 오늘 자정이 지나기 전에 [ O일간 ] 반상회 앱 온라인 투표 기간을 연장 오픈하겠습니다. 댁에 돌아가시면 꼭 스마트폰으로 투표해 주시고, 이웃분들에게도 적극적인 독려를 부탁드립니다.", primaryNavy, isMobile),
+
       const SizedBox(height: 32),
       Container(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), decoration: BoxDecoration(color: const Color(0xFFFEF2F2), borderRadius: BorderRadius.circular(8)), child: const Text("📢 간담회 진행 규칙 사전 안내", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFDC2626), fontSize: 16))),
       const SizedBox(height: 16),
-      _buildDialog("관리소장\n(담당자)", "안건 브리핑에 앞서, 원활한 간담회 진행을 위한 안내 말씀 드립니다.\n\n설명 중인 안건과 무관한 발언으로 타인의 청취를 방해하거나 진행에 심각한 지장을 초래할 경우, 부득이하게 발언권이 제한되거나 퇴장 조치될 수 있음을 양해 부탁드립니다.\n\n안건 외의 질문이나 건의 사항은 브리핑이 모두 끝난 후 '기타 건의사항' 시간에 별도로 충분히 들을 예정이니, 그때 자유롭게 말씀해 주시면 감사하겠습니다.", safetyBlue, isMobile),
+      _buildDialog("rules_fail", "관리소장\n(담당자)", "안건 브리핑에 앞서, 원활한 간담회 진행을 위한 안내 말씀 드립니다.\n\n설명 중인 안건과 무관한 발언으로 타인의 청취를 방해하거나 진행에 심각한 지장을 초래할 경우, 부득이하게 발언권이 제한되거나 퇴장 조치될 수 있음을 양해 부탁드립니다.\n\n안건 외의 질문이나 건의 사항은 브리핑이 모두 끝난 후 '기타 건의사항' 시간에 별도로 충분히 들을 예정이니, 그때 자유롭게 말씀해 주시면 감사하겠습니다.", safetyBlue, isMobile),
 
       _buildActionHint("⏱️ 이후 소장님이 준비된 안건의 '제안 사유'와 '주요 내용'만 간략히 브리핑합니다.", isMobile),
 
@@ -703,11 +795,9 @@ class _MeetingScriptPageState extends State<MeetingScriptPage> {
       const Divider(),
       const SizedBox(height: 24),
 
-      // 🌟 추가 기획: 브리핑 후 기타 건의사항 접수 시간
-      _buildDialog("관리소장\n(담당자)", "준비된 안건에 대한 설명은 여기까지입니다. 온라인 투표에 많은 참여 부탁드립니다.\n\n혹시 설명드린 내용 외에도 단지 운영과 관련하여 평소 궁금하셨던 점이나 건의하실 내용이 있다면 편하게 말씀해 주시기 바랍니다.", safetyBlue, isMobile),
+      _buildDialog("close_1_fail", "관리소장\n(담당자)", "준비된 안건에 대한 설명은 여기까지입니다. 온라인 투표에 많은 참여 부탁드립니다.\n\n혹시 설명드린 내용 외에도 단지 운영과 관련하여 평소 궁금하셨던 점이나 건의하실 내용이 있다면 편하게 말씀해 주시기 바랍니다.", safetyBlue, isMobile),
       _buildActionHint("⏱️ 주민 건의사항 청취 및 메모 (즉시 답변 가능한 것은 답변하고, 검토가 필요한 부분은 '적극 검토하겠다'고 정중히 답변합니다.)", isMobile),
-
-      _buildDialog("관리소장\n(담당자)", "다양한 의견 주셔서 대단히 감사합니다. 오늘 주신 귀한 말씀은 관리 업무에 꼼꼼히 반영하도록 하겠습니다. 이상으로 주민 간담회를 모두 마치겠습니다. 조심히 돌아가십시오.", safetyBlue, isMobile),
+      _buildDialog("close_2_fail", "관리소장\n(담당자)", "다양한 의견 주셔서 대단히 감사합니다. 오늘 주신 귀한 말씀은 관리 업무에 꼼꼼히 반영하도록 하겠습니다. 이상으로 주민 간담회를 모두 마치겠습니다. 조심히 돌아가십시오.", safetyBlue, isMobile),
       _buildActionHint("👏 참석자들에게 감사 인사를 전하며 박수로 마무리합니다. (앱 추가 투표 알림톡 발송 준비)", isMobile),
     ]);
   }
@@ -754,12 +844,21 @@ class _MeetingScriptPageState extends State<MeetingScriptPage> {
     );
   }
 
-  Widget _buildDialog(String speaker, String text, Color color, bool isMobile) {
+  // 🌟 [핵심] 이제부터 각 대본은 고유한 'id'를 가집니다.
+  Widget _buildDialog(String id, String speaker, String text, Color color, bool isMobile) {
+    // 바구니(_userEdits)에 담당자가 수정한 내용이 있으면 그걸 쓰고, 없으면 기본 멘트를 씁니다!
+    String actualText = _userEdits[id] ?? text;
+
     return EditableDialogBubble(
+      key: ValueKey(id), // 🌟 화면이 새로고침 돼도 멘트가 섞이지 않게 고정
       speaker: speaker,
-      initialText: text,
+      initialText: actualText,
       color: color,
       isMobile: isMobile,
+      onChanged: (newText) {
+        // 담당자가 화면에서 타자를 쳐서 수정하면, 즉시 바구니에 영구 저장됩니다!
+        _userEdits[id] = newText;
+      },
     );
   }
 
@@ -787,6 +886,7 @@ class EditableDialogBubble extends StatefulWidget {
   final String initialText;
   final Color color;
   final bool isMobile;
+  final Function(String)? onChanged; // 🌟 1. 이 줄이 반드시 추가되어야 합니다!
 
   const EditableDialogBubble({
     super.key,
@@ -794,6 +894,7 @@ class EditableDialogBubble extends StatefulWidget {
     required this.initialText,
     required this.color,
     required this.isMobile,
+    this.onChanged, // 🌟 2. 생성자 연결
   });
 
   @override
@@ -812,6 +913,16 @@ class _EditableDialogBubbleState extends State<EditableDialogBubble> {
     _controller = TextEditingController(text: _currentText);
   }
 
+  // 🌟 3. 부모가 텍스트(숫자)를 강제로 바꿔주면 즉시 반응하는 엔진 추가!
+  @override
+  void didUpdateWidget(EditableDialogBubble oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialText != widget.initialText) {
+      _currentText = widget.initialText;
+      _controller.text = _currentText;
+    }
+  }
+
   @override
   void dispose() {
     _controller.dispose();
@@ -823,6 +934,10 @@ class _EditableDialogBubbleState extends State<EditableDialogBubble> {
       _currentText = _controller.text;
       _isEditing = false;
     });
+    // 🌟 4. 내가 타자 친 글씨를 부모(바구니)에게 전송하여 영구 저장!
+    if (widget.onChanged != null) {
+      widget.onChanged!(_currentText);
+    }
   }
 
   @override
@@ -832,62 +947,33 @@ class _EditableDialogBubbleState extends State<EditableDialogBubble> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 화자(말하는 사람) 박스
           Container(
             width: widget.isMobile ? 80 : 100, padding: const EdgeInsets.symmetric(vertical: 10),
-            decoration: BoxDecoration(
-                color: widget.color,
-                borderRadius: BorderRadius.circular(8),
-                boxShadow: [BoxShadow(color: widget.color.withOpacity(0.3), blurRadius: 6, offset: const Offset(0, 3))]
-            ),
+            decoration: BoxDecoration(color: widget.color, borderRadius: BorderRadius.circular(8), boxShadow: [BoxShadow(color: widget.color.withOpacity(0.3), blurRadius: 6, offset: const Offset(0, 3))]),
             child: Text(widget.speaker, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: -0.5, height: 1.3)),
           ),
           const SizedBox(width: 16),
-          // 대본 내용 박스 (수정 모드 vs 읽기 모드)
           Expanded(
             child: _isEditing
-            // ✏️ [수정 모드] 텍스트 입력창과 저장 버튼
                 ? Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFF2563EB), width: 2)),
+              padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFF2563EB), width: 2)),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  TextField(
-                    controller: _controller,
-                    maxLines: null, // 여러 줄 입력 가능
-                    style: const TextStyle(fontSize: 17, height: 1.6, color: Color(0xFF334155)),
-                    decoration: const InputDecoration(border: InputBorder.none, isDense: true, hintText: "수정할 멘트를 입력하세요."),
-                  ),
+                  TextField(controller: _controller, maxLines: null, style: const TextStyle(fontSize: 17, height: 1.6, color: Color(0xFF334155)), decoration: const InputDecoration(border: InputBorder.none, isDense: true, hintText: "수정할 멘트를 입력하세요.")),
                   const SizedBox(height: 8),
-                  ElevatedButton.icon(
-                    onPressed: _saveText,
-                    icon: const Icon(Icons.check, size: 16, color: Colors.white),
-                    label: const Text("저장", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2563EB), minimumSize: const Size(80, 36)),
-                  )
+                  ElevatedButton.icon(onPressed: _saveText, icon: const Icon(Icons.check, size: 16, color: Colors.white), label: const Text("저장", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)), style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2563EB), minimumSize: const Size(80, 36)))
                 ],
               ),
             )
-            // 📖 [읽기 모드] 더블 탭 감지
                 : GestureDetector(
-              onDoubleTap: () {
-                setState(() {
-                  _controller.text = _currentText; // 수정창 열 때 최신 텍스트 유지
-                  _isEditing = true;
-                });
-              },
+              onDoubleTap: () { setState(() { _controller.text = _currentText; _isEditing = true; }); },
               child: Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFE2E8F0))),
+                padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFE2E8F0))),
                 child: Stack(
                   children: [
                     Text(_currentText, style: const TextStyle(fontSize: 17, height: 1.6, fontWeight: FontWeight.w500, color: Color(0xFF334155), letterSpacing: -0.3)),
-                    // 우측 하단에 연필 모양 힌트 아이콘 슬쩍 보여주기
-                    Positioned(
-                      right: 0, bottom: 0,
-                      child: Tooltip(message: "더블 탭하여 멘트 수정", child: Icon(Icons.edit, size: 16, color: Colors.grey.withOpacity(0.4))),
-                    )
+                    Positioned(right: 0, bottom: 0, child: Tooltip(message: "더블 탭하여 멘트 수정", child: Icon(Icons.edit, size: 16, color: Colors.grey.withOpacity(0.4))))
                   ],
                 ),
               ),

@@ -69,7 +69,7 @@ class VehicleSafetyPage extends StatelessWidget {
           const Text("우리의 약속", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
           const SizedBox(height: 16),
           Text(
-            "\"당신이 운전하는 1분 1초가 SM종합관리의 품격입니다.\n가족이 기다리는 집으로 안전하게 복귀하는 것,\n그것이 오늘 당신의 가장 중요한 임무입니다.\"",
+            "\"당신이 운전하는 1분 1초가 \nSM종합관리의 품격입니다.\n가족이 기다리는 집으로 안전하게 복귀하는 것,\n그것이 오늘 당신의 가장 중요한 임무입니다.\"",
             textAlign: TextAlign.center,
             style: TextStyle(color: Colors.blue.shade100, fontSize: 15, height: 1.8, fontStyle: FontStyle.italic),
           ),
@@ -81,7 +81,7 @@ class VehicleSafetyPage extends StatelessWidget {
   // 🚗 1단계: 파트너와의 아침 인사
   Widget _buildStep1() {
     return _buildSectionCard(
-      title: "1단계: 파트너(차량)와의 아침 인사 - 기본 점검",
+      title: "1단계: 파트너(차량)와의 아침 인사\n- 기본 점검 -",
       subtitle: "출발 전 5분의 점검이 고속도로 위 5시간의 낭패를 막습니다.",
       accentColor: safetyBlue,
       icon: Icons.directions_car, // 🌟 순정 아이콘
@@ -187,7 +187,7 @@ class VehicleSafetyPage extends StatelessWidget {
             const SizedBox(height: 24),
             _buildFlowStep("출근 및 차량 외관/누유 점검", const Color(0xFFF1F5F9)),
             const Padding(padding: EdgeInsets.symmetric(vertical: 4), child: Icon(Icons.arrow_downward, color: Color(0xFF94A3B8), size: 20)),
-            _buildFlowStep("타이어/등화장치 확인 후 안전벨트 착용 및 출발", const Color(0xFFE2E8F0)),
+            _buildFlowStep("타이어/등화장치 확인 후\n안전벨트 착용 및 출발", const Color(0xFFE2E8F0)),
             const Padding(padding: EdgeInsets.symmetric(vertical: 4), child: Icon(Icons.arrow_downward, color: Color(0xFF94A3B8), size: 20)),
 
             // 운행 중 분기
@@ -210,7 +210,7 @@ class VehicleSafetyPage extends StatelessWidget {
               runSpacing: 12,
               alignment: WrapAlignment.center,
               children: [
-                _buildFlowBranch("경사로 주차 시", "👉 P단 + 사이드 + 핸들 꺾기 + 고인목"),
+                _buildFlowBranch("경사로 주차 시", "👉 P단 + 사이드 + 핸들 꺾기\n + 고인목"),
                 _buildFlowBranch("평지 주차 시", "👉 후진 주차 및 차량 내부 정리"),
               ],
             ),
@@ -220,7 +220,7 @@ class VehicleSafetyPage extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(color: primaryNavy, borderRadius: BorderRadius.circular(8)),
-              child: const Text("✨ 안전한 현장 업무 수행 완료 (SM종합관리의 약속)", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 14), textAlign: TextAlign.center),
+              child: const Text("✨ 안전한 현장 업무 수행 완료\n(SM종합관리의 약속)", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 14), textAlign: TextAlign.center),
             ),
           ],
         ),

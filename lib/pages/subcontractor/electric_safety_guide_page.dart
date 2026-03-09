@@ -66,9 +66,9 @@ class ElectricSafetyGuidePage extends StatelessWidget {
         children: [
           const Icon(Icons.electrical_services, color: Colors.white, size: 40),
           const SizedBox(height: 16),
-          const Text("전기안전 용역업체 관리 및 평가 지침", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+          const Text("전기안전 용역업체 관리 및\n 평가 지침", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
           const SizedBox(height: 16),
-          const Text("• 관리 대상: 전기안전관리 대행업체 / 상주 전기안전관리자\n• 핵심 목표: 선(先)정밀계측 후(後)시스템보고, 측정 데이터 투명 공개", textAlign: TextAlign.center, style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.6)),
+          const Text("• 관리 대상: 전기안전관리 대행업체 / 상주 전기안전관리자\n• 핵심 목표: 선(先)정밀계측 후(後)시스템보고,\n 측정 데이터 투명 공개", textAlign: TextAlign.center, style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.6)),
         ],
       ),
     );
@@ -77,7 +77,7 @@ class ElectricSafetyGuidePage extends StatelessWidget {
   // 🔍 1. 용역업체 핵심 점검 가이드
   Widget _buildStep1_CoreCheckpoints() {
     return _buildSectionCard(
-      title: "1. 용역업체 핵심 점검 가이드 (Check-point)",
+      title: "1. 용역업체 핵심 점검 가이드\n (Check-point)",
       subtitle: "전기업체의 전문 장비 활용도를 감시하고 '수치화된 데이터'를 요구하십시오.",
       accentColor: safetyBlue,
       icon: Icons.manage_search,
@@ -101,7 +101,7 @@ class ElectricSafetyGuidePage extends StatelessWidget {
   // 💡 고경력 소장 실무 노하우
   Widget _buildFMExpertTips() {
     return _buildSectionCard(
-      title: "🔥 고경력 전문가 인사이트 (사고 원천 차단)",
+      title: "🔥 고경력 전문가 인사이트\n (사고 원천 차단)",
       subtitle: "고경력 현장 관리자가 전기업체를 관리할 때 짚고 넘어가는 실무 디테일입니다.",
       accentColor: expertPurple,
       icon: Icons.workspace_premium,
@@ -135,11 +135,16 @@ class ElectricSafetyGuidePage extends StatelessWidget {
         child: Column(
           children: [
             Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Icon(Icons.important_devices, color: primaryNavy),
                 const SizedBox(width: 8),
-                const Text("2. SM 스마트 보고 및 입주민 공개 프로세스", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
+                Expanded(
+                  child: const Text(
+                    "2. SM 스마트 보고 및 입주민 공개 프로세스",
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 24),
