@@ -8,6 +8,11 @@ import 'dart:convert'; // 🌟 추가: JSON 데이터 변환용
 import 'package:http/http.dart' as http; // 🌟 추가: API 통신용
 import '../../services/building_service.dart'; // 🌟 서비스 엔진 연결
 import '../../models/building_model.dart';   // 🌟 데이터 바구니 연결
+import 'package:flutter/services.dart'; // 🌟 클립보드 복사(카톡 전송)용
+import 'package:pdf/pdf.dart';          // 🌟 PDF 생성용
+import 'package:pdf/widgets.dart' as pw; // 🌟 PDF 디자인용
+import 'package:printing/printing.dart'; // 🌟 프린터 출력용
+import '../../main.dart';
 
 class MeetingScriptPage extends StatefulWidget {
   const MeetingScriptPage({super.key});
@@ -93,6 +98,9 @@ class _MeetingScriptPageState extends State<MeetingScriptPage> {
 
   // 👇👇 🌟 [신규 추가] 담당자가 더블클릭해서 수정한 멘트를 영구적으로 기억하는 바구니 👇👇
   Map<String, String> _userEdits = {};
+
+  // 🌟 [2단계 추가] 현재 불러온 대본의 고유 ID (이게 있어야 새 문서 안 만들고 덮어쓰기가 됩니다)
+  String? _currentScriptDocId;
 
   // 🌟 [추가] 100개 DB를 담아둘 메모리 캐시 변수
   List<Map<String, dynamic>> _dbTemplatesCache = [];
@@ -266,6 +274,356 @@ class _MeetingScriptPageState extends State<MeetingScriptPage> {
       }
     });
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("수정 멘트 보존 완료! 성원 숫자가 실시간 갱신되었습니다."), backgroundColor: Colors.green));
+  }
+
+  // =======================================================
+  // 🚀 [2단계 핵심 엔진] 서버 저장 / 불러오기 / 복사 / 프린트
+  // =======================================================
+
+  // 1. 💾 서버 덮어쓰기 저장 엔진
+  Future<void> _saveToFirestore() async {
+    if (_selectedBuilding == null || _selectedBuilding!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("건물(단지)을 먼저 검색하여 연동해주세요.")));
+      return;
+    }
+    try {
+      final data = {
+        'buildingName': _selectedBuilding,
+        'address': _buildingInfo?.address ?? '',
+        'author': GlobalUserState.fullName, // 현재 로그인한 담당자
+        'timestamp': FieldValue.serverTimestamp(),
+        'totalHouseholds': _totalHouseholdsCtrl.text,
+        'onlineVotes': _onlineVotesCtrl.text,
+        'offlineAttendees': _offlineAttendeesCtrl.text,
+        'agendas': _agendaEntries.map((e) => {
+          'title': e['title']!.text, 'reason': e['reason']!.text,
+          'content': e['content']!.text, 'legal': e['legal']!.text,
+        }).toList(),
+        'userEdits': _userEdits, // 🌟 담당자가 영혼을 갈아 넣은 수정 멘트 그대로 저장!
+      };
+
+      if (_currentScriptDocId == null) {
+        var docRef = await FirebaseFirestore.instance.collection('meeting_scripts').add(data);
+        setState(() => _currentScriptDocId = docRef.id); // 새 ID 기억
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("✅ 대본이 서버에 새롭게 저장되었습니다."), backgroundColor: Colors.green));
+      } else {
+        await FirebaseFirestore.instance.collection('meeting_scripts').doc(_currentScriptDocId).update(data);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("✅ 기존 대본에 덮어쓰기 업데이트가 완료되었습니다."), backgroundColor: Colors.blue));
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("저장 실패: $e")));
+    }
+  }
+
+  // 2. 📂 서버에서 불러오기 팝업 띄우는 엔진
+  void _openLoadScriptDialog() async {
+    final selectedDoc = await showDialog<DocumentSnapshot>(
+      context: context,
+      builder: (ctx) => SavedScriptSearchDialog(),
+    );
+
+    if (selectedDoc != null) {
+      var data = selectedDoc.data() as Map<String, dynamic>;
+      setState(() {
+        _currentScriptDocId = selectedDoc.id;
+        _selectedBuilding = data['buildingName'] ?? '';
+        _totalHouseholdsCtrl.text = data['totalHouseholds'] ?? '';
+        _onlineVotesCtrl.text = data['onlineVotes'] ?? '';
+        _offlineAttendeesCtrl.text = data['offlineAttendees'] ?? '';
+
+        // 안건 데이터 100% 복원
+        _agendaEntries.clear();
+        List<dynamic> agendas = data['agendas'] ?? [];
+        if (agendas.isEmpty) {
+          _addAgenda();
+        } else {
+          for (var a in agendas) {
+            _agendaEntries.add({
+              "title": TextEditingController(text: a['title']), "reason": TextEditingController(text: a['reason']),
+              "content": TextEditingController(text: a['content']), "legal": TextEditingController(text: a['legal']),
+            });
+          }
+        }
+
+        // 🌟 수정했던 멘트 바구니 100% 복원
+        _userEdits.clear();
+        if (data['userEdits'] != null) {
+          _userEdits = Map<String, String>.from(data['userEdits']);
+        }
+
+        _isScriptGenerated = true;
+        _refreshQuorumOnly(); // 불러온 즉시 성원 계산 및 렌더링 갱신
+      });
+
+      // 👇👇 🌟 [여기 추가됨!] 대본을 다 불러온 직후, 건물 이름이 있으면 국토부 API를 자동으로 다시 호출합니다! 👇👇
+      if (_selectedBuilding != null && _selectedBuilding!.isNotEmpty) {
+        _fetchBuildingInfoFromMOLIT(_selectedBuilding!);
+      }
+    }
+  }
+
+  // 3. (도우미) 화면에 있는 대본 100% 원문 + [진행 요령]까지 전부 긁어오는 엔진
+  List<Map<String, dynamic>> _getCurrentScriptData() {
+    List<Map<String, dynamic>> list = [];
+    String rateStr = _attendanceRate.toStringAsFixed(1);
+
+    // 대사 추가용
+    void addDialog(String id, String speaker, String defaultText) {
+      list.add({"type": "dialog", "speaker": speaker, "text": _userEdits[id] ?? defaultText});
+    }
+    // 🌟 [추가] 행동 요령(의사봉 등) 추가용
+    void addHint(String text) {
+      list.add({"type": "hint", "text": text});
+    }
+
+    if (_isQuorumMet) {
+      addHint("안내 방송을 끄고 마이크를 테스트한 뒤 부드럽게 시작합니다.");
+      addDialog("intro_success", "관리소장\n(담당자)", "존경하는 소유주 및 입주민 여러분, 바쁘신 와중에도 우리 단지의 더 나은 내일을 위해 오늘 회의에 참석해 주셔서 진심으로 감사드립니다.\n\n회의를 시작하기에 앞서 잠시 성원 보고를 드리겠습니다. 우리 단지 총 $_totalHouseholds세대 중, 감사하게도 '반상회' 앱을 통해 $_onlineVotes세대가 미리 전자 투표를 해주셨고, 오늘 이 현장에 $_offlineAttendees세대가 귀한 걸음을 해주셨습니다. 합계 총 $_totalAttendees세대, 출석률 $rateStr% 로 법적 의결 정족수를 넉넉히 넘겨 성원되었음을 기쁜 마음으로 보고드립니다.\n\n이어서 우리 단지를 위해 늘 애쓰시는 회장(대표)님의 짧은 인사 말씀과 함께 정식 개회 선언이 있겠습니다.");
+      addDialog("pres_1", "회장(대표)", "여러분, 반갑습니다. 귀한 시간 내어주셔서 대단히 감사합니다. 소장님 보고대로 성원이 완벽하게 되었으므로, 지금부터 정기 총회를 적법하게 개회하겠습니다.");
+      addHint("🔨 회장님은 의사봉을 3번 두드립니다. (탕! 탕! 탕!)");
+
+      addDialog("rules", "관리소장\n(담당자)", "본격적인 안건 심의에 앞서, 원활한 회의 진행을 위한 사전 안내 말씀 드립니다.\n\n회의 중 상정된 안건과 무관한 발언으로 회의 진행에 심각한 방해를 초래할 경우, 관련 법령 및 관리규약(의사 진행 규칙)에 따라 부득이하게 발언권 제한 및 퇴장(퇴정) 조치가 이루어질 수 있음을 양해 부탁드립니다.\n\n안건 외에 평소 궁금하셨던 점은 회의 마지막에 '기타 건의사항' 시간을 별도로 넉넉히 마련해 두었으니, 그때 자유롭게 말씀해 주시면 성심껏 답변해 드리겠습니다. 입주민 여러분의 성숙한 협조를 부탁드립니다.");
+
+      for (int i = 0; i < _agendaEntries.length; i++) {
+        var data = _agendaEntries[i];
+        String spokenTitle = data["title"]!.text.replaceAll(RegExp(r'\[.*?\]\s*'), '').trim();
+        addDialog("agenda_${i}_desc", "관리소장\n(담당자)", "자, 그럼 본격적으로 오늘 준비된 안건들을 하나씩 살펴보겠습니다. 제 ${i + 1}안건, [$spokenTitle]에 대해 설명해 드리겠습니다.\n\n소유주 여러분, 이번 안건을 상정하게 된 배경을 짧게 말씀드리면, 다름이 아니라 ${data["reason"]!.text} 때문입니다. 입주민분들의 불편을 최소화하고 단지를 올바르게 운영하기 위해 꼭 필요한 조치입니다.\n\n이에 따라 저희 관리사무소에서는 다음과 같은 세부 방안을 준비했습니다. 화면(또는 유인물)을 봐주십시오.\n\n${data["content"]!.text}\n\n참고로 본 조치는 [${data["legal"]!.text}]에 의거하여 적법하게 진행된다는 점 안내해 드립니다. 본 안건에 대해 궁금하신 점이나 더 좋은 의견 있으시면 편하게 말씀해 주십시오.");
+        addHint("⏱️ 주민들의 질의응답을 성심껏 받고 현장 찬반 거수를 진행합니다.");
+        addDialog("agenda_${i}_vote", "관리소장\n(담당자)", "충분한 논의가 된 것 같습니다. 집계 결과, 사전 온라인 투표 찬성표와 방금 해주신 현장 거수를 합산하여 과반수 찬성이 확인되었습니다. 회장님, 최종 의결해 주십시오.");
+        addDialog("agenda_${i}_resolve", "회장(대표)", "네, 이상 다른 반대 의견 없으시다면 제 ${i + 1}안건은 원안대로 가결되었음을 선포합니다.");
+        addHint("🔨 회장 의사봉 3번 타격 (탕! 탕! 탕!)");
+      }
+
+      addDialog("close_1", "관리소장\n(담당자)", "이상으로 오늘 상정된 정식 안건에 대한 심의를 모두 마쳤습니다. 안건 통과에 협조해 주셔서 감사합니다.\n\n다음으로, 오늘 다룬 안건 외에 평소 단지 관리에 대해 궁금하셨던 점이나, 개선이 필요하다고 느끼신 '건의 사항'이 있으시면 자유롭게 말씀해 주시기 바랍니다.");
+      addHint("⏱️ 주민 건의사항 청취 및 메모 (즉시 답변 가능한 것은 답변하고, 검토가 필요한 부분은 '차기 안건으로 적극 검토하겠다'고 정중히 답변합니다.)");
+      addDialog("close_2", "관리소장\n(담당자)", "다양한 의견과 애정 어린 조언 진심으로 감사드립니다. 오늘 주신 말씀은 저희 관리 업무에 적극 반영하도록 하겠습니다. 더 이상 의견이 없으시면, 회장님의 폐회 선언으로 오늘 자리를 마무리하겠습니다.");
+      addDialog("close_3", "회장(대표)", "입주민 여러분, 긴 시간 정말 수고 많으셨습니다. 이것으로 오늘 회의를 모두 마치겠습니다. 조심히 돌아가십시오. 폐회를 선언합니다.");
+      addHint("🔨 마지막 의사봉 3타 (탕! 탕! 탕!) 후 박수로 마무리합니다.");
+    } else {
+      addHint("분위기가 가라앉지 않도록 밝고 긍정적인 톤으로 상황을 설명합니다.");
+      addDialog("intro_fail", "관리소장\n(담당자)", "존경하는 소유주 및 입주민 여러분, 바쁘신 와중에도 우리 단지를 위해 귀한 걸음 해주셔서 진심으로 감사드립니다.\n\n본 회의에 앞서 성원 현황을 확인해 본 결과, 앱 사전 투표 $_onlineVotes명, 오늘 현장 참석 $_offlineAttendees명으로 합계 총 $_totalAttendees명, 즉 출석률 $rateStr% 에 그쳐 안타깝게도 법적 의결 정족수인 과반수에 조금 미달하였습니다.\n\n따라서 법적으로 안건을 확정 짓는 '공식 총회'는 열 수가 없게 되었습니다. 하지만 귀한 시간 내어 오신 만큼, 오늘 자리는 단지 현안에 대해 편하게 의견을 나누는 '주민 간담회'로 대신하고자 합니다. 먼저 회장님의 짧은 인사와 안내 말씀이 있겠습니다.");
+      addHint("🚨 (주의) 성원이 안 되었으므로 절대로 의사봉을 치지 마십시오.");
+      addDialog("pres_fail", "회장(대표)", "여러분, 반갑습니다. 정족수 부족으로 오늘 안건을 통과시키지 못해 개인적으로 많이 아쉽습니다. \n\n하지만 우리 단지 발전을 위해 꼭 처리해야 할 안건들인 만큼, 소장님의 브리핑을 잘 들어주시기 바랍니다. 그리고 오늘 자정이 지나기 전에 [ O일간 ] 반상회 앱 온라인 투표 기간을 연장 오픈하겠습니다. 댁에 돌아가시면 꼭 스마트폰으로 투표해 주시고, 이웃분들에게도 적극적인 독려를 부탁드립니다.");
+      addDialog("rules_fail", "관리소장\n(담당자)", "안건 브리핑에 앞서, 원활한 간담회 진행을 위한 안내 말씀 드립니다.\n\n설명 중인 안건과 무관한 발언으로 타인의 청취를 방해하거나 진행에 심각한 지장을 초래할 경우, 부득이하게 발언권이 제한되거나 퇴장 조치될 수 있음을 양해 부탁드립니다.\n\n안건 외의 질문이나 건의 사항은 브리핑이 모두 끝난 후 '기타 건의사항' 시간에 별도로 충분히 들을 예정이니, 그때 자유롭게 말씀해 주시면 감사하겠습니다.");
+      addHint("⏱️ 이후 소장님이 준비된 안건의 '제안 사유'와 '주요 내용'만 간략히 브리핑합니다.");
+      addDialog("close_1_fail", "관리소장\n(담당자)", "준비된 안건에 대한 설명은 여기까지입니다. 온라인 투표에 많은 참여 부탁드립니다.\n\n혹시 설명드린 내용 외에도 단지 운영과 관련하여 평소 궁금하셨던 점이나 건의하실 내용이 있다면 편하게 말씀해 주시기 바랍니다.");
+      addHint("⏱️ 주민 건의사항 청취 및 메모 (즉시 답변 가능한 것은 답변하고, 검토가 필요한 부분은 '적극 검토하겠다'고 정중히 답변합니다.)");
+      addDialog("close_2_fail", "관리소장\n(담당자)", "다양한 의견 주셔서 대단히 감사합니다. 오늘 주신 귀한 말씀은 관리 업무에 꼼꼼히 반영하도록 하겠습니다. 이상으로 주민 간담회를 모두 마치겠습니다. 조심히 돌아가십시오.");
+      addHint("👏 참석자들에게 감사 인사를 전하며 박수로 마무리합니다. (앱 추가 투표 알림톡 발송 준비)");
+    }
+    return list;
+  }
+
+  // 4. 📑 카카오톡/문자 원터치 전체 복사 엔진 (제원, 안건, 원문 대본 풀 패키지)
+  void _copyToClipboard() {
+    StringBuffer sb = StringBuffer();
+
+    // 1. 헤더
+    sb.writeln("📌 [$_selectedBuilding] 회의 진행 총괄 프롬프터");
+    sb.writeln("👤 작성자: ${GlobalUserState.fullName} 담당자");
+    sb.writeln("🕒 기준일: ${DateTime.now().toString().substring(0, 16)}");
+    sb.writeln("-----------------------------------");
+    sb.writeln("");
+
+    // 2. 건물 제원 연동 (빠짐없이 세로 정렬)
+    if (_buildingInfo != null) {
+      sb.writeln("🏢 [건물 핵심 제원]");
+      sb.writeln("📍 주소: ${_buildingInfo!.address}");
+      sb.writeln("📐 대지/연면적: ${_buildingInfo!.platArea} / ${_buildingInfo!.totalArea}");
+      sb.writeln("🏢 주용도: ${_buildingInfo!.mainPurpose}");
+      sb.writeln("📅 사용승인일: ${_buildingInfo!.useAprvDate}");
+      sb.writeln("🏗️ 건축규모: ${_buildingInfo!.flrInfo}");
+      sb.writeln("🏠 세대/가구: ${_buildingInfo!.householdInfo}");
+      sb.writeln("🚗 주차장: ${_buildingInfo!.parkingInfo}");
+      sb.writeln("🛗 승강기: ${_buildingInfo!.liftInfo}");
+      sb.writeln("-----------------------------------");
+      sb.writeln("");
+    }
+
+    // 3. 성원 확인
+    String rateStr = _attendanceRate.toStringAsFixed(1);
+    sb.writeln("👥 [성원 확인 현황]");
+    sb.writeln("🔹 총 세대(의결권) 수: $_totalHouseholds 세대");
+    sb.writeln("🔹 앱 사전투표 참여: $_onlineVotes 세대");
+    sb.writeln("🔹 현장 참석자 수: $_offlineAttendees 세대");
+    sb.writeln("✅ 출석률: $rateStr% (${_isQuorumMet ? '성원 달성' : '성원 미달'})");
+    sb.writeln("-----------------------------------");
+    sb.writeln("");
+
+    // 4. 안건 상세 내용
+    sb.writeln("📋 [상정된 회의 안건 상세]");
+    for (int i = 0; i < _agendaEntries.length; i++) {
+      var data = _agendaEntries[i];
+      sb.writeln("<제 ${i + 1}안건> ${data['title']!.text}");
+      sb.writeln(" - 제안 사유: ${data['reason']!.text}");
+      sb.writeln(" - 주요 내용: ${data['content']!.text}");
+      sb.writeln(" - 법적 근거: ${data['legal']!.text}");
+      sb.writeln("");
+    }
+    sb.writeln("-----------------------------------");
+    sb.writeln("");
+
+    // 5. 100% 원문 대본 (+ 🌟 행동 요령 추가)
+    sb.writeln("🎙️ [실전 회의 프롬프터 대본]");
+    final scriptData = _getCurrentScriptData();
+    for (var line in scriptData) {
+      if (line['type'] == 'hint') {
+        // 🌟 지시문은 알아보기 쉽게 화살표와 함께 표기
+        sb.writeln("👉 [진행 요령] ${line['text']}");
+        sb.writeln("");
+      } else {
+        bool isManager = line['speaker'].contains('소장') || line['speaker'].contains('담당');
+        String icon = isManager ? "🟦" : "⬛"; // 파란색, 검은색 블록 이모지 부여
+
+        sb.writeln("$icon [ ${line['speaker'].replaceAll('\n', ' ')} ]");
+        sb.writeln("${line['text']}");
+        sb.writeln("");
+      }
+    }
+
+    Clipboard.setData(ClipboardData(text: sb.toString()));
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("✅ 건물제원, 안건, 전체 대본이 모두 복사되었습니다! 카톡창에 붙여넣으세요."), backgroundColor: Color(0xFFD97706)));
+  }
+
+  // 5. 🖨️ A4 프리미엄 컬러 프린트 엔진 (풀 리포트 형식)
+  Future<void> _printPdf() async {
+    final doc = pw.Document();
+    final font = await PdfGoogleFonts.nanumGothicRegular();
+    final boldFont = await PdfGoogleFonts.nanumGothicBold();
+
+    final scriptData = _getCurrentScriptData();
+    String rateStr = _attendanceRate.toStringAsFixed(1);
+
+    doc.addPage(
+        pw.MultiPage(
+            theme: pw.ThemeData.withFont(base: font, bold: boldFont),
+            pageFormat: PdfPageFormat.a4,
+            margin: const pw.EdgeInsets.all(40),
+            build: (context) => [
+              // 1. 보고서 헤더
+              pw.Container(
+                  padding: const pw.EdgeInsets.only(bottom: 20),
+                  decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(color: PdfColors.grey300, width: 2))),
+                  child: pw.Row(
+                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                      children: [
+                        pw.Text("[$_selectedBuilding] 회의 총괄 프롬프터", style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold, color: PdfColor.fromHex('#0F172A'))),
+                        pw.Column(
+                            crossAxisAlignment: pw.CrossAxisAlignment.end,
+                            children: [
+                              pw.Text("작성자: ${GlobalUserState.fullName}", style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+                              pw.Text("출력일시: ${DateTime.now().toString().substring(0, 16)}", style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+                            ]
+                        )
+                      ]
+                  )
+              ),
+              pw.SizedBox(height: 20),
+
+              // 👇👇 🌟 [고도화 완료] 건물 제원 정보 (가로 자동 줄바꿈 Wrap 적용) 👇👇
+              if (_buildingInfo != null) ...[
+                pw.Text("🏢 건물 핵심 제원", style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+                pw.SizedBox(height: 8),
+                pw.Container(
+                    width: double.infinity, // 박스를 가로로 꽉 채움
+                    padding: const pw.EdgeInsets.all(12),
+                    decoration: pw.BoxDecoration(color: PdfColor.fromHex('#F8FAFC'), borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8))),
+                    child: pw.Wrap( // 🌟 세로형 Column 대신 가로 자동 줄바꿈 Wrap 사용!
+                        spacing: 24, // 항목 간 가로 간격 넉넉하게
+                        runSpacing: 10, // 자리가 모자라 밑으로 내려갔을 때의 세로 간격
+                        children: [
+                          pw.Text("• 주소: ${_buildingInfo!.address}", style: const pw.TextStyle(fontSize: 10)),
+                          pw.Text("• 대지/연면적: ${_buildingInfo!.platArea} / ${_buildingInfo!.totalArea}", style: const pw.TextStyle(fontSize: 10)),
+                          pw.Text("• 주용도: ${_buildingInfo!.mainPurpose}", style: const pw.TextStyle(fontSize: 10)),
+                          pw.Text("• 사용승인일: ${_buildingInfo!.useAprvDate}", style: const pw.TextStyle(fontSize: 10)),
+                          pw.Text("• 건축규모: ${_buildingInfo!.flrInfo}", style: const pw.TextStyle(fontSize: 10)),
+                          pw.Text("• 세대/가구: ${_buildingInfo!.householdInfo}", style: const pw.TextStyle(fontSize: 10)),
+                          pw.Text("• 주차장: ${_buildingInfo!.parkingInfo}", style: const pw.TextStyle(fontSize: 10)),
+                          pw.Text("• 승강기: ${_buildingInfo!.liftInfo}", style: const pw.TextStyle(fontSize: 10)),
+                        ]
+                    )
+                ),
+                pw.SizedBox(height: 20),
+              ],
+              // 👆👆 ========================================================== 👆👆
+
+              // 3. 성원 확인 현황
+              pw.Text("👥 성원 확인 현황", style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+              pw.SizedBox(height: 8),
+              pw.Container(
+                  padding: const pw.EdgeInsets.all(10),
+                  decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey300), borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8))),
+                  child: pw.Row(
+                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                      children: [
+                        pw.Text("총 세대수: $_totalHouseholds 세대", style: const pw.TextStyle(fontSize: 11)),
+                        pw.Text("앱 사전투표: $_onlineVotes 세대", style: const pw.TextStyle(fontSize: 11)),
+                        pw.Text("현장 참석자: $_offlineAttendees 세대", style: const pw.TextStyle(fontSize: 11)),
+                        pw.Text("출석률: $rateStr% (${_isQuorumMet ? '성원 달성' : '성원 미달'})", style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold, color: _isQuorumMet ? PdfColors.green700 : PdfColors.red700)),
+                      ]
+                  )
+              ),
+              pw.SizedBox(height: 20),
+
+              // 4. 상세 회의 안건
+              pw.Text("📋 회의 안건 상세", style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+              pw.SizedBox(height: 8),
+              ..._agendaEntries.asMap().entries.map((e) {
+                var data = e.value;
+                return pw.Container(
+                    margin: const pw.EdgeInsets.only(bottom: 10),
+                    padding: const pw.EdgeInsets.all(10),
+                    decoration: pw.BoxDecoration(color: PdfColor.fromHex('#F1F5F9'), borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8))),
+                    child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text("<제 ${e.key + 1}안건> ${data['title']!.text}", style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                          pw.SizedBox(height: 4),
+                          pw.Text("• 제안 사유: ${data['reason']!.text}", style: const pw.TextStyle(fontSize: 10)),
+                          pw.Text("• 주요 내용: ${data['content']!.text}", style: const pw.TextStyle(fontSize: 10)),
+                          pw.Text("• 법적 근거: ${data['legal']!.text}", style: const pw.TextStyle(fontSize: 10)),
+                        ]
+                    )
+                );
+              }).toList(),
+              pw.SizedBox(height: 20),
+
+              // 5. 100% 원문 대본 (+ 행동 요령 삽입)
+              pw.Text("🎙️ 실전 회의 프롬프터 대본", style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+              pw.SizedBox(height: 12),
+              ...scriptData.map((e) {
+                if (e['type'] == 'hint') {
+                  return pw.Container(
+                      margin: const pw.EdgeInsets.only(bottom: 16),
+                      padding: const pw.EdgeInsets.symmetric(vertical: 6, horizontal: 10),
+                      decoration: pw.BoxDecoration(color: PdfColor.fromHex('#FFFBEB'), border: pw.Border.all(color: PdfColor.fromHex('#FDE68A')), borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4))),
+                      child: pw.Text("👉 [진행요령] ${e['text']}", style: pw.TextStyle(fontSize: 10, color: PdfColor.fromHex('#B45309'), fontWeight: pw.FontWeight.bold))
+                  );
+                } else {
+                  bool isManager = e['speaker'].contains('소장') || e['speaker'].contains('담당');
+                  PdfColor bgColor = isManager ? PdfColor.fromHex('#2563EB') : PdfColor.fromHex('#0F172A');
+
+                  return pw.Container(
+                      margin: const pw.EdgeInsets.only(bottom: 16),
+                      child: pw.Row(
+                          crossAxisAlignment: pw.CrossAxisAlignment.start,
+                          children: [
+                            pw.Container(
+                              width: 70, padding: const pw.EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+                              decoration: pw.BoxDecoration(color: bgColor, borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6))),
+                              child: pw.Text(e['speaker'].replaceAll('\n', ' '), style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 9), textAlign: pw.TextAlign.center),
+                            ),
+                            pw.SizedBox(width: 12),
+                            pw.Expanded(child: pw.Text(e['text'], style: const pw.TextStyle(fontSize: 11, lineSpacing: 1.5))),
+                          ]
+                      )
+                  );
+                }
+              }).toList()
+            ]
+        )
+    );
+    await Printing.layoutPdf(onLayout: (format) async => doc.save(), name: "[$_selectedBuilding]_회의자료총괄");
   }
 
   // (도우미) 숫자 계산 공통 함수
@@ -514,34 +872,48 @@ class _MeetingScriptPageState extends State<MeetingScriptPage> {
           ),
           const SizedBox(height: 24),
 
-          // 👇👇 🌟 [수정] 대본 생성 버튼과 새로고침 버튼을 나란히 배치 👇👇
+          // 👇👇 🌟 [모바일 반응형 최적화] 대본 생성 버튼과 새로고침 버튼 👇👇
           Row(
             children: [
               Expanded(
-                flex: 2,
+                flex: isMobile ? 1 : 2,
                 child: SizedBox(
                   height: 56,
                   child: ElevatedButton.icon(
                     onPressed: _generateScript,
-                    icon: const Icon(Icons.auto_awesome, color: Colors.white, size: 24),
-                    label: const Text("프롬프터 멘트 초안 세팅", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16, letterSpacing: -0.5)),
+                    icon: const Icon(Icons.auto_awesome, color: Colors.white, size: 20),
+                    // 🌟 FittedBox를 씌워서 모바일에서 글씨가 짤리지 않고 자동으로 작아지게 만듭니다.
+                    label: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text("프롬프터 초안 세팅", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: isMobile ? 14 : 16, letterSpacing: -0.5))
+                    ),
                     style: ElevatedButton.styleFrom(backgroundColor: safetyBlue, elevation: 4, shadowColor: safetyBlue.withOpacity(0.4), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
                   ),
                 ),
               ),
-              if (_isScriptGenerated) const SizedBox(width: 12),
-              if (_isScriptGenerated) Expanded(
-                flex: 1,
-                child: SizedBox(
-                  height: 56,
-                  child: ElevatedButton.icon(
+              if (_isScriptGenerated) const SizedBox(width: 8), // 간격 살짝 줄임
+              if (_isScriptGenerated)
+                isMobile
+                    ? SizedBox(
+                  height: 56, width: 56, // 🌟 모바일: 텍스트 없이 정사각형 회전 아이콘만!
+                  child: ElevatedButton(
                     onPressed: _refreshQuorumOnly,
-                    icon: const Icon(Icons.refresh, color: Colors.white, size: 20),
-                    label: const Text("성원 새로고침", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
-                    style: ElevatedButton.styleFrom(backgroundColor: successGreen, elevation: 4, shadowColor: successGreen.withOpacity(0.4), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                    style: ElevatedButton.styleFrom(padding: EdgeInsets.zero, backgroundColor: successGreen, elevation: 4, shadowColor: successGreen.withOpacity(0.4), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                    child: const Icon(Icons.autorenew, color: Colors.white, size: 28),
+                  ),
+                )
+                    : Expanded(
+                  flex: 1,
+                  child: SizedBox(
+                    height: 56,
+                    child: ElevatedButton.icon(
+                      onPressed: _refreshQuorumOnly,
+                      icon: const Icon(Icons.autorenew, color: Colors.white, size: 20),
+                      label: const FittedBox(fit: BoxFit.scaleDown, child: Text("성원 새로고침", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15))),
+                      style: ElevatedButton.styleFrom(backgroundColor: successGreen, elevation: 4, shadowColor: successGreen.withOpacity(0.4), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                    ),
                   ),
                 ),
-              ),
             ],
           ),
         ],
@@ -722,9 +1094,49 @@ class _MeetingScriptPageState extends State<MeetingScriptPage> {
             ),
           ),
 
-          // 🌟 [핵심] 기존의 안전한 멘트 출력 함수로 100% 원복!
+          // 🌟 기존 멘트 출력
           _isQuorumMet ? _buildScriptSuccess(isMobile) : _buildScriptFailed(isMobile),
+
+          // 👇👇 🌟 [2단계 신규 추가] 하단 액션 버튼 3종 세트 👇👇
+          const SizedBox(height: 40),
+          const Divider(height: 1, color: Color(0xFFCBD5E1)),
+          const SizedBox(height: 24),
+          isMobile
+              ? Column( // 모바일은 세로로 나열
+              children: [
+                _actionButton(Icons.save, "현재 대본 서버에 저장", safetyBlue, _saveToFirestore),
+                const SizedBox(height: 12),
+                _actionButton(Icons.copy, "카톡 전송용 전체 복사", const Color(0xFFD97706), _copyToClipboard),
+                const SizedBox(height: 12),
+                _actionButton(Icons.print, "A4 컬러 인쇄 및 PDF", primaryNavy, _printPdf),
+              ]
+          )
+              : Row( // PC/태블릿은 가로로 나열
+              children: [
+                Expanded(child: _actionButton(Icons.save, "대본 서버 저장 (덮어쓰기)", safetyBlue, _saveToFirestore)),
+                const SizedBox(width: 12),
+                Expanded(child: _actionButton(Icons.copy, "카톡용 전체 복사 (이모지)", const Color(0xFFD97706), _copyToClipboard)),
+                const SizedBox(width: 12),
+                Expanded(child: _actionButton(Icons.print, "A4 컬러 인쇄 / PDF 다운", primaryNavy, _printPdf)),
+              ]
+          )
         ],
+      ),
+    );
+  }
+
+  // (도우미) 3단 버튼 그리는 함수 - 🌟 모바일 글씨 짤림 방지 (FittedBox 적용)
+  Widget _actionButton(IconData icon, String text, Color color, VoidCallback onTap) {
+    return SizedBox(
+      height: 56, width: double.infinity,
+      child: ElevatedButton.icon(
+        onPressed: onTap,
+        icon: Icon(icon, color: Colors.white, size: 20),
+        label: FittedBox( // 🌟 글씨가 길면 두 줄로 깨지지 않고 한 줄로 압축됩니다.
+            fit: BoxFit.scaleDown,
+            child: Text(text, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.white))
+        ),
+        style: ElevatedButton.styleFrom(backgroundColor: color, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
       ),
     );
   }
@@ -802,16 +1214,43 @@ class _MeetingScriptPageState extends State<MeetingScriptPage> {
     ]);
   }
 
-  // 🛠️ UI 헬퍼 메서드들
+  // 🛠️ UI 헬퍼 메서드들 (모바일 반응형 최적화)
   Widget _buildCardWrapper({required String title, required IconData icon, required bool isMobile, required Widget child}) {
     return Container(
-      padding: EdgeInsets.all(isMobile ? 20 : 32),
+      padding: EdgeInsets.all(isMobile ? 16 : 32), // 🌟 모바일에서는 내부 여백을 줄여 공간 확보
       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0xFFE2E8F0)), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4))]),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [Icon(icon, color: textMain, size: 24), const SizedBox(width: 12), Expanded(child: Text(title, style: TextStyle(fontSize: isMobile ? 16 : 18, fontWeight: FontWeight.bold, color: textMain, letterSpacing: -0.5)))]),
-          const Padding(padding: EdgeInsets.symmetric(vertical: 20), child: Divider(height: 1)),
+          Row(
+              children: [
+                Icon(icon, color: textMain, size: isMobile ? 20 : 24),
+                const SizedBox(width: 8),
+                Expanded(child: Text(title, style: TextStyle(fontSize: isMobile ? 15 : 18, fontWeight: FontWeight.bold, color: textMain, letterSpacing: -0.5))),
+
+                // 👇 🌟 [모바일 최적화] 화면이 좁으면 화살표 아이콘만, 넓으면 전체 버튼 표시 👇
+                if (title.contains("건물 제원 연동"))
+                  isMobile
+                      ? Container(
+                    margin: const EdgeInsets.only(left: 8),
+                    decoration: BoxDecoration(color: const Color(0xFF475569), borderRadius: BorderRadius.circular(8)),
+                    child: IconButton(
+                      constraints: const BoxConstraints(),
+                      padding: const EdgeInsets.all(8),
+                      onPressed: _openLoadScriptDialog,
+                      icon: const Icon(Icons.file_download, size: 20, color: Colors.white),
+                      tooltip: "저장된 대본 불러오기",
+                    ),
+                  )
+                      : ElevatedButton.icon(
+                    onPressed: _openLoadScriptDialog,
+                    icon: const Icon(Icons.folder_shared, size: 16, color: Colors.white),
+                    label: const Text("저장된 대본 불러오기", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF475569), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+                  )
+              ]
+          ),
+          const Padding(padding: EdgeInsets.symmetric(vertical: 16), child: Divider(height: 1)),
           child,
         ],
       ),
@@ -1137,6 +1576,136 @@ class _AgendaSearchDialogState extends State<AgendaSearchDialog> {
             Align(
               alignment: Alignment.centerRight,
               child: TextButton(onPressed: () => Navigator.pop(context), child: const Text("닫기", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
+            )
+          ],
+        ),
+      ),
+    );
+  }
+}
+// ---------------------------------------------------------
+// 🌟 [2단계 신규] 저장된 대본 통합 검색 및 불러오기 다이얼로그 (삭제 기능 포함)
+// ---------------------------------------------------------
+class SavedScriptSearchDialog extends StatefulWidget {
+  const SavedScriptSearchDialog({super.key});
+  @override
+  State<SavedScriptSearchDialog> createState() => _SavedScriptSearchDialogState();
+}
+
+class _SavedScriptSearchDialogState extends State<SavedScriptSearchDialog> {
+  final TextEditingController _searchCtrl = TextEditingController();
+  List<DocumentSnapshot> _allDocs = [];
+  List<DocumentSnapshot> _filteredDocs = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchSavedScripts();
+  }
+
+  Future<void> _fetchSavedScripts() async {
+    final snapshot = await FirebaseFirestore.instance.collection('meeting_scripts').orderBy('timestamp', descending: true).get();
+    setState(() {
+      _allDocs = snapshot.docs;
+      _filteredDocs = _allDocs;
+    });
+  }
+
+  void _runSearch(String query) {
+    setState(() {
+      if (query.isEmpty) {
+        _filteredDocs = _allDocs;
+      } else {
+        _filteredDocs = _allDocs.where((doc) {
+          var d = doc.data() as Map<String, dynamic>;
+          String building = (d['buildingName'] ?? '').toString().toLowerCase();
+          String address = (d['address'] ?? '').toString().toLowerCase();
+          String author = (d['author'] ?? '').toString().toLowerCase();
+          String q = query.toLowerCase();
+          return building.contains(q) || address.contains(q) || author.contains(q);
+        }).toList();
+      }
+    });
+  }
+
+  // 삭제 로직
+  void _deleteScript(String docId) async {
+    bool confirm = await showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text("⚠️ 문서 삭제"), content: const Text("정말로 이 대본 데이터를 영구 삭제하시겠습니까?"),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("취소")),
+            ElevatedButton(onPressed: () => Navigator.pop(ctx, true), style: ElevatedButton.styleFrom(backgroundColor: Colors.red), child: const Text("삭제", style: TextStyle(color: Colors.white))),
+          ],
+        )
+    ) ?? false;
+
+    if (confirm) {
+      await FirebaseFirestore.instance.collection('meeting_scripts').doc(docId).delete();
+      _fetchSavedScripts(); // 리스트 갱신
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("삭제되었습니다.")));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    bool isMobile = MediaQuery.of(context).size.width < 600;
+    return Dialog(
+      insetPadding: EdgeInsets.all(isMobile ? 16 : 40),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        width: isMobile ? double.infinity : 700, height: 750, padding: const EdgeInsets.all(24),
+        child: Column(
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text("📂 서버 저장 대본 통합 검색", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context))
+              ],
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _searchCtrl, onChanged: _runSearch,
+              decoration: InputDecoration(
+                hintText: "건물명, 주소, 또는 작성자(담당자) 이름으로 검색...", prefixIcon: const Icon(Icons.search, color: Color(0xFF2563EB)),
+                filled: true, fillColor: const Color(0xFFF1F5F9), border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Expanded(
+              child: _filteredDocs.isEmpty
+                  ? const Center(child: Text("저장된 대본이 없습니다."))
+                  : ListView.builder(
+                  itemCount: _filteredDocs.length,
+                  itemBuilder: (ctx, i) {
+                    var doc = _filteredDocs[i];
+                    var d = doc.data() as Map<String, dynamic>;
+                    Timestamp? ts = d['timestamp'];
+                    String dateStr = ts != null ? ts.toDate().toString().substring(0, 16) : "방금 전";
+
+                    return Card(
+                      color: const Color(0xFFF8FAFC), margin: const EdgeInsets.only(bottom: 12), elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade200)),
+                      child: ListTile(
+                        title: Text(d['buildingName'] ?? '이름없음', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                        subtitle: Text("작성자: ${d['author']} | $dateStr\n${d['address']}", style: TextStyle(fontSize: 13, color: Colors.grey[700], height: 1.4)),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () => _deleteScript(doc.id)),
+                            ElevatedButton(
+                              onPressed: () => Navigator.pop(context, doc),
+                              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2563EB)),
+                              child: const Text("불러오기", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }
+              ),
             )
           ],
         ),

@@ -145,7 +145,7 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
   }
 
   // =======================================================
-  // 🌟 [고도화] 담당자 전용 '수납 팝업창' (비고/기타 이름까지 완벽 추출 탑재)
+  // 🌟 [고도화] 담당자 전용 '수납 팝업창' (비고/기타 이름까지 완벽 추출 + 동 필터 + 겹침 방지 탑재)
   // =======================================================
   void _showReceiptPopup() {
     List<ResidentRow> matchedList = _residentList.where((r) => r.isMatched && !r.isCheckRequired).toList();
@@ -156,6 +156,16 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
     }
 
     int sortMode = 0;
+    String selectedDong = "전체"; // 🌟 현재 선택된 동 필터 상태
+
+    // 🌟 데이터에서 존재하는 '동'만 쏙쏙 뽑아서 오름차순(101, 102...) 정렬
+    List<String> availableDongs = matchedList.map((r) => r.dong).where((d) => d.isNotEmpty).toSet().toList();
+    availableDongs.sort((a, b) {
+      int? numA = int.tryParse(a.replaceAll(RegExp(r'[^0-9]'), ''));
+      int? numB = int.tryParse(b.replaceAll(RegExp(r'[^0-9]'), ''));
+      if (numA != null && numB != null) return numA.compareTo(numB);
+      return a.compareTo(b);
+    });
 
     showDialog(
         context: context,
@@ -163,7 +173,12 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
           return StatefulBuilder(
               builder: (BuildContext context, StateSetter setDialogState) {
 
-                List<ResidentRow> displayList = List.from(matchedList);
+                // 🌟 [추가] 동(Dong) 필터링 로직 적용! (전체면 다 보여주고, 특정 동이면 그것만)
+                List<ResidentRow> displayList = matchedList.where((r) {
+                  if (selectedDong != "전체" && r.dong != selectedDong) return false;
+                  return true;
+                }).toList();
+
                 if (sortMode == 1) {
                   displayList.sort((a, b) => a.matchedDate.compareTo(b.matchedDate));
                 } else if (sortMode == 2) {
@@ -230,10 +245,39 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                                                   Padding(
                                                     padding: const EdgeInsets.only(top: 4),
                                                     child: Row(
-                                                      children: const [
-                                                        Expanded(flex: 2, child: Center(child: Text("동", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)))),
-                                                        Expanded(flex: 2, child: Center(child: Text("호", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)))),
-                                                        Expanded(flex: 3, child: Center(child: Text("매칭이름", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)))),
+                                                      children: [
+                                                        // 👇👇 🌟 [고도화] 단순 텍스트 '동'을 드롭다운 필터 버튼으로 교체 👇👇
+                                                        Expanded(
+                                                            flex: 2,
+                                                            child: Container(
+                                                              alignment: Alignment.center,
+                                                              height: 22,
+                                                              child: DropdownButtonHideUnderline(
+                                                                child: DropdownButton<String>(
+                                                                  value: selectedDong,
+                                                                  isDense: true,
+                                                                  icon: const Icon(Icons.filter_list, size: 14, color: Colors.blue),
+                                                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.blue),
+                                                                  items: ["전체", ...availableDongs].map((dong) {
+                                                                    return DropdownMenuItem<String>(
+                                                                      value: dong,
+                                                                      child: Text(dong == "전체" ? "동(전체)" : "$dong동", style: const TextStyle(fontSize: 11)),
+                                                                    );
+                                                                  }).toList(),
+                                                                  onChanged: (val) {
+                                                                    if (val != null) {
+                                                                      setDialogState(() {
+                                                                        selectedDong = val; // 동 변경 시 즉시 필터링 화면 갱신
+                                                                      });
+                                                                    }
+                                                                  },
+                                                                ),
+                                                              ),
+                                                            )
+                                                        ),
+                                                        // 👆👆 ========================================================== 👆👆
+                                                        const Expanded(flex: 2, child: Center(child: Text("호", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)))),
+                                                        const Expanded(flex: 3, child: Center(child: Text("매칭이름", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)))),
                                                       ],
                                                     ),
                                                   )
@@ -256,7 +300,7 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                                         var row = displayList[index];
 
                                         // ==========================================================
-                                        // 🌟 [핵심 고도화] 비고, 기타 4명 전체를 포함한 초정밀 이름 추출 로직
+                                        // 🌟 [핵심 고도화] 비고, 기타 4명 전체를 포함한 초정밀 이름 추출 로직 (100% 유지)
                                         // ==========================================================
                                         String matchedName = "";
                                         String bankTextNoSpace = row.matchedBankText.replaceAll(' ', '').toLowerCase();
@@ -288,7 +332,6 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                                         }
 
                                         // 4. 비고란 확인 (위에서 못 찾았을 경우)
-                                        // 비고란에는 "홍길동, 이몽룡" 처럼 여러 명이 적힐 수 있으므로 쪼개서 검사
                                         if (matchedName.isEmpty && row.remark.isNotEmpty) {
                                           List<String> remarkParts = row.remark.split(RegExp(r'[,/.;|]'));
                                           for (var part in remarkParts) {
@@ -372,13 +415,48 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                                                 padding: const EdgeInsets.symmetric(vertical: 12),
                                                 child: Row(
                                                     children: [
-                                                      _safeText(row.matchedDate.split(' ')[0], _rowStyle(Colors.black87), 3),
+                                                      // 🌟 [수정된 부분] 대표님 코드 100% 유지 + X버튼 위치 겹침 완벽 방지
+                                                      Expanded(
+                                                        flex: 3,
+                                                        child: Stack(
+                                                          alignment: Alignment.center,
+                                                          children: [
+                                                            if (isProcessed)
+                                                              Positioned(
+                                                                left: 2, // 🌟 (기존 12에서 2로 변경) 날짜 글씨와 안 겹치게 맨 왼쪽으로 바짝 붙임
+                                                                child: InkWell(
+                                                                  onTap: () {
+                                                                    setDialogState(() {
+                                                                      _processedReceipts.remove(row);
+                                                                    });
+                                                                  },
+                                                                  child: Container(
+                                                                    padding: const EdgeInsets.all(2),
+                                                                    decoration: BoxDecoration(
+                                                                      color: Colors.red.withOpacity(0.1),
+                                                                      borderRadius: BorderRadius.circular(4),
+                                                                      border: Border.all(color: Colors.red.withOpacity(0.3)),
+                                                                    ),
+                                                                    child: const Icon(Icons.close, size: 12, color: Colors.red), // 크기도 12로 살짝 줄임
+                                                                  ),
+                                                                ),
+                                                              ),
+                                                            Container(
+                                                              padding: const EdgeInsets.symmetric(horizontal: 4),
+                                                              alignment: Alignment.center,
+                                                              child: FittedBox(
+                                                                fit: BoxFit.scaleDown,
+                                                                child: Text(row.matchedDate.split(' ')[0], style: _rowStyle(Colors.black87)),
+                                                              ),
+                                                            ),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                      // 🌟 [기존 코드 유지 부분]
                                                       _safeText("${_formatCurrency(row.matchedAmount)}원", _rowStyle(Colors.blue[800]!, isBold: true, size: 13), 3),
-
                                                       _safeText(row.dong, _rowStyle(Colors.black87, isBold: true), 2),
                                                       _safeText(row.ho, _rowStyle(Colors.black87, isBold: true), 2),
                                                       _safeText(matchedName, _rowStyle(Colors.teal[700]!, isBold: true), 3),
-
                                                       _safeText(row.matchedBankText, _rowStyle(Colors.black87), 6),
                                                       _safeText(row.matchedBankName, _rowStyle(Colors.grey), 4),
                                                     ]
@@ -395,7 +473,8 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                                   child: Row(
                                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                       children: [
-                                        Text("✅ 총 ${displayList.length}건 중 ${_processedReceipts.length}건 수납체크 완료", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blue[800])),
+                                        // 🌟 [고도화] 현재 필터된 리스트 안에서 완료된 갯수만 정확히 카운트하여 보여줌
+                                        Text("✅ 필터된 ${displayList.length}건 중 ${_processedReceipts.intersection(displayList.toSet()).length}건 수납체크 완료", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blue[800])),
                                         ElevatedButton(
                                             onPressed: () => Navigator.pop(ctx),
                                             style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16), backgroundColor: Colors.grey[800]),
@@ -2117,17 +2196,42 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
   }
 
   // =======================================================
-  // 🌟 [추가 1] PG사, 카드납부, 아파트아이 등 자동이체 식별 엔진
+  // 🌟 [추가 1] PG사, 카드납부, 아파트아이 등 자동이체 식별 엔진 (전각문자 완벽 대응)
   // =======================================================
   bool _isAutoPaymentTx(String desc) {
-    // 띄어쓰기 제거 및 모두 소문자로 변환하여 변수 원천 차단
-    String cleanDesc = desc.toLowerCase().replaceAll(RegExp(r'\s+'), '');
+    if (desc.isEmpty) return false;
 
-    // 대표님이 말씀하신 키워드들 (여기에 앞으로 필요한 단어를 계속 추가하시면 됩니다)
-    return cleanDesc.contains('pg') ||
-        cleanDesc.contains('카드납부') ||
-        cleanDesc.contains('아파트아이') ||
-        cleanDesc.contains('자동이체');
+    // 1. 🚨 [핵심 고도화] 전각 문자(뚱뚱한 글씨: Ｐ Ｇ)를 반각 문자(일반 알파벳: P G)로 강제 변환
+    String normalizedDesc = "";
+    for (int k = 0; k < desc.length; k++) {
+      int code = desc.codeUnitAt(k);
+      // 유니코드 상의 전각 영문/숫자 기호를 일반 문자로 당겨옵니다.
+      if (code >= 0xFF01 && code <= 0xFF5E) {
+        normalizedDesc += String.fromCharCode(code - 0xFEE0);
+      } else if (code == 0x3000) {
+        normalizedDesc += " ";
+      } else {
+        normalizedDesc += String.fromCharCode(code);
+      }
+    }
+
+    // 2. 띄어쓰기 싹 제거 & 무조건 소문자로 통일 (예: "기업은행 Ｐ Ｇ" -> "기업은행pg" 로 완벽 변환됨!)
+    String cleanDesc = normalizedDesc.toLowerCase().replaceAll(RegExp(r'\s+'), '');
+
+    // 3. 🛡️ 강력하고 안전한 대행사/PG 전용 키워드망 (일반 주민 입금명과 절대 안 겹침)
+    List<String> pgKeywords = [
+      'pg', '카드납부', '아파트아이', '자동이체', '결제대행',
+      '토스페이', 'toss', '나이스', 'nice', 'kcp', '다날', 'danal', '모빌리언스'
+    ];
+
+    // 4. 위 키워드 중 하나라도 포함되어 있으면 무조건 "수납 확인" 탭으로 분류!
+    for (String keyword in pgKeywords) {
+      if (cleanDesc.contains(keyword)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   // =======================================================
