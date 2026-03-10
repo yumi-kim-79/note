@@ -1,3 +1,5 @@
+//카카오 건물주소 검색 api 통합페이지
+
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -8,7 +10,7 @@ class BuildingService {
   static const String _kakaoKey = "e1fc7f4a7281b14f7c8be88f6e146462";
   static const String _proxyUrl = "https://asia-northeast3-sm-sales-note-2026.cloudfunctions.net/fetchMolitData";
 
-  /// 🏢 [고도화 버전] 기존 기능은 유지하되, 서버 에러 대응 로직 추가
+  /// 🏢 [고도화 버전] 기존 기능 100% 유지 + 층별/정화조 데이터 동시 수집
   static Future<BuildingInfo> getFullBuildingInfo(String buildingName) async {
     try {
       // 1. Firestore 건물 정보 조회 (기존 유지)
@@ -26,7 +28,6 @@ class BuildingService {
         headers: {"Authorization": "KakaoAK $_kakaoKey"},
       );
 
-      // 🚨 [고도화] 카카오 응답 상태 체크 추가
       if (kakaoRes.statusCode != 200) {
         throw "카카오 주소 변환 실패 (인증 오류 또는 서비스 제한)";
       }
@@ -42,23 +43,26 @@ class BuildingService {
       String bun = addr['main_address_no'].toString().padLeft(4, '0');
       String ji = addr['sub_address_no'].toString().isEmpty ? "0000" : addr['sub_address_no'].toString().padLeft(4, '0');
 
-      // 3. 파이어베이스 프록시 서버 호출 (기존 유지)
-      final molitRes = await http.get(Uri.parse("$_proxyUrl?sigunguCd=$sigunguCd&bjdongCd=$bjdongCd&bun=$bun&ji=$ji"));
+      // 3. 🌟 [고도화] 파이어베이스 프록시 서버 호출 (numOfRows 추가로 전 층/전체 정화조 데이터 확보!)
+      final results = await Future.wait([
+        http.get(Uri.parse("$_proxyUrl?sigunguCd=$sigunguCd&bjdongCd=$bjdongCd&bun=$bun&ji=$ji&operation=getBrTitleInfo")),
+        http.get(Uri.parse("$_proxyUrl?sigunguCd=$sigunguCd&bjdongCd=$bjdongCd&bun=$bun&ji=$ji&operation=getBrFlrOulnInfo&numOfRows=1")), // 👈 층별 최대 1개
+        http.get(Uri.parse("$_proxyUrl?sigunguCd=$sigunguCd&bjdongCd=$bjdongCd&bun=$bun&ji=$ji&operation=getBrWclfInfo&numOfRows=1")),    // 👈 정화조 최대 1개
+      ]);
 
-      // 🚨 [고도화] 서버 500 에러(API not found 등) 대응 로직
-      if (molitRes.statusCode != 200) {
-        // 서버에서 보낸 에러 상세 메시지가 있다면 추출, 없으면 기본 메시지 사용
+      // 🚨 [기존 유지] 서버 500 에러(API not found 등) 대응 로직 (표제부 기준)
+      if (results[0].statusCode != 200) {
         String errorDetail = "국토부 서버 응답 오류";
         try {
-          final errorData = json.decode(molitRes.body);
+          final errorData = json.decode(results[0].body);
           errorDetail = errorData['details'] ?? errorData['error'] ?? errorDetail;
         } catch (_) {}
         throw "[$errorDetail] 서버 설정을 확인해주세요.";
       }
 
-      final molitData = json.decode(utf8.decode(molitRes.bodyBytes));
+      final molitData = json.decode(utf8.decode(results[0].bodyBytes));
 
-      // 🚨 [고도화] 데이터 구조 널 체크 (NoSuchMethodError 방지)
+      // 🚨 [기존 유지] 데이터 구조 널 체크
       var responseBody = molitData['response']?['body'];
       if (responseBody == null || responseBody['items'] == null || responseBody['items']['item'] == null) {
         throw "해당 건물은 국토부 건축물대장 정보가 존재하지 않습니다.";
@@ -67,7 +71,11 @@ class BuildingService {
       var item = responseBody['items']['item'];
       if (item is List) item = item[0];
 
-      // 🌟 1. 주차대수 및 세대수 계산 (안전한 숫자 변환)
+      // 🌟 [고도화] 추가 데이터 파싱 (층별 리스트 및 정화조)
+      final floorItems = json.decode(utf8.decode(results[1].bodyBytes))['response']?['body']?['items']?['item'];
+      final sewerItem = json.decode(utf8.decode(results[2].bodyBytes))['response']?['body']?['items']?['item'];
+
+      // 🌟 1 & 2. [기존 유지] 주차대수 및 세대/가구/호수 합계 계산
       int parseIntSafely(dynamic val) {
         if (val == null) return 0;
         if (val is int) return val;
@@ -76,35 +84,36 @@ class BuildingService {
 
       int autoParking = parseIntSafely(item['indrAutoUtcnt']) + parseIntSafely(item['oudrAutoUtcnt']);
       int mechParking = parseIntSafely(item['indrMechUtcnt']) + parseIntSafely(item['oudrMechUtcnt']);
-
-      // 🌟 2. 세대/가구/호수 합계 계산
       int hhldCnt = parseIntSafely(item['hhldCnt']);
       int fmlyCnt = parseIntSafely(item['fmlyCnt']);
       int hoCnt = parseIntSafely(item['hoCnt']);
-      int totalHousehold = hhldCnt + fmlyCnt + hoCnt; // 총합계
+      int totalHousehold = hhldCnt + fmlyCnt + hoCnt;
 
-      // 🌟 3. 사용승인일 예쁘게 다듬기 (20170515 -> 2017.05.15)
+      // 🌟 3. [기존 유지] 사용승인일 예쁘게 다듬기
       String rawDate = item['useAprDay']?.toString() ?? "";
       String formattedDate = "-";
       if (rawDate.length == 8) {
         formattedDate = "${rawDate.substring(0, 4)}.${rawDate.substring(4, 6)}.${rawDate.substring(6, 8)}";
       } else if (rawDate.isNotEmpty) {
-        formattedDate = rawDate; // 날짜가 8자리가 아닐 경우 원본 출력
+        formattedDate = rawDate;
       }
 
-      // 4. 정리된 데이터 반환 (UI에서 줄바꿈 되도록 \n 적용)
+      // 4. [기존 유지 + 고도화 추가] 정리된 데이터 반환
       return BuildingInfo(
         address: fullAddress,
         platArea: "${item['platArea'] ?? '0'} ㎡",
         totalArea: "${item['totArea'] ?? '0'} ㎡",
         mainPurpose: "${item['mainPurpsCdNm'] ?? '미분류'}",
-        useAprvDate: formattedDate, // 🌟 점 찍힌 날짜 적용
+        useAprvDate: formattedDate,
         flrInfo: "지상 ${item['grndFlrCnt'] ?? '0'}층 / 지하 ${item['ugrndFlrCnt'] ?? '0'}층",
         liftInfo: "승용 ${item['rideUseElvtCnt'] ?? '0'}대 / 비상 ${item['emgenUseElvtCnt'] ?? '0'}대",
-
-        // 🌟 두 줄 바꿈(\n) 및 합계 적용 완료!
         householdInfo: "세대 $hhldCnt / 가구 $fmlyCnt\n호수 $hoCnt / 합계 $totalHousehold",
         parkingInfo: "자주식 $autoParking대\n기계식 $mechParking대",
+
+        // 👇 새로운 데이터는 조용히 밑에 담아서 보냅니다. (기존 코드는 영향을 받지 않음)
+        sewerInfo: (sewerItem is List) ? sewerItem[0] : sewerItem,
+        floorList: (floorItems is List) ? floorItems : (floorItems != null ? [floorItems] : []),
+        rawTitleItem: item,
       );
     } catch (e) {
       rethrow;

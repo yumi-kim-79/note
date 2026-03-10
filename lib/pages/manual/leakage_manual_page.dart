@@ -128,11 +128,11 @@ class LeakageManualPage extends StatelessWidget {
     );
   }
 
-  // 🔍 3단계: 정밀 진단
+  // 🔍 3단계: 정밀 진단 (장소별 누수 의심 포인트 보강)
   Widget _buildStep3() {
     return _buildCard(
       title: "3단계: 정밀 진단 및 원인 파악",
-      icon: Icons.build, // 🌟 [수정] 모바일 100% 호환 수리 아이콘
+      icon: Icons.build, // 🌟 순정 아이콘
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -154,11 +154,15 @@ class LeakageManualPage extends StatelessWidget {
             padding: EdgeInsets.only(left: 20.0, bottom: 12.0),
             child: Text("• 물을 쓸 때만 새거나, 윗집이 샤워할 때만 샌다면 방수층 균열 또는 하수관 파손 의심", style: TextStyle(color: Color(0xFF334155), height: 1.5)),
           ),
-          _buildBulletText("미세 누수 확인 (열화상)"),
-          const Padding(
-            padding: EdgeInsets.only(left: 20.0),
-            child: Text("• 육안으로 안 보일 때 열화상 카메라로 벽면의 온도 차를 확인하여 물줄기 파악", style: TextStyle(color: Color(0xFF334155), height: 1.5)),
-          ),
+
+          // 👇👇 🌟 [고도화 추가] 주요 장소별 누수 원인 파악 가이드 👇👇
+          const Divider(height: 24, color: Color(0xFFE2E8F0)),
+          const Text("📍 주요 장소별 누수 의심 포인트", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+          const SizedBox(height: 12),
+          _buildInfoRow(Icons.bathtub, "화장실 천장", "점검구를 열어 윗집 하수관/오수관 쪼인트 누수 또는 바닥 방수층 불량 여부 확인"),
+          _buildInfoRow(Icons.weekend, "거실/안방 천장", "윗집 난방(보일러) 배관 엑셀파이프 미세 파열 또는 수도 배관 누수 의심"),
+          _buildInfoRow(Icons.local_laundry_service, "세탁실/보일러실", "겨울철 배관 동파, 세탁기 하수구 막힘으로 인한 거품 역류, 보일러 분배기 노후화"),
+          _buildInfoRow(Icons.window, "베란다/창틀 누수", "비가 올 때만 샌다면 외부 창틀 실리콘(코킹) 노후화 또는 외벽 자체의 크랙(균열) 의심"),
         ],
       ),
     );
@@ -195,6 +199,54 @@ class LeakageManualPage extends StatelessWidget {
           _buildInfoRow(Icons.looks_3, "계량기 촬영", "날짜와 시간이 찍히도록 조치 전/후 계량기 상태 비교 촬영"), // 🌟 [수정] looks_3 아이콘
           const Divider(height: 24, color: Color(0xFFE2E8F0)),
           _buildInfoRow(Icons.edit, "SM노트에 기록", "몇 시 몇 분에 어떤 조치를 취했는지 실시간 타임스탬프로 명확히 기록할 것"), // 🌟 [수정] edit 아이콘
+        ],
+      ),
+    );
+  }
+
+  // 💬 6단계: 책임 소재별 CS 커뮤니케이션 (스크립트 대폭 보강)
+  Widget _buildStep6() {
+    return _buildCard(
+      title: "6단계: 책임 소재별 CS 대응 및 스크립트",
+      icon: Icons.headset_mic, // 🌟 순정 아이콘
+      content: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text("집합건물법에 따른 정확한 책임 규명과 안내가 분쟁을 막습니다. 절대 사설 업체를 직접 알선하지 마십시오.", style: TextStyle(fontSize: 15, color: Color(0xFF334155))),
+          const SizedBox(height: 16),
+
+          // 👇👇 🌟 [오류 해결] 누수 페이지 전용 _buildHighlightBox를 사용하여 에러 완벽 해결! 👇👇
+          _buildHighlightBox(
+              Icons.person,
+              "[전유부 누수] 윗집 배관 터짐 👉 아랫집 피해",
+              "• 원칙: 집합건물법 제6조에 따라 해당 호실 소유자/점유자가 100% 수리 및 배상 책임.\n"
+                  "• 역할: 누수 지점 확인 및 양측 중재.\n\n"
+                  "🗣️ [안내 스크립트]\n"
+                  "\"확인 결과 윗집 전용 배관 문제입니다. 관리소에서 윗집에 즉각 수리 및 도배 배상을 요청했습니다. 윗집의 '일상생활배상책임보험'으로 원만히 처리될 수 있도록 중재하겠습니다.\"",
+              isWarning: true // 주황색 경고 테마
+          ),
+          const SizedBox(height: 12),
+
+          _buildHighlightBox(
+              Icons.apartment,
+              "[공용부 누수] 옥상 방수 불량 👉 최상층 피해",
+              "• 원칙: 옥상, 메인 입상관 등은 공용부이므로 관리단(공용 비용)에서 수리 및 배상 책임.\n"
+                  "• 역할: 현장 채증 후 관리단 보고 및 공사 기안 상정.\n\n"
+                  "🗣️ [안내 스크립트]\n"
+                  "\"확인 결과 옥상 방수층 하자로 인한 공용부 책임입니다. 즉시 대표회의(관리단)에 보고하여 옥상 보수 공사 요청하도록 해야합니다. 추후 대표회의(관리단)와 협의후 진행사항은 별도 안내 또는 공지로 진행된다고 안내해야합니다. (필독)대표회의(관리단) 협의시 피해세대 도배 및 복구비용도 협의사항입니다. 협의 완료 후 해당세대에 도배 피해 복구도 공용 비용으로 처리된다 또는 불가한지 안내해야됩니다.\"",
+              isDanger: true // 빨간색 위험 테마
+          ),
+          const SizedBox(height: 12),
+
+          _buildHighlightBox(
+              Icons.window,
+              "[외벽/창틀 누수] 우천 시 빗물 유입 (원인 모호)",
+              "• 외벽 크랙: 공용부 하자로 관리단에서 보수 진행.\n"
+                  "• 창틀 실리콘 노후: 전유부 하자로 세대주가 개별 보수.\n\n"
+                  "🗣️ [안내 스크립트]\n"
+                  "\"세대 창틀의 실리콘 노후화로 인한 빗물 유입은 전용부 관리 사항으로 세대에서 개별 코킹을 하셔야 합니다. 단, 외벽 자체의 크랙이 원인으로 판명될 경우 공용부 수선 계획에 따라 보수 조치하겠습니다.\"",
+              isDanger: false, isWarning: false // 파란색 일반 테마
+          ),
         ],
       ),
     );
@@ -267,49 +319,6 @@ class LeakageManualPage extends StatelessWidget {
           Text(condition, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF64748B))),
           const SizedBox(height: 8),
           Text(result, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF0F172A), height: 1.4), textAlign: TextAlign.center),
-        ],
-      ),
-    );
-  }
-
-  // 💬 6단계: CS 커뮤니케이션
-  Widget _buildStep6() {
-    return _buildCard(
-      title: "6단계: 민원 관리 및 커뮤니케이션 (CS)",
-      icon: Icons.headset_mic, // 🌟 [수정] 모바일 100% 호환 CS상담 아이콘
-      content: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text("피해 세대(아랫집)와 원인 세대(윗집) 사이의 분쟁을 조율하고 중립을 유지합니다.", style: TextStyle(fontSize: 15, color: Color(0xFF334155))),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFFE2E8F0))),
-            child: const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(Icons.format_quote, color: Color(0xFF64748B)),
-                    SizedBox(width: 8),
-                    Text("현장 안내 권장 멘트", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF475569))),
-                  ],
-                ),
-                SizedBox(height: 12),
-                Text("\"현재 관리 규약 및 집합건물법에 따라 원인 파악을 마쳤습니다. 전용부 누수의 경우 소유주께서 수리 및 배상 책임을 지게 됩니다. 원활한 처리를 위해 일상생활배상책임보험 접수를 권장해 드립니다.\"",
-                    style: TextStyle(fontSize: 15, fontStyle: FontStyle.italic, height: 1.6, color: Color(0xFF1E293B))),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          const Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(Icons.info, color: Color(0xFF64748B), size: 20), // 🌟 [수정] 순정 아이콘
-              SizedBox(width: 8),
-              Expanded(child: Text("특정 사설 업체 소개를 지양하고, 관리회사는 '객관적 증거 제공자'로서의 위치를 지킵니다.", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF334155), height: 1.4))),
-            ],
-          )
         ],
       ),
     );

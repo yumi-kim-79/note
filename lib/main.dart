@@ -18,8 +18,9 @@ import 'firebase_options.dart';
 import 'package:flutter/foundation.dart'; // kIsWeb 사용을 위해 필수
 import 'dart:async';
 import 'dart:html' as html; // 🌟 [추가됨] 웹(PWA) 뒤로가기 종료를 위한 패키지
-import 'pages/field_info/field_info_page.dart';
+import 'pages/field_info/field_info_page.dart'; //현장 정보 페이지
 import 'pages/field_info/field_contact_page.dart'; // 🌟 공유 전화번호부 불러오기
+import 'pages/sales_info/sales_info_page.dart'; //영업 정보 페이지
 
 // ✅ 알림/진동 패키지
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -300,7 +301,7 @@ class MainLayoutPageState extends State<MainLayoutPage> {
       const AiPaymentPage(), // 🌟 [Index 13] 전산팀 AI 자동수납 페이지 연결
 
       // 🌟 [추가됨] 하단 바 전용 신규 페이지 3개 연결 (Index 14, 15, 16)
-      const Scaffold(body: Center(child: Text("📊 영업 정보 페이지 (준비 중)"))),
+      const SalesInfoPage(), // 🌟 Index 14 (여기 수정!)
       const FieldInfoPage(),
       const FieldContactPage(), // 🚀 [기능 연결 완료] 가짜 텍스트 지우고 진짜 전화번호부 장착!
     ];

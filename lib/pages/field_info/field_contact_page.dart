@@ -564,6 +564,9 @@ class _FieldContactPageState extends State<FieldContactPage> {
 
   @override
   Widget build(BuildContext context) {
+    // 🌟 [추가] 화면 가로 크기를 감지하여 모바일/태블릿(600px 미만)인지 판단합니다.
+    final bool isMobile = MediaQuery.of(context).size.width < 600;
+
     return Scaffold(
       backgroundColor: AppTheme.backgroundColor,
       appBar: AppBar(
@@ -584,7 +587,14 @@ class _FieldContactPageState extends State<FieldContactPage> {
           ),
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
+      // 👇👇 🌟 [고도화] 모바일에서는 작고 둥근 아이콘만, PC에서는 글씨 포함 길게 표시 👇👇
+      floatingActionButton: isMobile
+          ? FloatingActionButton(
+        onPressed: () => _showAddDialog(),
+        backgroundColor: AppTheme.primaryColor,
+        child: const Icon(Icons.add_business, color: Colors.white),
+      )
+          : FloatingActionButton.extended(
         onPressed: () => _showAddDialog(),
         backgroundColor: AppTheme.primaryColor,
         icon: const Icon(Icons.add_business, color: Colors.white),

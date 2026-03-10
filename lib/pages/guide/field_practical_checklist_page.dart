@@ -33,6 +33,30 @@ class _FieldPracticalChecklistPageState extends State<FieldPracticalChecklistPag
   final Map<String, String> _checkStates = {};
   final Map<String, TextEditingController> _remarkControllers = {};
 
+  // 👇👇 🌟 [고도화 1] 개별 스위치 변수 분리 및 실시간 항목 계산기 👇👇
+  bool _isRegularActive = true;  // 일반 정기점검
+  bool _isS1Active = false;      // 특수 S1 (장마/태풍)
+  bool _isS2Active = false;      // 특수 S2 (한파/동파)
+  bool _isS3Active = false;      // 특수 S3 (폭설/결빙)
+  bool _isS4Active = false;      // 특수 S4 (강풍/건조)
+
+  // 🧮 [계산기 엔진] 현재 켜진 스위치를 감지하여 멋진 타이틀을 자동으로 만들어줍니다!
+  String _getDynamicTitle(bool reg, bool s1, bool s2, bool s3, bool s4) {
+    int regCount = reg ? _inspectionData.fold(0, (sum, g) => sum + (g['items'] as List).length) : 0;
+    int spCount = 0;
+    if (s1) spCount += (_specialInspectionData[0]['items'] as List).length;
+    if (s2) spCount += (_specialInspectionData[1]['items'] as List).length;
+    if (s3) spCount += (_specialInspectionData[2]['items'] as List).length;
+    if (s4) spCount += (_specialInspectionData[3]['items'] as List).length;
+
+    int total = regCount + spCount;
+
+    if (regCount > 0 && spCount > 0) return "건물 정밀 점검표 (기본 $regCount + 특수 $spCount = 총 $total항목)";
+    if (regCount == 0 && spCount > 0) return "비상/특수 점검표 (총 $total항목)";
+    if (regCount > 0 && spCount == 0) return "건물 정밀 점검표 (총 $regCount항목)";
+    return "맞춤 점검표 (선택된 항목 없음)";
+  }
+
   // 🗂️ [고도화] 총 45문항! 초보자도 100% 이해하는 '어린이 눈높이' 상세 지침
   final List<Map<String, dynamic>> _inspectionData = [
     {
@@ -304,6 +328,53 @@ class _FieldPracticalChecklistPageState extends State<FieldPracticalChecklistPag
       ]
     },
   ];
+  // 🌟 [신규 추가] 비상/계절별 특수점검 16항목 데이터
+  final List<Map<String, dynamic>> _specialInspectionData = [
+    {
+      "group": "S1. 장마 및 태풍 (여름철 집중호우/강풍)",
+      "icon": Icons.water_drop,
+      "color": const Color(0xFF0D9488),
+      "items": [
+        {"title": "옥상 빗물 빠지는 구멍(루프드레인) 청소", "desc": "옥상에 올라가서 빗물이 내려가는 구멍이 쓰레기나 비닐, 나뭇잎으로 막혀있지 않은지 싹 치워주세요. 막히면 옥상이 물바다가 됩니다!", "isDaily": false},
+        {"title": "복도 및 계단 창문 꽉 닫고 잠금쇠 채우기", "desc": "층마다 돌아다니면서 열려있는 모든 창문을 닫고, 바람에 덜컹거리지 않게 창문 잠금쇠(크리센트)까지 딸깍 소리 나게 꽉 채워주세요.", "isDaily": false},
+        {"title": "건물 밖 날아갈 수 있는 물건 묶기", "desc": "건물 밖에 세워둔 입간판, 재활용 분리수거통, 큰 화분 등이 강풍에 날아가 남의 차를 부수지 않게 벽으로 바짝 붙이고 끈으로 꽁꽁 묶어주세요.", "isDaily": false},
+        {"title": "지하주차장 입구 차수판/모래주머니 전진 배치", "desc": "갑자기 비가 쏟아져서 물이 지하로 넘칠 때 1초라도 빨리 막을 수 있도록, 무거운 철판이나 모래주머니를 입구 바로 옆으로 꺼내두세요.", "isDaily": false},
+      ]
+    },
+    {
+      "group": "S2. 한파 및 동파 (겨울철 영하권 강추위)",
+      "icon": Icons.ac_unit,
+      "color": const Color(0xFF3B82F6),
+      "items": [
+        {"title": "복도 및 계단 창문 틈새 막기 (찬바람 유입 차단)", "desc": "찬 바람이 쌩쌩 들어오면 복도에 있는 수도관이 얼어 터집니다. 조금이라도 열려있는 창문이 없는지 확인하고 전부 꽉 닫아주세요.", "isDaily": false},
+        {"title": "1층 공동현관 자동문 끝까지 닫히는지 확인", "desc": "1층 문이 고장 나서 계속 열려있으면 1층 수도 계량기가 바로 얼어버려요. 사람이 지나간 후 문이 끝까지 빈틈없이 꽉 닫히는지 지켜보세요.", "isDaily": false},
+        {"title": "복도 수도 계량기함 안쪽 보온재(헌 옷/뽁뽁이) 채우기", "desc": "복도 벽에 있는 수도 계량기 철판 문을 열어보고, 안쪽에 안 입는 수건이나 뽁뽁이가 꽉 차 있어서 배관이 따뜻하게 덮여있는지 꾹꾹 눌러보세요.", "isDaily": false},
+        {"title": "지하 기계실 전열기(미니 히터) 켜기 및 화재 주의", "desc": "펌프가 있는 기계실이 너무 추우면 안 되니 동파 방지용 히터를 켜두되, 주변에 종이박스 같은 타기 쉬운 물건이 없는지 꼭 치워주세요.", "isDaily": false},
+      ]
+    },
+    {
+      "group": "S3. 폭설 및 결빙 (겨울철 눈/빙판길)",
+      "icon": Icons.severe_cold,
+      "color": const Color(0xFF6366F1),
+      "items": [
+        {"title": "눈 치우는 넉가래(눈삽)와 빗자루 1층에 꺼내두기", "desc": "창고 깊숙이 쳐박혀 있던 눈삽과 큰 빗자루를 경비원이나 입주민이 바로바로 쓸 수 있도록 1층 현관문 안쪽에 잘 보이게 세워두세요.", "isDaily": false},
+        {"title": "건물 입구 염화칼슘(눈 녹이는 약) 제설함 확인", "desc": "눈이 오면 바닥에 바로 뿌릴 수 있게 염화칼슘 포대가 넉넉히 있는지, 딱딱하게 돌덩이처럼 굳어서 못 쓰게 되지는 않았는지 꾹 눌러보세요.", "isDaily": false},
+        {"title": "1층 출입구 대리석 바닥 미끄럼 방지 매트 깔기", "desc": "매끈한 대리석 바닥에 눈 묻은 신발로 들어오면 꽈당 넘어지기 쉽습니다. 입구부터 엘리베이터 앞까지 두꺼운 발매트를 쫙 깔아주세요.", "isDaily": false},
+        {"title": "외부 주차장 진입로(언덕길) 얼음 깨기", "desc": "차가 들어오고 나가는 언덕길 바닥에 눈이 얼어붙었다면, 망치나 뾰족한 삽으로 살살 깨서 자동차 바퀴가 헛돌지 않게 미끄럼을 방지해 주세요.", "isDaily": false},
+      ]
+    },
+    {
+      "group": "S4. 강풍 및 건조 (봄/가을철 화재 조심)",
+      "icon": Icons.local_fire_department,
+      "color": const Color(0xFFEF4444),
+      "items": [
+        {"title": "건물 주변 화단 바짝 마른 낙엽 싹 치우기", "desc": "누군가 생각 없이 툭 버린 담배꽁초 불씨 하나에 큰불이 날 수 있어요. 건물 구석이나 화단에 쌓인 바삭바삭한 낙엽들을 빗자루로 싹 쓸어 담아주세요.", "isDaily": false},
+        {"title": "층별 빨간 소화기 위치 및 동그란 안전핀 확인", "desc": "불이 났을 때 당황하지 않고 쓸 수 있게 소화기가 구석에 숨겨져 있지 않은지, 손잡이에 꽂힌 동그란 안전핀이 빠져있진 않은지 쓱 쳐다봐주세요.", "isDaily": false},
+        {"title": "옥상 안테나 및 낡은 구조물 흔들림 검사", "desc": "옥상에 세워진 낡은 구조물이나 간판이 거센 봄바람에 덜렁거려서 1층 바닥으로 뚝 떨어질 위험은 없는지 두 손으로 꽉 잡고 흔들어보세요.", "isDaily": false},
+        {"title": "옥상 무거운 쇠문(방화문) 닫힘 상태 유지", "desc": "바람이 세게 불어서 옥상 문이 '쾅!' 닫히다가 문이 박살 나거나 사람이 다칠 수 있어요. 문이 제멋대로 열리지 않게 꼭 닫아두세요.", "isDaily": false},
+      ]
+    }
+  ];
 
   String _searchRecordQuery = "";
   int _currentRecordPage = 1;
@@ -311,11 +382,15 @@ class _FieldPracticalChecklistPageState extends State<FieldPracticalChecklistPag
   @override
   void initState() {
     super.initState();
-    for (var group in _inspectionData) {
-      for (var item in group['items']) {
-        _remarkControllers[item['title']] = TextEditingController();
+    void initControllers(List<Map<String, dynamic>> dataList) {
+      for (var group in dataList) {
+        for (var item in group['items']) {
+          _remarkControllers[item['title']] = TextEditingController();
+        }
       }
     }
+    initControllers(_inspectionData);
+    initControllers(_specialInspectionData);
   }
 
   @override
@@ -373,15 +448,15 @@ class _FieldPracticalChecklistPageState extends State<FieldPracticalChecklistPag
   }
 
   // ---------------------------------------------------------
-  // 💾 1. 서버 저장 로직
+  // 💾 1. 서버 저장 로직 (저장 즉시 리스트에 나타나도록 시간 엔진 교체)
   // ---------------------------------------------------------
   Future<void> _saveInspection() async {
     if (_selectedBuilding == null) {
       _showSnackBar("먼저 점검할 건물을 선택해주세요.", true);
       return;
     }
-    if (_checkStates.isEmpty) {
-      _showSnackBar("최소 1개 이상의 항목을 점검해주세요.", true);
+    if (!_isRegularActive && !_isS1Active && !_isS2Active && !_isS3Active && !_isS4Active) {
+      _showSnackBar("최소 1개 이상의 점검 모드 스위치를 켜주세요.", true);
       return;
     }
 
@@ -393,39 +468,44 @@ class _FieldPracticalChecklistPageState extends State<FieldPracticalChecklistPag
       String inspectorRank = "";
 
       if (user != null) {
-        final uDoc = await FirebaseFirestore.instance.collection('users').doc(
-            user.uid).get();
-        if (uDoc.exists) {
-          inspectorName = uDoc['name'] ?? '현장 담당자';
-          inspectorRank = uDoc['rank'] ?? '';
-        }
+        final uDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+        if (uDoc.exists) { inspectorName = uDoc['name'] ?? '현장 담당자'; inspectorRank = uDoc['rank'] ?? ''; }
       }
 
       Map<String, dynamic> results = {};
       _checkStates.forEach((key, state) {
-        results[key] = {
-          "status": state,
-          "remark": _remarkControllers[key]?.text.trim() ?? ""
-        };
+        bool isReg = _inspectionData.any((g) => (g['items'] as List).any((i) => i['title'] == key));
+        bool isS1 = (_specialInspectionData[0]['items'] as List).any((i) => i['title'] == key);
+        bool isS2 = (_specialInspectionData[1]['items'] as List).any((i) => i['title'] == key);
+        bool isS3 = (_specialInspectionData[2]['items'] as List).any((i) => i['title'] == key);
+        bool isS4 = (_specialInspectionData[3]['items'] as List).any((i) => i['title'] == key);
+
+        if ((_isRegularActive && isReg) || (_isS1Active && isS1) || (_isS2Active && isS2) || (_isS3Active && isS3) || (_isS4Active && isS4)) {
+          results[key] = { "status": state, "remark": _remarkControllers[key]?.text.trim() ?? "" };
+        }
       });
 
+      if (results.isEmpty) {
+        _showSnackBar("최소 1개 이상의 항목을 점검(체크)해주세요.", true);
+        setState(() => _isSaving = false);
+        return;
+      }
+
       await FirebaseFirestore.instance.collection('inspections').add({
-        "buildingName": _selectedBuilding,
-        "inspectorUid": user?.uid ?? "unknown",
-        "inspectorName": inspectorName,
-        "inspectorRank": inspectorRank,
-        "createdAt": FieldValue.serverTimestamp(),
+        "buildingName": _selectedBuilding, "inspectorUid": user?.uid ?? "unknown", "inspectorName": inspectorName, "inspectorRank": inspectorRank,
+        "createdAt": Timestamp.now(), // 🌟 [핵심 해결 1] 서버 시간 대기 없이 기기 시간을 즉시 꽂아 바로 노출되게 만듭니다!
+        "isRegularActive": _isRegularActive,
+        "isS1Active": _isS1Active, "isS2Active": _isS2Active, "isS3Active": _isS3Active, "isS4Active": _isS4Active,
         "results": results,
       });
 
       _showSnackBar("✅ 점검 결과가 성공적으로 서버에 저장되었습니다.", false);
 
       setState(() {
-        _selectedBuilding = null;
-        _checkStates.clear();
-        for (var c in _remarkControllers.values) {
-          c.clear();
-        }
+        _selectedBuilding = null; _checkStates.clear();
+        for (var c in _remarkControllers.values) { c.clear(); }
+        _currentRecordPage = 1; // 🌟 [핵심 해결 2] 저장 완료 시 무조건 1페이지로 점프시켜 내 기록을 바로 보게 합니다!
+        _searchRecordQuery = ""; // 검색어도 초기화
       });
     } catch (e) {
       _showSnackBar("저장 중 오류가 발생했습니다: $e", true);
@@ -435,10 +515,9 @@ class _FieldPracticalChecklistPageState extends State<FieldPracticalChecklistPag
   }
 
   // ---------------------------------------------------------
-  // 🖨️ 2. PDF 출력 로직 (여백 및 글씨 크기 최적화로 2장 압축)
+  // 🖨️ 2. PDF 출력 로직 (동적 타이틀 & 과거 데이터 호환성 보장)
   // ---------------------------------------------------------
-  Future<void> _printChecklistPdf(Map<String, dynamic> data,
-      String dateStr) async {
+  Future<void> _printChecklistPdf(Map<String, dynamic> data, String dateStr) async {
     setState(() => _isPrinting = true);
     try {
       final pdf = pw.Document();
@@ -450,87 +529,53 @@ class _FieldPracticalChecklistPageState extends State<FieldPracticalChecklistPag
       String iRank = data['inspectorRank'] ?? '';
       Map<String, dynamic> results = data['results'] ?? {};
 
-      // 🌟 [다이어트 1] 표 제목 행 패딩과 글씨 크기 줄임 (10 -> 9)
+      bool regAct = data['isRegularActive'] ?? true;
+      bool s1Act = data['isS1Active'] ?? (data['isSpecialActive'] ?? false);
+      bool s2Act = data['isS2Active'] ?? (data['isSpecialActive'] ?? false);
+      bool s3Act = data['isS3Active'] ?? (data['isSpecialActive'] ?? false);
+      bool s4Act = data['isS4Active'] ?? (data['isSpecialActive'] ?? false);
+
+      String reportTitle = _getDynamicTitle(regAct, s1Act, s2Act, s3Act, s4Act);
+
+      List<Map<String, dynamic>> activeGroups = [];
+      if (regAct) activeGroups.addAll(_inspectionData);
+      if (s1Act) activeGroups.add(_specialInspectionData[0]);
+      if (s2Act) activeGroups.add(_specialInspectionData[1]);
+      if (s3Act) activeGroups.add(_specialInspectionData[2]);
+      if (s4Act) activeGroups.add(_specialInspectionData[3]);
+
       List<pw.TableRow> tableRows = [
         pw.TableRow(
             decoration: const pw.BoxDecoration(color: PdfColors.grey300),
             children: [
-              pw.Padding(padding: const pw.EdgeInsets.symmetric(
-                  vertical: 4, horizontal: 4),
-                  child: pw.Text(
-                      "점검 구역", style: pw.TextStyle(font: fontBold, fontSize: 9),
-                      textAlign: pw.TextAlign.center)),
-              pw.Padding(padding: const pw.EdgeInsets.symmetric(
-                  vertical: 4, horizontal: 4),
-                  child: pw.Text("점검 항목명",
-                      style: pw.TextStyle(font: fontBold, fontSize: 9),
-                      textAlign: pw.TextAlign.center)),
-              pw.Padding(padding: const pw.EdgeInsets.symmetric(
-                  vertical: 4, horizontal: 4),
-                  child: pw.Text(
-                      "결과", style: pw.TextStyle(font: fontBold, fontSize: 9),
-                      textAlign: pw.TextAlign.center)),
-              pw.Padding(padding: const pw.EdgeInsets.symmetric(
-                  vertical: 4, horizontal: 4),
-                  child: pw.Text("특이사항 및 조치내역",
-                      style: pw.TextStyle(font: fontBold, fontSize: 9),
-                      textAlign: pw.TextAlign.center)),
+              pw.Padding(padding: const pw.EdgeInsets.symmetric(vertical: 4, horizontal: 4), child: pw.Text("점검 구역", style: pw.TextStyle(font: fontBold, fontSize: 9), textAlign: pw.TextAlign.center)),
+              pw.Padding(padding: const pw.EdgeInsets.symmetric(vertical: 4, horizontal: 4), child: pw.Text("점검 항목명", style: pw.TextStyle(font: fontBold, fontSize: 9), textAlign: pw.TextAlign.center)),
+              pw.Padding(padding: const pw.EdgeInsets.symmetric(vertical: 4, horizontal: 4), child: pw.Text("결과", style: pw.TextStyle(font: fontBold, fontSize: 9), textAlign: pw.TextAlign.center)),
+              pw.Padding(padding: const pw.EdgeInsets.symmetric(vertical: 4, horizontal: 4), child: pw.Text("특이사항/조치내역", style: pw.TextStyle(font: fontBold, fontSize: 9), textAlign: pw.TextAlign.center)),
             ]
         )
       ];
 
-      for (var group in _inspectionData) {
-        String groupName = group['group']
-            .toString()
-            .split('.')
-            .last
-            .trim();
+      for (var group in activeGroups) {
+        String groupName = group['group'].toString().split('.').last.trim();
         for (var item in group['items']) {
           String title = item['title'];
           var res = results[title];
-
-          String statusText = "미점검";
-          PdfColor statusColor = PdfColors.grey600;
+          String statusText = "미점검"; PdfColor statusColor = PdfColors.grey600;
           if (res != null) {
-            if (res['status'] == 'pass') {
-              statusText = "합격";
-              statusColor = PdfColors.green700;
-            }
-            else if (res['status'] == 'warn') {
-              statusText = "미흡";
-              statusColor = PdfColors.orange700;
-            }
-            else if (res['status'] == 'fail') {
-              statusText = "불량";
-              statusColor = PdfColors.red700;
-            }
-            else if (res['status'] == 'na') {
-              statusText = "해당없음";
-              statusColor = PdfColors.grey500;
-            }
+            if (res['status'] == 'pass') { statusText = "합격"; statusColor = PdfColors.green700; }
+            else if (res['status'] == 'warn') { statusText = "미흡"; statusColor = PdfColors.orange700; }
+            else if (res['status'] == 'fail') { statusText = "불량"; statusColor = PdfColors.red700; }
+            else if (res['status'] == 'na') { statusText = "해당없음"; statusColor = PdfColors.grey500; }
           }
           String remark = res != null ? (res['remark'] ?? '') : '';
 
-          // 🌟 [다이어트 2] 내용 행 패딩과 글씨 크기 줄임 (9 -> 8)
           tableRows.add(pw.TableRow(
               children: [
-                pw.Padding(padding: const pw.EdgeInsets.symmetric(
-                    vertical: 4, horizontal: 4),
-                    child: pw.Text(groupName,
-                        style: pw.TextStyle(font: fontRegular, fontSize: 8))),
-                pw.Padding(padding: const pw.EdgeInsets.symmetric(
-                    vertical: 4, horizontal: 4),
-                    child: pw.Text(title,
-                        style: pw.TextStyle(font: fontRegular, fontSize: 8))),
-                pw.Padding(padding: const pw.EdgeInsets.symmetric(
-                    vertical: 4, horizontal: 4),
-                    child: pw.Text(statusText, style: pw.TextStyle(
-                        font: fontBold, fontSize: 8, color: statusColor),
-                        textAlign: pw.TextAlign.center)),
-                pw.Padding(padding: const pw.EdgeInsets.symmetric(
-                    vertical: 4, horizontal: 4),
-                    child: pw.Text(remark,
-                        style: pw.TextStyle(font: fontRegular, fontSize: 8))),
+                pw.Padding(padding: const pw.EdgeInsets.symmetric(vertical: 4, horizontal: 4), child: pw.Text(groupName, style: pw.TextStyle(font: fontRegular, fontSize: 8))),
+                pw.Padding(padding: const pw.EdgeInsets.symmetric(vertical: 4, horizontal: 4), child: pw.Text(title, style: pw.TextStyle(font: fontRegular, fontSize: 8))),
+                pw.Padding(padding: const pw.EdgeInsets.symmetric(vertical: 4, horizontal: 4), child: pw.Text(statusText, style: pw.TextStyle(font: fontBold, fontSize: 8, color: statusColor), textAlign: pw.TextAlign.center)),
+                pw.Padding(padding: const pw.EdgeInsets.symmetric(vertical: 4, horizontal: 4), child: pw.Text(remark, style: pw.TextStyle(font: fontRegular, fontSize: 8))),
               ]
           ));
         }
@@ -538,342 +583,165 @@ class _FieldPracticalChecklistPageState extends State<FieldPracticalChecklistPag
 
       pdf.addPage(
           pw.MultiPage(
-              pageFormat: PdfPageFormat.a4,
-              // 🌟 [다이어트 3] PDF 문서 전체 상하좌우 여백 줄임 (40 -> 24)
-              margin: const pw.EdgeInsets.all(24),
+              pageFormat: PdfPageFormat.a4, margin: const pw.EdgeInsets.all(24),
               build: (pw.Context context) {
                 return [
-                  pw.Header(
-                      level: 0,
-                      child: pw.Row(
-                          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                          children: [
-                            pw.Text("SM종합관리 건물 정밀 점검표 (총 45항목)",
-                                style: pw.TextStyle(
-                                    font: fontBold, fontSize: 16)),
-                          ]
-                      )
-                  ),
+                  pw.Header(level: 0, child: pw.Text("SM종합관리 $reportTitle", style: pw.TextStyle(font: fontBold, fontSize: 14))),
                   pw.SizedBox(height: 8),
                   pw.Container(
-                      padding: const pw.EdgeInsets.all(8),
-                      decoration: pw.BoxDecoration(
-                          border: pw.Border.all(color: PdfColors.grey400)),
+                      padding: const pw.EdgeInsets.all(8), decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey400)),
                       child: pw.Row(
                           mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                           children: [
-                            pw.Column(
-                                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                                children: [
-                                  pw.Text("• 점검 대상 건물 : $bName",
-                                      style: pw.TextStyle(
-                                          font: fontBold, fontSize: 11)),
-                                  pw.SizedBox(height: 4),
-                                  pw.Text("• 점검 일시 : $dateStr",
-                                      style: pw.TextStyle(
-                                          font: fontRegular, fontSize: 11)),
-                                ]
-                            ),
-                            pw.Column(
-                                crossAxisAlignment: pw.CrossAxisAlignment.end,
-                                children: [
-                                  pw.Text("• 담당자 : $iName $iRank",
-                                      style: pw.TextStyle(
-                                          font: fontBold, fontSize: 11)),
-                                  pw.SizedBox(height: 4),
-                                  pw.Text("• 소속 : SM종합관리 현장지원팀",
-                                      style: pw.TextStyle(
-                                          font: fontRegular, fontSize: 11)),
-                                ]
-                            ),
+                            pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [pw.Text("• 점검 대상 건물 : $bName", style: pw.TextStyle(font: fontBold, fontSize: 11)), pw.SizedBox(height: 4), pw.Text("• 점검 일시 : $dateStr", style: pw.TextStyle(font: fontRegular, fontSize: 11))]),
+                            pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.end, children: [pw.Text("• 담당자 : $iName $iRank", style: pw.TextStyle(font: fontBold, fontSize: 11)), pw.SizedBox(height: 4), pw.Text("• 소속 : SM현장지원팀", style: pw.TextStyle(font: fontRegular, fontSize: 11))]),
                           ]
                       )
                   ),
                   pw.SizedBox(height: 12),
                   pw.Table(
-                    border: pw.TableBorder.all(
-                        color: PdfColors.grey400, width: 0.5),
-                    columnWidths: {
-                      0: const pw.FlexColumnWidth(1.5),
-                      1: const pw.FlexColumnWidth(3.5),
-                      2: const pw.FlexColumnWidth(1),
-                      3: const pw.FlexColumnWidth(2.5),
-                    },
+                    border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
+                    columnWidths: { 0: const pw.FlexColumnWidth(1.5), 1: const pw.FlexColumnWidth(3.5), 2: const pw.FlexColumnWidth(1), 3: const pw.FlexColumnWidth(2.5) },
                     children: tableRows,
                   ),
                 ];
               }
           )
       );
-
-      await Printing.layoutPdf(
-        onLayout: (PdfPageFormat format) async => pdf.save(),
-        name: '${bName}_점검보고서_$dateStr.pdf',
-      );
-    } catch (e) {
-      _showSnackBar("PDF 생성 중 오류가 발생했습니다.", true);
-    } finally {
-      setState(() => _isPrinting = false);
-    }
+      await Printing.layoutPdf(onLayout: (PdfPageFormat format) async => pdf.save(), name: '${bName}_맞춤점검보고서_$dateStr.pdf');
+    } catch (e) { _showSnackBar("PDF 생성 중 오류가 발생했습니다.", true); } finally { setState(() => _isPrinting = false); }
   }
 
   // ---------------------------------------------------------
-  // 📋 3. 기록 팝업 (작성자 전용 삭제 기능 추가)
+  // 📋 3. 기록 팝업 (동적 타이틀 연동)
   // ---------------------------------------------------------
-  void _showRecordDetailDialog(Map<String, dynamic> data, String dateStr,
-      String docId) {
+  void _showRecordDetailDialog(Map<String, dynamic> data, String dateStr, String docId) {
     String bName = data['buildingName'] ?? '미상';
     String iName = data['inspectorName'] ?? '현장 담당자';
     String iRank = data['inspectorRank'] ?? '';
-    String inspectorUid = data['inspectorUid'] ?? ''; // 🌟 작성자 UID 가져오기
+    String inspectorUid = data['inspectorUid'] ?? '';
     Map<String, dynamic> results = data['results'] ?? {};
 
-    // 🌟 현재 접속한 유저가 이 문서의 작성자인지 확인!
     bool isAuthor = FirebaseAuth.instance.currentUser?.uid == inspectorUid;
+
+    bool regAct = data['isRegularActive'] ?? true;
+    bool s1Act = data['isS1Active'] ?? (data['isSpecialActive'] ?? false);
+    bool s2Act = data['isS2Active'] ?? (data['isSpecialActive'] ?? false);
+    bool s3Act = data['isS3Active'] ?? (data['isSpecialActive'] ?? false);
+    bool s4Act = data['isS4Active'] ?? (data['isSpecialActive'] ?? false);
+
+    String popupTitle = _getDynamicTitle(regAct, s1Act, s2Act, s3Act, s4Act);
+
+    List<Map<String, dynamic>> activeGroups = [];
+    if (regAct) activeGroups.addAll(_inspectionData);
+    if (s1Act) activeGroups.add(_specialInspectionData[0]);
+    if (s2Act) activeGroups.add(_specialInspectionData[1]);
+    if (s3Act) activeGroups.add(_specialInspectionData[2]);
+    if (s4Act) activeGroups.add(_specialInspectionData[3]);
 
     showDialog(
       context: context,
-      builder: (ctx) =>
-          Dialog(
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16)),
-            child: Container(
-              width: 800,
-              height: MediaQuery
-                  .of(context)
-                  .size
-                  .height * 0.8,
-              padding: const EdgeInsets.all(0),
-              child: Column(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 20, vertical: 16),
-                    decoration: BoxDecoration(color: primaryNavy,
-                        borderRadius: const BorderRadius.vertical(
-                            top: Radius.circular(16))),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(
-                          child: Row(
-                            children: [
-                              const Icon(Icons.assignment, color: Colors.white,
-                                  size: 24),
-                              const SizedBox(width: 10),
-                              Expanded(child: Text("[$bName] 점검 보고서",
-                                  style: const TextStyle(color: Colors.white,
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold),
-                                  overflow: TextOverflow.ellipsis)),
-                            ],
-                          ),
-                        ),
-                        ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.white,
-                              foregroundColor: primaryNavy),
-                          icon: _isPrinting
-                              ? const SizedBox(width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2))
-                              : const Icon(Icons.print, size: 18),
-                          label: const Text("인쇄",
-                              style: TextStyle(fontWeight: FontWeight.bold)),
-                          onPressed: _isPrinting ? null : () =>
-                              _printChecklistPdf(data, dateStr),
-                        ),
-                      ],
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Container(
+          width: 800, height: MediaQuery.of(context).size.height * 0.8, padding: const EdgeInsets.all(0),
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                decoration: BoxDecoration(color: primaryNavy, borderRadius: const BorderRadius.vertical(top: Radius.circular(16))),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Row(
+                        children: [
+                          const Icon(Icons.assignment, color: Colors.white, size: 24), const SizedBox(width: 10),
+                          Expanded(child: Text("[$bName] ${popupTitle.replaceAll('건물 정밀 점검표 ', '')}", style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis)),
+                        ],
+                      ),
                     ),
-                  ),
-
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    color: const Color(0xFFF8FAFC),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text("점검자 정보", style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey,
-                                  fontWeight: FontWeight.bold)),
-                              const SizedBox(height: 4),
-                              Text("$iName $iRank", style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: primaryNavy)),
-                            ],
-                          ),
-                        ),
-                        Container(
-                            width: 1, height: 40, color: Colors.grey[300]),
-                        Expanded(
-                          child: Padding(
-                            padding: const EdgeInsets.only(left: 16),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text("점검 일시", style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey,
-                                    fontWeight: FontWeight.bold)),
-                                const SizedBox(height: 4),
-                                Text(dateStr, style: TextStyle(fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                    color: primaryNavy)),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: primaryNavy),
+                      icon: _isPrinting ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.print, size: 18),
+                      label: const Text("인쇄", style: TextStyle(fontWeight: FontWeight.bold)),
+                      onPressed: _isPrinting ? null : () => _printChecklistPdf(data, dateStr),
                     ),
-                  ),
-                  const Divider(height: 1, thickness: 1),
-
-                  Expanded(
-                    child: ListView(
-                      padding: const EdgeInsets.all(20),
-                      children: _inspectionData.map((group) {
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 24),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(group['group'], style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: primaryNavy)),
-                              const Divider(),
-                              ...group['items'].map<Widget>((item) {
-                                String title = item['title'];
-                                var res = results[title];
-
-                                IconData sIcon = Icons.help_outline;
-                                Color sColor = Colors.grey;
-                                String sText = "미점검";
-                                String sRemark = "";
-
-                                if (res != null) {
-                                  if (res['status'] == 'pass') {
-                                    sIcon = Icons.check_circle;
-                                    sColor = successGreen;
-                                    sText = "합격";
-                                  }
-                                  else if (res['status'] == 'warn') {
-                                    sIcon = Icons.warning_rounded;
-                                    sColor = warningOrange;
-                                    sText = "미흡";
-                                  }
-                                  else if (res['status'] == 'fail') {
-                                    sIcon = Icons.cancel;
-                                    sColor = dangerRed;
-                                    sText = "불량";
-                                  }
-                                  else if (res['status'] == 'na') {
-                                    sIcon = Icons.remove_circle_outline;
-                                    sColor = naGrey;
-                                    sText = "해당없음";
-                                  }
-                                  sRemark = res['remark'] ?? '';
-                                }
-
-                                return Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                      vertical: 8),
-                                  child: Row(
-                                    crossAxisAlignment: CrossAxisAlignment
-                                        .start,
-                                    children: [
-                                      Icon(sIcon, color: sColor, size: 20),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment
-                                              .start,
-                                          children: [
-                                            Text(title, style: const TextStyle(
-                                                fontWeight: FontWeight.bold,
-                                                fontSize: 14)),
-                                            if (sRemark.isNotEmpty)
-                                              Container(
-                                                margin: const EdgeInsets.only(
-                                                    top: 4),
-                                                padding: const EdgeInsets.all(
-                                                    8),
-                                                decoration: BoxDecoration(
-                                                    color: Colors.grey[100],
-                                                    borderRadius: BorderRadius
-                                                        .circular(6),
-                                                    border: Border.all(
-                                                        color: Colors
-                                                            .grey[300]!)),
-                                                child: Text("사유/조치: $sRemark",
-                                                    style: const TextStyle(
-                                                        fontSize: 13,
-                                                        color: Color(
-                                                            0xFF475569))),
-                                              )
-                                          ],
-                                        ),
-                                      ),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 10, vertical: 4),
-                                        decoration: BoxDecoration(
-                                            color: sColor.withOpacity(0.1),
-                                            borderRadius: BorderRadius.circular(
-                                                20)),
-                                        child: Text(sText, style: TextStyle(
-                                            color: sColor,
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 12)),
-                                      )
-                                    ],
-                                  ),
-                                );
-                              }).toList(),
-                            ],
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(border: Border(
-                        top: BorderSide(color: Colors.grey[200]!))),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      // 🌟 양쪽 끝으로 정렬
-                      children: [
-                        // 🌟 작성자일 경우에만 [기록 삭제] 버튼 노출
-                        if (isAuthor)
-                          TextButton.icon(
-                            onPressed: () =>
-                                _confirmDeleteRecord(docId, bName, ctx),
-                            icon: const Icon(Icons.delete, color: Colors.red),
-                            label: const Text(
-                                "기록 삭제", style: TextStyle(color: Colors.red,
-                                fontWeight: FontWeight.bold)),
-                          )
-                        else
-                          const SizedBox(), // 자리 맞춤용 빈 공간
-
-                        TextButton(onPressed: () => Navigator.pop(ctx),
-                            child: const Text("닫기", style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.grey))),
-                      ],
-                    ),
-                  )
-                ],
+                  ],
+                ),
               ),
-            ),
+              Container(
+                padding: const EdgeInsets.all(16), color: const Color(0xFFF8FAFC),
+                child: Row(
+                  children: [
+                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text("점검자 정보", style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold)), const SizedBox(height: 4), Text("$iName $iRank", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: primaryNavy))])),
+                    Container(width: 1, height: 40, color: Colors.grey[300]),
+                    Expanded(child: Padding(padding: const EdgeInsets.only(left: 16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text("점검 일시", style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold)), const SizedBox(height: 4), Text(dateStr, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: primaryNavy))]))),
+                  ],
+                ),
+              ),
+              const Divider(height: 1, thickness: 1),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.all(20),
+                  children: activeGroups.map((group) {
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(group['group'], style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: primaryNavy)),
+                          const Divider(),
+                          ...group['items'].map<Widget>((item) {
+                            String title = item['title']; var res = results[title];
+                            IconData sIcon = Icons.help_outline; Color sColor = Colors.grey; String sText = "미점검"; String sRemark = "";
+                            if (res != null) {
+                              if (res['status'] == 'pass') { sIcon = Icons.check_circle; sColor = successGreen; sText = "합격"; }
+                              else if (res['status'] == 'warn') { sIcon = Icons.warning_rounded; sColor = warningOrange; sText = "미흡"; }
+                              else if (res['status'] == 'fail') { sIcon = Icons.cancel; sColor = dangerRed; sText = "불량"; }
+                              else if (res['status'] == 'na') { sIcon = Icons.remove_circle_outline; sColor = naGrey; sText = "해당없음"; }
+                              sRemark = res['remark'] ?? '';
+                            }
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Icon(sIcon, color: sColor, size: 20), const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                                        if (sRemark.isNotEmpty) Container(margin: const EdgeInsets.only(top: 4), padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(6), border: Border.all(color: Colors.grey[300]!)), child: Text("사유/조치: $sRemark", style: const TextStyle(fontSize: 13, color: Color(0xFF475569))))
+                                      ],
+                                    ),
+                                  ),
+                                  Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), decoration: BoxDecoration(color: sColor.withOpacity(0.1), borderRadius: BorderRadius.circular(20)), child: Text(sText, style: TextStyle(color: sColor, fontWeight: FontWeight.bold, fontSize: 12)))
+                                ],
+                              ),
+                            );
+                          }).toList(),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.all(16), decoration: BoxDecoration(border: Border(top: BorderSide(color: Colors.grey[200]!))),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    if (isAuthor) TextButton.icon(onPressed: () => _confirmDeleteRecord(docId, bName, ctx), icon: const Icon(Icons.delete, color: Colors.red), label: const Text("기록 삭제", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))) else const SizedBox(),
+                    TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("닫기", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey))),
+                  ],
+                ),
+              )
+            ],
           ),
+        ),
+      ),
     );
   }
 
@@ -884,20 +752,23 @@ class _FieldPracticalChecklistPageState extends State<FieldPracticalChecklistPag
   }
 
   // ---------------------------------------------------------
-  // 📱 메인 화면
+  // 📱 메인 화면 (상단 제목 실시간 변경 & 모바일 짤림 방지 적용)
   // ---------------------------------------------------------
   @override
   Widget build(BuildContext context) {
+    final bool isMobile = MediaQuery.of(context).size.width < 600;
+    String currentTitle = _getDynamicTitle(_isRegularActive, _isS1Active, _isS2Active, _isS3Active, _isS4Active);
+
     return Scaffold(
       backgroundColor: const Color(0xFFF1F5F9),
       appBar: AppBar(
-        title: const Text(
-            "건물 정밀 점검표 (총 45항목)", style: TextStyle(fontWeight: FontWeight.bold,
-            color: Color(0xFF1E293B),
-            fontSize: 18)),
-        backgroundColor: Colors.white,
-        iconTheme: const IconThemeData(color: Color(0xFF1E293B)),
-        elevation: 0.5,
+        // 👇 🌟 [모바일 최적화] 긴 제목이 모바일에서 두 줄로 깨지거나 짤리지 않도록 FittedBox 장착 👇
+        title: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(currentTitle, style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E293B), fontSize: 18))
+        ),
+        backgroundColor: Colors.white, iconTheme: const IconThemeData(color: Color(0xFF1E293B)), elevation: 0.5,
+        bottom: PreferredSize(preferredSize: const Size.fromHeight(1), child: Container(color: Colors.grey.shade200, height: 1)),
       ),
       body: Center(
         child: ConstrainedBox(
@@ -919,14 +790,15 @@ class _FieldPracticalChecklistPageState extends State<FieldPracticalChecklistPag
   }
 
   // ---------------------------------------------------------
-  // 🚀 인터랙티브 체크리스트 영역
+  // 🚀 인터랙티브 체크리스트 영역 (개별 5종 스위치 + 다이내믹 타이틀 연동)
   // ---------------------------------------------------------
   Widget _buildInteractiveChecklistSection() {
+    bool isMobile = MediaQuery.of(context).size.width < 800; // 태블릿/모바일 넉넉하게 분기
+    String currentTitle = _getDynamicTitle(_isRegularActive, _isS1Active, _isS2Active, _isS3Active, _isS4Active);
+
     return Container(
       padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: primaryNavy, width: 2)),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: primaryNavy, width: 2)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -934,115 +806,55 @@ class _FieldPracticalChecklistPageState extends State<FieldPracticalChecklistPag
             children: [
               Icon(Icons.fact_check, color: primaryNavy, size: 28),
               const SizedBox(width: 10),
-              const Expanded(child: Text("상세 점검 실시 및 결과 전송", style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF1E293B)))),
+              // 🌟 현재 켜진 스위치 항목 수를 헤더에도 실시간 노출!
+              Expanded(child: Text(currentTitle.replaceAll('건물 정밀 점검표 ', ''), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)))),
             ],
           ),
           const SizedBox(height: 20),
 
-          const Text("🏢 점검 대상 건물 선택", style: TextStyle(
-              fontWeight: FontWeight.bold, color: Color(0xFF475569))),
+          const Text("🏢 점검 대상 건물 선택", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF475569))),
           const SizedBox(height: 8),
 
-          // 자동완성 검색 기능
+          // 자동완성 검색 기능 (유지)
           StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance.collection('buildings').orderBy(
-                'name').snapshots(),
+            stream: FirebaseFirestore.instance.collection('buildings').orderBy('name').snapshots(),
             builder: (context, snapshot) {
               if (!snapshot.hasData) return const LinearProgressIndicator();
-
-              List<String> buildingNames = snapshot.data!.docs.map((doc) =>
-                  doc['name'].toString()).toList();
-
+              List<String> buildingNames = snapshot.data!.docs.map((doc) => doc['name'].toString()).toList();
               return Autocomplete<String>(
                 optionsBuilder: (TextEditingValue textEditingValue) {
                   if (textEditingValue.text.isEmpty) return buildingNames;
-                  return buildingNames.where((String option) =>
-                      option.toLowerCase().contains(
-                          textEditingValue.text.toLowerCase()));
+                  return buildingNames.where((String option) => option.toLowerCase().contains(textEditingValue.text.toLowerCase()));
                 },
-                onSelected: (String selection) {
-                  setState(() => _selectedBuilding = selection);
-                  FocusScope.of(context).unfocus();
-                },
-                fieldViewBuilder: (BuildContext context,
-                    TextEditingController textEditingController,
-                    FocusNode focusNode, VoidCallback onFieldSubmitted) {
-                  if (_selectedBuilding == null &&
-                      textEditingController.text.isNotEmpty) {
-                    WidgetsBinding.instance.addPostFrameCallback((_) =>
-                        textEditingController.clear());
-                  }
+                onSelected: (String selection) { setState(() => _selectedBuilding = selection); FocusScope.of(context).unfocus(); },
+                fieldViewBuilder: (BuildContext context, TextEditingController textEditingController, FocusNode focusNode, VoidCallback onFieldSubmitted) {
+                  if (_selectedBuilding == null && textEditingController.text.isNotEmpty) { WidgetsBinding.instance.addPostFrameCallback((_) => textEditingController.clear()); }
                   return TextField(
                     controller: textEditingController, focusNode: focusNode,
                     decoration: InputDecoration(
-                      hintText: "건물명을 입력하여 검색하세요",
-                      prefixIcon: const Icon(Icons.search, color: Color(
-                          0xFF475569)),
-                      suffixIcon: textEditingController.text.isNotEmpty
-                          ? IconButton(icon: const Icon(
-                          Icons.clear, color: Colors.grey), onPressed: () {
-                        textEditingController.clear();
-                        setState(() => _selectedBuilding = null);
-                        focusNode.unfocus();
-                      })
-                          : const Icon(
-                          Icons.arrow_drop_down, color: Colors.grey),
-                      filled: true,
-                      fillColor: const Color(0xFFF8FAFC),
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 14),
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: const BorderSide(color: Color(
-                              0xFFCBD5E1))),
-                      enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: const BorderSide(color: Color(
-                              0xFFCBD5E1))),
-                      focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: const BorderSide(color: Color(0xFF2563EB),
-                              width: 2)),
+                      hintText: "건물명을 입력하여 검색하세요", prefixIcon: const Icon(Icons.search, color: Color(0xFF475569)),
+                      suffixIcon: textEditingController.text.isNotEmpty ? IconButton(icon: const Icon(Icons.clear, color: Colors.grey), onPressed: () { textEditingController.clear(); setState(() => _selectedBuilding = null); focusNode.unfocus(); }) : const Icon(Icons.arrow_drop_down, color: Colors.grey),
+                      filled: true, fillColor: const Color(0xFFF8FAFC), contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
+                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
+                      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFF2563EB), width: 2)),
                     ),
                   );
                 },
-                optionsViewBuilder: (BuildContext context,
-                    AutocompleteOnSelected<String> onSelected,
-                    Iterable<String> options) {
-                  final double boxWidth = MediaQuery
-                      .of(context)
-                      .size
-                      .width > 850 ? 810 : MediaQuery
-                      .of(context)
-                      .size
-                      .width - 40;
+                optionsViewBuilder: (BuildContext context, AutocompleteOnSelected<String> onSelected, Iterable<String> options) {
+                  final double boxWidth = MediaQuery.of(context).size.width > 850 ? 810 : MediaQuery.of(context).size.width - 40;
                   return Align(
                     alignment: Alignment.topLeft,
                     child: Material(
                       elevation: 4.0, borderRadius: BorderRadius.circular(8),
                       child: ConstrainedBox(
-                        constraints: BoxConstraints(
-                            maxHeight: 250, maxWidth: boxWidth),
+                        constraints: BoxConstraints(maxHeight: 250, maxWidth: boxWidth),
                         child: ListView.builder(
-                          padding: EdgeInsets.zero,
-                          shrinkWrap: true,
-                          itemCount: options.length,
+                          padding: EdgeInsets.zero, shrinkWrap: true, itemCount: options.length,
                           itemBuilder: (BuildContext context, int index) {
                             return InkWell(
                               onTap: () => onSelected(options.elementAt(index)),
-                              child: Container(
-                                padding: const EdgeInsets.all(16.0),
-                                decoration: BoxDecoration(border: Border(
-                                    bottom: BorderSide(
-                                        color: Colors.grey.shade200))),
-                                child: Text(options.elementAt(index),
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 14)),
-                              ),
+                              child: Container(padding: const EdgeInsets.all(16.0), decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade200))), child: Text(options.elementAt(index), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14))),
                             );
                           },
                         ),
@@ -1055,29 +867,115 @@ class _FieldPracticalChecklistPageState extends State<FieldPracticalChecklistPag
           ),
           const SizedBox(height: 24),
 
-          ..._inspectionData.map((group) =>
-              _buildChecklistGroupInteractive(group)).toList(),
+          // 👇👇 🌟 [핵심] 분리된 5개의 스위치 영역 레이아웃 👇👇
+          const Text("🔘 점검 모드 스위치 (필요한 항목만 ON)", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF475569))),
+          const SizedBox(height: 8),
+
+          // 1. 일반 점검 스위치 (단독)
+          _buildToggleSwitch("기본: 일반 정기점검 (45항목)", Icons.fact_check, safetyBlue, _isRegularActive, (v) => setState(() => _isRegularActive = v)),
+          const SizedBox(height: 12),
+
+          // 2. 비상/특수 점검 스위치 (PC는 2칸씩, 모바일은 1줄로 세로 정렬)
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: const Color(0xFFFEF2F2), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFFECACA))),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(
+                  children: [
+                    Icon(Icons.warning_amber_rounded, color: Colors.red, size: 20), SizedBox(width: 6),
+                    Text("비상/계절별 특수점검", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red, fontSize: 14)),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                isMobile
+                    ? Column(
+                  children: [
+                    _buildToggleSwitch("S1. 장마 및 태풍 (집중호우/강풍)", Icons.water_drop, const Color(0xFF0D9488), _isS1Active, (v) => setState(() => _isS1Active = v)), const SizedBox(height: 8),
+                    _buildToggleSwitch("S2. 한파 및 동파 (영하권 강추위)", Icons.ac_unit, const Color(0xFF3B82F6), _isS2Active, (v) => setState(() => _isS2Active = v)), const SizedBox(height: 8),
+                    _buildToggleSwitch("S3. 폭설 및 결빙 (눈/빙판길)", Icons.severe_cold, const Color(0xFF6366F1), _isS3Active, (v) => setState(() => _isS3Active = v)), const SizedBox(height: 8),
+                    _buildToggleSwitch("S4. 강풍 및 건조 (화재 조심)", Icons.local_fire_department, const Color(0xFFEF4444), _isS4Active, (v) => setState(() => _isS4Active = v)),
+                  ],
+                )
+                    : Column(
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(child: _buildToggleSwitch("S1. 장마 및 태풍 (여름)", Icons.water_drop, const Color(0xFF0D9488), _isS1Active, (v) => setState(() => _isS1Active = v))), const SizedBox(width: 8),
+                        Expanded(child: _buildToggleSwitch("S2. 한파 및 동파 (겨울)", Icons.ac_unit, const Color(0xFF3B82F6), _isS2Active, (v) => setState(() => _isS2Active = v))),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(child: _buildToggleSwitch("S3. 폭설 및 결빙 (겨울)", Icons.severe_cold, const Color(0xFF6366F1), _isS3Active, (v) => setState(() => _isS3Active = v))), const SizedBox(width: 8),
+                        Expanded(child: _buildToggleSwitch("S4. 강풍 및 건조 (봄/가을)", Icons.local_fire_department, const Color(0xFFEF4444), _isS4Active, (v) => setState(() => _isS4Active = v))),
+                      ],
+                    ),
+                  ],
+                )
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          // 👆👆 ======================================================= 👆👆
+
+          // 🌟 켜져 있는 스위치에 따라 리스트 출력!
+          if (_isRegularActive) ..._inspectionData.map((group) => _buildChecklistGroupInteractive(group)).toList(),
+          if (_isS1Active) _buildChecklistGroupInteractive(_specialInspectionData[0]),
+          if (_isS2Active) _buildChecklistGroupInteractive(_specialInspectionData[1]),
+          if (_isS3Active) _buildChecklistGroupInteractive(_specialInspectionData[2]),
+          if (_isS4Active) _buildChecklistGroupInteractive(_specialInspectionData[3]),
 
           const SizedBox(height: 24),
           SizedBox(
             width: double.infinity, height: 55,
             child: ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(backgroundColor: primaryNavy,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8))),
-              icon: _isSaving ? const SizedBox(width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                      color: Colors.white, strokeWidth: 2)) : const Icon(
-                  Icons.cloud_upload, color: Colors.white),
-              label: Text(_isSaving ? "서버에 저장 중..." : "점검 결과 서버로 전송",
-                  style: const TextStyle(fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white)),
+              style: ElevatedButton.styleFrom(backgroundColor: primaryNavy, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+              icon: _isSaving ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) : const Icon(Icons.cloud_upload, color: Colors.white),
+              label: Text(_isSaving ? "서버에 저장 중..." : "점검 결과 서버로 전송", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
               onPressed: _isSaving ? null : _saveInspection,
             ),
           )
         ],
+      ),
+    );
+  }
+
+  // 🌟 [유지] 모바일에서 글씨가 안 깨지는 스마트 스위치 생성기 (FittedBox 적용)
+  Widget _buildToggleSwitch(String title, IconData icon, Color color, bool isActive, Function(bool) onChanged) {
+    return InkWell(
+      onTap: () => onChanged(!isActive),
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+        decoration: BoxDecoration(
+          color: isActive ? color.withOpacity(0.1) : Colors.white,
+          border: Border.all(color: isActive ? color : Colors.grey[300]!, width: isActive ? 2 : 1),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: isActive ? color : Colors.grey, size: 20),
+            const SizedBox(width: 8),
+            Expanded(
+                child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(title, style: TextStyle(fontWeight: FontWeight.bold, color: isActive ? color : Colors.grey[600], fontSize: 14))
+                )
+            ),
+            SizedBox(
+              height: 30, // 🌟 스위치 높이를 살짝 줄여서 레이아웃이 뚱뚱해지지 않게 방어
+              child: Switch(
+                value: isActive,
+                onChanged: onChanged,
+                activeColor: color,
+              ),
+            )
+          ],
+        ),
       ),
     );
   }
@@ -1192,22 +1090,23 @@ class _FieldPracticalChecklistPageState extends State<FieldPracticalChecklistPag
     );
   }
 
+  // 🌟 (도우미) 점검 버튼 생성기 (모바일 짤림 완벽 방어)
   Widget _buildStateBtn(String title, String type, String label, Color color) {
     bool isSelected = _checkStates[title] == type;
     return GestureDetector(
       onTap: () => setState(() => _checkStates[title] = type),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(vertical: 8),
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 2), // 🌟 좁은 화면 대비 가로 여백 최소화
         decoration: BoxDecoration(color: isSelected ? color : Colors.white,
-            border: Border.all(
-                color: isSelected ? color : Colors.grey.shade300),
+            border: Border.all(color: isSelected ? color : Colors.grey.shade300),
             borderRadius: BorderRadius.circular(6)),
         alignment: Alignment.center,
-        child: Text(label, textAlign: TextAlign.center,
-            style: TextStyle(fontWeight: FontWeight.bold,
-                fontSize: 12,
-                color: isSelected ? Colors.white : Colors.grey.shade600)),
+        child: FittedBox( // 👇 🌟 [모바일 최적화] '해당없음' 같이 긴 글씨가 좁은 버튼 밖으로 삐져나가는 것 방지 👇
+          fit: BoxFit.scaleDown,
+          child: Text(label, textAlign: TextAlign.center,
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: isSelected ? Colors.white : Colors.grey.shade600)),
+        ),
       ),
     );
   }

@@ -877,7 +877,7 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
       _showNoticePopup("은행 파일 오류", "$e");
     }
   }
-
+  // 매칭 로직 전체
   void _runAiMatching() async {
     setState(() => _isProcessing = true);
     await Future.delayed(const Duration(milliseconds: 800));
@@ -929,13 +929,20 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
       String exHo = "";
       bool hasExplicitPattern = false;
       bool hasExplicitHoOnly = false;
-      bool isSwappedPossible = false; // 🌟 새로 추가: "1508-101" 처럼 동호가 뒤집힌 경우 허용
+      bool isSwappedPossible = false;
 
-      // 1. "101동 1508호"
       var m1 = RegExp(r'(\d+)동\s*(\d+)호?').firstMatch(cleanDescNoSpace);
       if (m1 != null) { exDong = m1.group(1)!; exHo = m1.group(2)!; hasExplicitPattern = true; }
 
-      // 2. "1508호 101동" 또는 "1508호"
+      if (!hasExplicitPattern) {
+        var m3 = RegExp(r'(\d+)(?:-|_|/|,|:|\.)(\d+)').firstMatch(cleanDescNoSpace);
+        if (m3 != null) {
+          exDong = m3.group(1)!; exHo = m3.group(2)!;
+          hasExplicitPattern = true;
+          isSwappedPossible = true;
+        }
+      }
+
       if (!hasExplicitPattern) {
         var m2 = RegExp(r'(\d+)호(?:\s*(\d+)동)?').firstMatch(cleanDescNoSpace);
         if (m2 != null) {
@@ -945,24 +952,13 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
         }
       }
 
-      // 3. 기호 "101-1508" 또는 "101.1508" (🌟 마침표 추가됨)
-      if (!hasExplicitPattern && !hasExplicitHoOnly) {
-        var m3 = RegExp(r'(\d+)(?:-|_|/|,|:|\.)(\d+)').firstMatch(cleanDescNoSpace);
-        if (m3 != null) {
-          exDong = m3.group(1)!; exHo = m3.group(2)!;
-          hasExplicitPattern = true;
-          isSwappedPossible = true; // 🌟 기호로 쓴 경우 앞뒤가 바뀌었을 수 있음
-        }
-      }
-
       List<String> rawNumbers = RegExp(r'\d+').allMatches(cleanDescNoSpace).map((m) => m.group(0)!).toList();
 
-      // 4. "101 1508" 띄어쓰기로만 구분된 경우
       if (!hasExplicitPattern && !hasExplicitHoOnly) {
         if (rawNumbers.length >= 2) {
           exDong = rawNumbers[0]; exHo = rawNumbers[1];
           hasExplicitPattern = true;
-          isSwappedPossible = true; // 🌟 띄어쓰기도 앞뒤가 바뀌었을 수 있음
+          isSwappedPossible = true;
         }
       }
 
@@ -970,6 +966,46 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
       int highestScore = 0;
       String bestMatchReason = "";
       bool bestNeedsCheck = false;
+
+      bool isSmartDongMatch(String dbDongStr, String bankDongStr, {bool allowMath = true}) {
+        if (dbDongStr.isEmpty || dbDongStr == bankDongStr) return true;
+        if (bankDongStr == "1") return true;
+
+        if (allowMath) {
+          int? dbN = int.tryParse(dbDongStr);
+          int? bkN = int.tryParse(bankDongStr);
+
+          if (dbN != null && bkN != null) {
+            if (dbN == bkN) return true;
+            int minN = min(dbN, bkN);
+            int maxN = max(dbN, bkN);
+
+            if (minN < 100 && maxN % 100 == minN) return true;
+            if (minN < 1000 && maxN % 1000 == minN) return true;
+          }
+        }
+        if (dbDongStr.contains(bankDongStr)) return true;
+        return false;
+      }
+
+      bool isSmartHoMatch(String dbHoStr, String bankHoStr, String fullRawDesc) {
+        if (dbHoStr.isEmpty || bankHoStr.isEmpty) return false;
+        String cleanBankHo = int.tryParse(bankHoStr)?.toString() ?? bankHoStr;
+
+        if (dbHoStr == cleanBankHo) return true;
+
+        if (cleanBankHo.startsWith(dbHoStr)) {
+          String leftover = cleanBankHo.substring(dbHoStr.length);
+          int? monthVal = int.tryParse(leftover);
+
+          if (monthVal != null && monthVal >= 1 && monthVal <= 12) {
+            if (fullRawDesc.contains("${bankHoStr}월") || fullRawDesc.contains("${bankHoStr}분")) {
+              return true;
+            }
+          }
+        }
+        return false;
+      }
 
       for (var row in _residentList) {
         String cleanHo = row.ho.replaceAll(RegExp(r'[^0-9]'), '');
@@ -986,69 +1022,78 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
         bool isDongHoMatch = false;
         bool isHoMatch = false;
         bool isJoinedMatch = false;
-        bool isStrongJoinedMatch = false; // 🌟 새로 추가: "1011508" 같이 자릿수가 길어서 확실한 경우
+        bool isStrongJoinedMatch = false;
 
         if (hasExplicitPattern) {
-          bool dongMatches = targetDongNum.isEmpty || targetDongNum == int.tryParse(exDong)?.toString() || cleanDong.contains(exDong) || exDong == "1";
-          bool hoMatches = targetHoNum == int.tryParse(exHo)?.toString();
+          bool dongMatches = isSmartDongMatch(targetDongNum, exDong);
+          bool hoMatches = isSmartHoMatch(targetHoNum, exHo, descNoSpace);
 
           if (dongMatches && hoMatches) {
             isDongHoMatch = true;
-          }
-          // 🌟 [핵심 고도화] 만약 정방향이 틀렸다면 역방향(호-동)으로 한번 더 검사! (1508-101 대비)
-          else if (isSwappedPossible) {
-            bool swappedDongMatches = targetDongNum.isEmpty || targetDongNum == int.tryParse(exHo)?.toString() || cleanDong.contains(exHo) || exHo == "1";
-            bool swappedHoMatches = targetHoNum == int.tryParse(exDong)?.toString();
+          } else if (isSwappedPossible) {
+            bool swappedDongMatches = isSmartDongMatch(targetDongNum, exHo, allowMath: false);
+            bool swappedHoMatches = isSmartHoMatch(targetHoNum, exDong, descNoSpace);
             if (swappedDongMatches && swappedHoMatches) {
               isDongHoMatch = true;
             }
           }
         } else if (hasExplicitHoOnly) {
-          if (targetHoNum == int.tryParse(exHo)?.toString()) isHoMatch = true;
+          if (isSmartHoMatch(targetHoNum, exHo, descNoSpace)) isHoMatch = true;
         } else {
           if (rawNumbers.length == 1) {
             String numStr = rawNumbers[0];
-            String joinedTarget = cleanDong + cleanHo; // 101 + 1508 = 1011508
-            String joinedTargetReverse = cleanHo + cleanDong; // 1508 + 101 = 1508101 (순서 바뀜 대비)
+            String joinedTarget = cleanDong + cleanHo;
+            String joinedTargetReverse = cleanHo + cleanDong;
 
-            if (targetHoNum.isNotEmpty && int.tryParse(numStr)?.toString() == targetHoNum) {
+            if (isSmartHoMatch(targetHoNum, numStr, descNoSpace)) {
               isHoMatch = true;
-            }
-            else if (joinedTarget.length >= 3 && numStr == joinedTarget) {
+            } else if (joinedTarget.length >= 3 && numStr == joinedTarget) {
               isJoinedMatch = true;
-              if (joinedTarget.length >= 5) isStrongJoinedMatch = true; // 🌟 5자리 이상이면 무조건 확실함!
-            }
-            else if (joinedTargetReverse.length >= 3 && numStr == joinedTargetReverse) {
+              if (joinedTarget.length >= 5) isStrongJoinedMatch = true;
+            } else if (joinedTargetReverse.length >= 3 && numStr == joinedTargetReverse) {
               isJoinedMatch = true;
-              if (joinedTargetReverse.length >= 5) isStrongJoinedMatch = true; // 🌟 역방향이어도 확실함!
+              if (joinedTargetReverse.length >= 5) isStrongJoinedMatch = true;
             }
           }
         }
 
-        // 🌟 [핵심 고도화] 점수 차등화
         if (isDongHoMatch) {
           currentScore += 60; hitReasons.add("동-호");
         } else if (isHoMatch) {
           currentScore += 50; hitReasons.add("호수");
         } else if (isJoinedMatch) {
           if (isStrongJoinedMatch) {
-            currentScore += 40; hitReasons.add("동호완벽유추"); // 🌟 5자리 이상(1011508)은 40점으로 단독 매칭 통과!
+            currentScore += 40; hitReasons.add("동호완벽유추");
           } else {
-            currentScore += 20; hitReasons.add("동호단순유추"); // 🌟 4자리 이하(1201)는 20점으로 이름이 맞아야만 통과!
+            currentScore += 20; hitReasons.add("동호단순유추");
           }
         }
 
-        bool exactNameHit = false; bool typoNameHit = false; String matchedNameType = "";
+        // 👇👇 🌟 [이름 두글자(일부) 매칭 전용 변수 추가] 👇👇
+        bool exactNameHit = false;
+        bool partialNameHit = false; // "김한나" -> "한나"
+        bool typoNameHit = false;
+        String matchedNameType = "";
         String bankNameCandidate = cleanDescNoSpace.replaceAll(RegExp(r'[0-9]'), '').replaceAll(RegExp(r'[^a-zA-Z가-힣]'), '').replaceAll(RegExp(r'^[동호]+|[동호]+$'), '');
 
         void checkName(String name, String type) {
           String cleanName = name.replaceAll(' ', '').toLowerCase();
           if (cleanName.length < 2 || RegExp(r'[0-9]').hasMatch(cleanName)) return;
-          if (descNoSpace.contains(cleanName)) { exactNameHit = true; matchedNameType = type; }
-          else if (!exactNameHit && (isDongHoMatch || isHoMatch || isJoinedMatch) && bankNameCandidate.isNotEmpty) {
-            if (_calculateSimilarity(cleanName, bankNameCandidate) >= 0.6) { typoNameHit = true; matchedNameType = "$type(오타추정)"; }
+
+          if (descNoSpace.contains(cleanName)) {
+            exactNameHit = true; matchedNameType = type;
+          }
+          // 🌟 2글자 이상 입금명(한나)이 DB이름(김한나)에 정확히 포함될 때
+          else if (!exactNameHit && bankNameCandidate.length >= 2 && cleanName.contains(bankNameCandidate)) {
+            partialNameHit = true; matchedNameType = "$type(일부)";
+          }
+          else if (!exactNameHit && !partialNameHit && (isDongHoMatch || isHoMatch || isJoinedMatch) && bankNameCandidate.isNotEmpty) {
+            if (_calculateSimilarity(cleanName, bankNameCandidate) >= 0.6) {
+              typoNameHit = true; matchedNameType = "$type(오타)";
+            }
           }
         }
+        // 👆👆 ========================================================= 👆👆
 
         checkName(row.owner, "소유자");
         if (!exactNameHit) checkName(row.resident, "입주자");
@@ -1068,20 +1113,39 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
         }
 
         if (exactNameHit) { currentScore += 50; hitReasons.add(matchedNameType); }
+        // 🌟 두글자(일부) 일치 시에도 +40점 획득!
+        else if (partialNameHit) { currentScore += 40; hitReasons.add(matchedNameType); }
         else if (typoNameHit) { currentScore += 30; hitReasons.add(matchedNameType); }
         if (remarkNameHit) { currentScore += 50; }
         if (currentScore > 0 && isEmptyRecord) { currentScore -= 10; hitReasons.add("정보없음(-10)"); }
 
+        // 👇👇 🌟 [대표님 특별지시: "호수가 맞으면 매칭, 호수 없으면 확인필요!"] 👇👇
         if (currentScore > highestScore) {
           highestScore = currentScore;
           bestMatchRow = row;
           if (currentScore >= 40) {
-            if (typoNameHit) { bestNeedsCheck = true; bestMatchReason = "확인필요(오타추정)"; }
-            else { bestNeedsCheck = false; bestMatchReason = hitReasons.join("+"); }
+            // 이름이 일부(한나)만 맞거나 오타인 경우
+            if (partialNameHit || typoNameHit) {
+              if (isDongHoMatch || isHoMatch) {
+                // 🟢 호수가 명확히 맞았으므로 매칭 완료!
+                bestNeedsCheck = false;
+                bestMatchReason = hitReasons.join("+");
+              } else {
+                // 🟠 호수 없이 '한나'만 입금했으므로 확인 필요!
+                bestNeedsCheck = true;
+                bestMatchReason = "확인필요(${hitReasons.join("+")})";
+              }
+            } else {
+              // 이름이 100% 맞거나, 이름 없이 "101-102"로만 입금한 80% 정상 세대들
+              bestNeedsCheck = false;
+              bestMatchReason = hitReasons.join("+");
+            }
           } else {
-            bestNeedsCheck = true; bestMatchReason = "확인필요(${hitReasons.join("+")})";
+            bestNeedsCheck = true;
+            bestMatchReason = "확인필요(${hitReasons.join("+")})";
           }
         }
+        // 👆👆 ================================================================= 👆👆
       }
 
       if (highestScore >= 30 && bestMatchRow != null) {

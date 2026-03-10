@@ -204,7 +204,7 @@ exports.sendPushNotification = onDocumentCreated("notifications/{docId}", async 
 });
 
 // ============================================================
-// ✅ [기능 4] 국토부 건축HUB 만능 중계 비서 (전체 기능 지원)
+// ✅ [기능 4] 국토부 건축HUB 만능 중계 비서 (전체 기능 지원 + 페이징 완벽 적용)
 // ============================================================
 exports.fetchMolitData = onRequest({ region: "asia-northeast3" }, async (req, res) => {
     // 1. CORS 설정
@@ -215,15 +215,15 @@ exports.fetchMolitData = onRequest({ region: "asia-northeast3" }, async (req, re
     if (req.method === 'OPTIONS') { res.status(204).send(''); return; }
 
     try {
-        // 🌟 [핵심] operation 파라미터 추가! (어떤 데이터를 원하는지 받음)
-        const { sigunguCd, bjdongCd, bun, ji, operation } = req.query;
+        // 🌟 [핵심 고도화] 기존 파라미터에 앱에서 보낸 numOfRows와 pageNo를 추가로 받습니다!
+        const { sigunguCd, bjdongCd, bun, ji, operation, numOfRows, pageNo } = req.query;
         const serviceKey = "6d6808551481d40d1b5869e0ad497be2c35ca49bde3fc91b72790429a0d55970";
 
         if (!sigunguCd || !bjdongCd || !bun || !ji) {
             return res.status(400).send({ error: "필수 파라미터가 누락되었습니다." });
         }
 
-        // 🌟 [만능 스위치] 앱에서 operation을 안 보내면 기존처럼 '표제부'를 기본으로 줍니다. (기존 코드 100% 호환 보장)
+        // 🌟 앱에서 operation을 안 보내면 기존처럼 '표제부'를 기본으로 줍니다. (기존 로직 100% 호환)
         const targetOperation = operation ? operation : 'getBrTitleInfo';
 
         // 동적으로 URL 생성
@@ -231,6 +231,7 @@ exports.fetchMolitData = onRequest({ region: "asia-northeast3" }, async (req, re
 
         console.log(`📡 [건축HUB 만능 요청]: ${targetOperation} / ${sigunguCd}-${bjdongCd}-${bun}-${ji}`);
 
+        // 🌟 국토부로 요청을 쏠 때 numOfRows와 pageNo를 함께 묶어서 보냅니다.
         const response = await axios.get(molitUrl, {
             params: {
                 ServiceKey: serviceKey,
@@ -238,6 +239,8 @@ exports.fetchMolitData = onRequest({ region: "asia-northeast3" }, async (req, re
                 bjdongCd: bjdongCd,
                 bun: bun,
                 ji: ji,
+                numOfRows: numOfRows || '100', // 앱에서 값을 안 보냈을 때를 대비한 안전장치 (기본 100개)
+                pageNo: pageNo || '1',         // 앱에서 값을 안 보냈을 때를 대비한 안전장치 (기본 1페이지)
                 _type: 'json'
             }
         });

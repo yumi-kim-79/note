@@ -146,7 +146,7 @@ class FieldInspectionChecklistPage extends StatelessWidget {
     );
   }
 
-  // 📋 3. 구역별 정밀 점검 항목 (이론용)
+  // 📋 3. 구역별 정밀 점검 항목 (이론용 SOP + 🚨특수상황 포함)
   Widget _buildStep2_Checklists() {
     return Container(
       padding: const EdgeInsets.all(20),
@@ -158,62 +158,184 @@ class FieldInspectionChecklistPage extends StatelessWidget {
             children: [
               Icon(Icons.list_alt, color: primaryNavy, size: 28),
               const SizedBox(width: 10),
-              Text("3. 구역별 정밀 점검 항목", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: primaryNavy)),
+              Text("3. 구역별 정밀 점검 항목 (기본 45문항 + 특수 16문항)", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: primaryNavy)),
             ],
           ),
           const SizedBox(height: 8),
-          const Text("※ 실제 점검은 현장관리 메인 메뉴의 '실전 체크리스트'를 이용하세요.", style: TextStyle(color: Colors.grey, fontSize: 13)),
+          const Text("※ 실제 현장 점검 시에는 '실전 체크리스트' 메뉴를 이용해 결과를 서버로 전송하세요.", style: TextStyle(color: Colors.grey, fontSize: 13)),
           const SizedBox(height: 20),
 
+          // 🌟 그룹 A. 현관 및 분리수거장 (8항목)
           _buildChecklistGroup(
-            title: "A. 현관 및 건물 외곽 (Entrance & Exterior)",
+            title: "A. 현관 및 분리수거장 (미화 및 첫인상)",
             icon: Icons.domain,
             color: const Color(0xFF3B82F6),
             items: [
-              _buildCheckListItem("건물 진입로 및 주변 주차/미화 상태", "쓰레기 무단 투기 및 주차 라인 훼손 확인", true),
-              _buildCheckListItem("분리수거장 운영 상태 및 소모품 재고", "종량제 봉투 및 마대 자루 잔여량 확인", true),
-              _buildCheckListItem("현관 로비폰 및 자동문 구동 상태", "FM: 하단 레일 이물질 및 끼임 방지 센서 테스트", true),
-              _buildCheckListItem("주차장 배수로 및 트렌치 퇴적물 상태", "FM: 악취 발생 및 폭우 시 역류 가능성 확인", false),
-              _buildCheckListItem("외벽 균열(크랙) 및 담장 노후화", "FM: 강풍 시 낙하물 사고 예방 차원 정밀 확인", false),
+              _buildCheckListItem("건물 앞 진입로 쓰레기 청소", "휴지/담배꽁초 등 바닥 오염물 제거", true),
+              _buildCheckListItem("분리수거장 정리정돈 상태", "종이상자 압축 및 플라스틱 용기 넘침 방지", true),
+              _buildCheckListItem("종량제 봉투 및 마대자루 재고", "청소 및 폐기물 처리를 위한 잔여 수량 파악", true),
+              _buildCheckListItem("공동현관 자동문 유리 손자국", "유리 세정제를 활용한 끈적임 및 얼룩 세척", true),
+              _buildCheckListItem("로비폰(비밀번호 기계) 먼지 제거", "화면 먼지 제거 및 버튼 터치 작동 확인", true),
+              _buildCheckListItem("우편함 및 택배함 찌라시 제거", "무단 부착 스티커 및 불법 전단지 즉시 폐기", true),
+              _buildCheckListItem("1층 바닥 타일 깨짐 및 파손", "보행자 걸림을 유발하는 타일 들뜸/크랙 파악", false),
+              _buildCheckListItem("건물 입구 미끄럼 방지 발매트", "우천 대비 발매트 훼손 여부 및 흙먼지 털기", false),
             ],
           ),
           const SizedBox(height: 16),
+
+          // 🌟 그룹 B. 승강기 및 주차장 (8항목)
           _buildChecklistGroup(
-            title: "B. 승강기 및 주차 설비 (Elevator & Tower)",
+            title: "B. 승강기 및 주차장 (이용자 편의/안전)",
             icon: Icons.elevator,
             color: const Color(0xFF8B5CF6),
             items: [
-              _buildCheckListItem("승강기 내부 청결 및 조명 점등 상태", "광고물 무단 부착 및 바닥 오염 확인", true),
-              _buildCheckListItem("승강기 버튼 및 로프 이음/진동 확인", "오르내릴 때 평소와 다른 쇳소리(마찰음) 감지", true),
-              _buildCheckListItem("승강기 월 정기점검 기록지 부착 여부", "FM: 승강기안전공단 법적 안전점검 기한 확인", false),
-              _buildCheckListItem("주차타워/카리프트 구동음 및 대기 상태", "도어 센서 및 체인 구동부 이음 확인", false),
-              _buildCheckListItem("비상 통화 장치(인터폰) 작동 시험", "FM: 갇힘 사고 시 외부 구호 통화 가능 여부", false),
+              _buildCheckListItem("엘리베이터 거울 및 벽면 얼룩", "내부 거울 오염 및 벽면 긁힘/낙서 훼손 확인", true),
+              _buildCheckListItem("엘리베이터 바닥 흙/먼지 청소", "외부 유입 모래 및 흙 대걸레 상시 세척", true),
+              _buildCheckListItem("엘리베이터 문 틈새(레일) 이물질", "하단 레일 홈에 낀 돌멩이 등 붓으로 긁어내기", true),
+              _buildCheckListItem("엘리베이터 천장 전등 깜빡임", "내부 조명 깜빡임 및 점등 불량 전구 확인", false),
+              _buildCheckListItem("주차장 주차선 및 화살표 표시", "바닥 도색 지워짐 및 방향 표시 가시성 확인", false),
+              _buildCheckListItem("주차장 바닥 턱(스토퍼) 덜렁거림", "차량 바퀴 닿는 고무 턱 나사 풀림/파손 건들기", false),
+              _buildCheckListItem("주차장 코너 주황색 볼록거울", "반사경 각도 틀어짐 및 표면 먼지 오염 확인", false),
+              _buildCheckListItem("기계식 주차장 문 앞 바닥 청결", "미끄럼 유발 기름때 및 주변 쓰레기 청소", false),
             ],
           ),
           const SizedBox(height: 16),
+
+          // 🌟 그룹 C. 계단 및 복도 공용부 (8항목)
           _buildChecklistGroup(
-            title: "C. 계단 및 복도 공용부 (Stairs & Corridor)",
+            title: "C. 계단 및 복도 공용부 (보행 환경/소음)",
             icon: Icons.stairs,
             color: const Color(0xFF10B981),
             items: [
-              _buildCheckListItem("비상유도등 및 복도 센서등 점등 상태", "불이 들어오지 않는 층수 즉각 기록 및 교체", true),
-              _buildCheckListItem("수도검침함 내부 동파/누수 확인", "특히 동절기에 헌 옷이나 보온재 채움 상태 확인", true),
-              _buildCheckListItem("복도 내 개인 물품(자전거 등) 적치 여부", "FM: 피난 통로 방해 시 소방법 위반 스티커 부착", false),
-              _buildCheckListItem("각 층 계단 창문 및 난간 고정 상태", "창문 닫힘 상태 및 흔들리는 난간 보수", false),
-              _buildCheckListItem("방화문 자동 폐쇄 장치(도어클로저)", "FM: 화재 시 연기 차단 가능 여부 (도어스토퍼 제거)", false),
+              _buildCheckListItem("복도 바닥 껌자국 및 커피 얼룩", "층별 순회하며 바닥 고착 오염물 및 끈적임 닦기", true),
+              _buildCheckListItem("계단 쇠 손잡이(난간) 끈적임 닦기", "보행자 접촉면 먼지 및 이물질 상시 걸레질", true),
+              _buildCheckListItem("계단 창문 틀(레일) 벌레 사체 청소", "창틀 홈에 쌓인 파리/모기 사체 및 거미줄 털기", true),
+              _buildCheckListItem("복도 천장 센서등 켜짐 테스트", "보행자 인식 후 즉각(1초 내) 점등 여부 확인", false),
+              _buildCheckListItem("비상구 안내 표지판 초록 불빛", "피난구 유도등 24시간 상시 점등 상태 점검", false),
+              _buildCheckListItem("복도 앞 자전거/택배 상자 길 막음", "소방법 위반 적재물 방치 및 피난 방해물 확인", false),
+              _buildCheckListItem("계단 무거운 쇠문(방화문) 닫히는 속도", "도어클로저 텐션 이상에 의한 급격한 닫힘 확인", false),
+              _buildCheckListItem("각 층 벽면 페인트 벗겨짐 및 낙서", "복도/계단 벽면 도장 박리 및 훼손 여부 확인", false),
             ],
           ),
           const SizedBox(height: 16),
+
+          // 🌟 그룹 D. 기계실 외관 및 창고 (8항목)
           _buildChecklistGroup(
-            title: "D. 지하 기계실 및 핵심 설비 (MEP Room)",
+            title: "D. 기계실 외관 및 창고 (정리정돈/기본 점검)",
             icon: Icons.precision_manufacturing,
             color: const Color(0xFFF59E0B),
             items: [
-              _buildCheckListItem("소방 펌프실 및 물탱크실 청결 상태", "누수 흔적 및 바닥 물고임 즉시 확인", true),
-              _buildCheckListItem("집수정 펌프 가동 및 수위 알람 상태", "오동작 시 즉각 범람 위험", true),
-              _buildCheckListItem("전기실/발전기실 습기 및 온도 관리", "환기팬 가동 상태 및 패널 내부 이상한 타는 냄새 확인", true),
-              _buildCheckListItem("각종 배관 및 밸브 누수(물 맺힘) 확인", "배관 보온재 찢어짐 및 밸브 조인트 미세 누수", false),
-              _buildCheckListItem("압력계 및 온도계 지침 정상 범위", "FM: 모터/펌프 과부하 및 이상 압력 선제 파악", false),
+              _buildCheckListItem("지하 기계실 철문 튼튼한 자물쇠 잠금", "위험 구역 외부인 무단 출입 방지용 시건장치 확인", true),
+              _buildCheckListItem("기계실 환풍기 부드럽게 돌아가는 소리", "가동 시 마찰음/쇳소리 등 이상 소음 밖에서 청취", true),
+              _buildCheckListItem("청소 창고 내부 대걸레 및 빗자루 정리", "청소용구 악취 방지 건조 및 제자리 정돈 상태", true),
+              _buildCheckListItem("창고 안 락스/세제통 뚜껑 꽉 닫힘", "화학약품 뚜껑 밀폐 및 휘발/독성 냄새 누출 방어", true),
+              _buildCheckListItem("예비 형광등 및 화장지 소모품 정리", "수선/교체용 자재 품목별 선반 정돈 상태 확인", false),
+              _buildCheckListItem("정화조실(화장실 물 모이는 곳) 환기 냄새", "배기 불량에 의한 외부 악취/가스 유출 여부 냄새 맡기", false),
+              _buildCheckListItem("지하실 천장 네모난 판(마감재) 떨어짐", "텍스/SMC 등 천장 마감재 처짐 및 바닥 탈락 확인", false),
+              _buildCheckListItem("지하실 바닥 구석 거미줄 및 곰팡이", "습기 취약 구역 곰팡이 번식 및 결로 현상 청소", false),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // 🌟 그룹 E. 옥상 및 건물 외부 시설 (8항목)
+          _buildChecklistGroup(
+            title: "E. 옥상 및 건물 외부 시설 (야외 환경)",
+            icon: Icons.roofing,
+            color: const Color(0xFFEC4899), // 핑크색 계열
+            items: [
+              _buildCheckListItem("옥상 바닥 빗물 빠지는 구멍 막힘 치우기", "배수구(루프드레인) 주변 낙엽/비닐 퇴적물 수거", true),
+              _buildCheckListItem("옥상 바닥 초록색/회색 페인트 까짐", "우레탄 방수층 들뜸 및 가뭄 논바닥 같은 갈라짐 밟아보기", false),
+              _buildCheckListItem("옥상 가장자리 벽(난간) 흔들림 테스트", "옥상 파라펫 및 쇠창살 앵커 고정 튼튼함 흔들어 확인", false),
+              _buildCheckListItem("옥상 은색 환풍기(벤틸레이터) 돌아가는지", "무동력 환풍기 회전 불량 멈춤 및 끼익거리는 소음 점검", false),
+              _buildCheckListItem("옥상 구석 담배꽁초 및 빈 캔 버려진 것", "흡연 등 무단 취식에 의한 화재 위험물/쓰레기 수거", false),
+              _buildCheckListItem("건물 밖 자전거 보관소 지붕 먼지 털기", "외부 보관소 캐노피 오염 털기 및 주변 흙먼지 정돈", false),
+              _buildCheckListItem("건물 밖 커다란 에어컨 실외기 주변 박스 치우기", "화재 원인이 되는 실외기 열풍 배출구 주변 적치물 제거", false),
+              _buildCheckListItem("건물 앞 작은 정원(화단) 잡초 뽑기", "조경수 나뭇가지 꺾임 및 화단 내 무성한 잡초 정리", false),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // 🌟 그룹 F. 지하실 침수 특별 관리 (5항목)
+          _buildChecklistGroup(
+            title: "F. 지하실 침수 특별 관리 (누수 예방)",
+            icon: Icons.water_damage,
+            color: const Color(0xFF0EA5E9), // 라이트 블루 계열
+            items: [
+              _buildCheckListItem("지하주차장 입구 빗물 막이판(차수판) 상태", "우천 대비 철판 찌그러짐 및 모래주머니 훼손 여부 확인", false),
+              _buildCheckListItem("물 모이는 웅덩이(집수정) 안쪽 쓰레기 건져내기", "수위 센서 간섭 유발 부유물(비닐 등) 긴 막대로 제거", false),
+              _buildCheckListItem("물 퍼내는 펌프 상자(제어반) '자동' 불빛 확인", "배수펌프 컨트롤 판넬 스위치 '자동(Auto)' 모드 유지 확인", false),
+              _buildCheckListItem("지하실 천장 파이프 물방울 맺힘(누수) 확인", "배관 조인트 결로 및 주차 차량 석회물 낙수 피해 예방", false),
+              _buildCheckListItem("지하실 밖 환기구(드라이에어리어) 빗물 고임", "1층 외부 창문 공간 내 낙엽 퇴적 및 수영장 우수 고임 점검", false),
+            ],
+          ),
+
+          // 👇👇 🌟 [핵심 고도화] 비상 및 계절별 특수점검 이론 가이드 추가 👇👇
+          const SizedBox(height: 32),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(color: dangerRed.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+            child: Row(
+              children: [
+                Icon(Icons.warning_amber_rounded, color: dangerRed, size: 24),
+                const SizedBox(width: 10),
+                Expanded(child: Text("🚨 비상/계절별 특수 점검 SOP (상황 발생 시 선택적 수행)", style: TextStyle(fontWeight: FontWeight.bold, color: dangerRed, fontSize: 16))),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // 🌟 특수 그룹 S1
+          _buildChecklistGroup(
+            title: "S1. 장마 및 태풍 (여름철 집중호우/강풍)",
+            icon: Icons.water_drop,
+            color: const Color(0xFF0D9488),
+            items: [
+              _buildCheckListItem("옥상 빗물 빠지는 구멍(루프드레인) 청소", "배수구 쓰레기/비닐/낙엽 등 이물질 완전 제거 (옥상 범람 방지)", false),
+              _buildCheckListItem("복도 및 계단 창문 꽉 닫고 잠금쇠 채우기", "전 층 공용부 창문 밀폐 및 크리센트(잠금장치) 체결 확인", false),
+              _buildCheckListItem("건물 밖 날아갈 수 있는 물건 묶기", "입간판, 분리수거통 등 비산출 위험물 벽면 밀착 및 끈 결박", false),
+              _buildCheckListItem("지하주차장 입구 차수판/모래주머니 전진 배치", "집중호우 대비 지하 유입 방지용 모래주머니 및 차수판 전진 비치", false),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // 🌟 특수 그룹 S2
+          _buildChecklistGroup(
+            title: "S2. 한파 및 동파 (겨울철 영하권 강추위)",
+            icon: Icons.ac_unit,
+            color: const Color(0xFF3B82F6),
+            items: [
+              _buildCheckListItem("복도 및 계단 창문 틈새 막기 (찬바람 유입 차단)", "공용부 창문 완전 밀폐를 통한 내부 배관 동파 원천 차단", false),
+              _buildCheckListItem("1층 공동현관 자동문 끝까지 닫히는지 확인", "자동문 구동부 점검 및 개방 방치를 통한 1층 계량기 동파 예방", false),
+              _buildCheckListItem("복도 수도 계량기함 안쪽 보온재(헌 옷/뽁뽁이) 채우기", "계량기함 내부 보온재(헌 옷, 뽁뽁이 등) 밀실 충진 상태 점검", false),
+              _buildCheckListItem("지하 기계실 전열기(미니 히터) 켜기 및 화재 주의", "펌프실 동파 방지용 히터 가동 및 주변 인화성 물질(종이 등) 수거", false),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // 🌟 특수 그룹 S3
+          _buildChecklistGroup(
+            title: "S3. 폭설 및 결빙 (겨울철 눈/빙판길)",
+            icon: Icons.severe_cold,
+            color: const Color(0xFF6366F1),
+            items: [
+              _buildCheckListItem("눈 치우는 넉가래(눈삽)와 빗자루 1층에 꺼내두기", "신속한 제설 초기 대응을 위한 제설 장비 1층 전진 비치", false),
+              _buildCheckListItem("건물 입구 염화칼슘(눈 녹이는 약) 제설함 확인", "염화칼슘 잔여량 파악 및 보관 중 경화(돌처럼 굳음) 현상 점검", false),
+              _buildCheckListItem("1층 출입구 대리석 바닥 미끄럼 방지 매트 깔기", "눈/물기로 인한 대리석 바닥 낙상 사고 예방용 대형 발매트 전개", false),
+              _buildCheckListItem("외부 주차장 진입로(언덕길) 얼음 깨기", "경사로 구간 결빙 조기 제거 및 차량 미끄럼/충돌 사고 방지 조치", false),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // 🌟 특수 그룹 S4
+          _buildChecklistGroup(
+            title: "S4. 강풍 및 건조 (봄/가을철 화재 조심)",
+            icon: Icons.local_fire_department,
+            color: const Color(0xFFEF4444),
+            items: [
+              _buildCheckListItem("건물 주변 화단 바짝 마른 낙엽 싹 치우기", "담배꽁초 불씨 착화 위험이 높은 건조한 낙엽 및 쓰레기 선제 수거", false),
+              _buildCheckListItem("층별 빨간 소화기 위치 및 동그란 안전핀 확인", "소화기 은폐 여부 점검 및 안전핀 정상 체결/부식 상태 확인", false),
+              _buildCheckListItem("옥상 안테나 및 낡은 구조물 흔들림 검사", "강풍 시 추락/비산 위험이 있는 노후 구조물 앵커 고정 상태 점검", false),
+              _buildCheckListItem("옥상 무거운 쇠문(방화문) 닫힘 상태 유지", "돌풍에 의한 방화문 파손 및 인명 피해 예방을 위한 상시 폐쇄 유지", false),
             ],
           ),
         ],

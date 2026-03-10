@@ -99,10 +99,23 @@ class FreezeManualPage extends StatelessWidget {
         children: [
           const Text("기온이 영하 5도 이하로 떨어지기 전, 현장 담당자가 반드시 완료해야 하는 예방 리스트입니다.", style: TextStyle(fontSize: 15, color: Color(0xFF334155))),
           const SizedBox(height: 16),
-          _buildInfoRow(Icons.archive, "계량기함 밀폐 보온", "헌 옷, 에어캡(뽁뽁이), 보온재를 활용하여 계량기함 내부 틈새를 완전히 밀폐"), // 🌟 [수정] archive
-          _buildHighlightBox(Icons.power, "열선(Heater Cable) 안전 점검", "• 과열 방지: 열선이 겹쳐지면 국부 과열(화재) 위험이 크므로 겹침 부위 확인\n• 절연 상태: 피복 손상 여부 및 누전 차단기 정상 작동 확인", isWarning: true), // 🌟 [수정] power
+          _buildInfoRow(Icons.archive, "계량기함 밀폐 보온", "헌 옷, 에어캡(뽁뽁이), 보온재를 활용하여 계량기함 내부 틈새를 완전히 밀폐"),
+          _buildHighlightBox(Icons.power, "열선(Heater Cable) 안전 점검", "• 과열 방지: 열선이 겹쳐지면 국부 과열(화재) 위험이 크므로 겹침 부위 확인\n• 절연 상태: 피복 손상 여부 및 누전 차단기 정상 작동 확인", isWarning: true),
           const SizedBox(height: 8),
-          _buildInfoRow(Icons.opacity, "퇴수 조치", "외부 노출 배관, 옥상 수전, 소방 배관 말단 드레인 밸브의 잔류수 제거"), // 🌟 [수정] opacity
+          _buildInfoRow(Icons.opacity, "퇴수 조치", "외부 노출 배관, 옥상 수전, 소방 배관 말단 드레인 밸브의 잔류수 제거"),
+
+          // 👇👇 🌟 [고도화 추가] 기상청 모니터링 및 공용부 난방 점검 👇👇
+          const Divider(height: 24, color: Color(0xFFE2E8F0)),
+          _buildInfoRow(Icons.thermostat, "공용부 난방기(라디에이터) 점검", "기상청 한파 예보 지속 시, 공용 화장실 등 동파 취약 구역의 난방기 정상 가동 유무 철저 확인. 미설치 현장의 경우, 즉시 건물(대표, 관리단 등 결정권자)의 승인을 득하여 신속히 구매 및 가동 배치"),
+
+          // 👇👇 🌟 [고도화 추가] 세탁실 역류 방지 선제적 입주민 안내 👇👇
+          const SizedBox(height: 8),
+          _buildHighlightBox(
+              Icons.campaign,
+              "한파 지속 시 선제적 입주민 안내 (필수)",
+              "• 원인: 한파로 인해 공용 배관(우수관/오수관)이 결빙될 경우, 세탁기 사용 시 물이 빠져나가지 못하고 저층부 세대로 심각한 역류 피해 발생\n• 조치: 사전에 안내문 부착, 문자 발송, 반상회 앱 알림 등을 통해 '한파 기간 야간 세탁기 사용 전면 금지 및 낮 시간대 사용 자제'를 강력히 권고",
+              isDanger: false // 파란색 테마로 강조
+          ),
         ],
       ),
     );
@@ -121,6 +134,10 @@ class FreezeManualPage extends StatelessWidget {
           _buildCaseBox("단수 범위 파악", "동파 지점 특정", "• 특정 세대만 단수: 해당 세대 계량기 또는 세대 내부 배관 동파\n• 라인 전체/건물 전체 단수: 메인 급수관, 옥상 물탱크 출구, 펌프실 배관 동파"),
           const SizedBox(height: 12),
           _buildCaseBox("계량기 파손", "유리면 파손 확인", "• 계량기 유리면이 깨졌거나 부풀어 올랐다면 즉시 동파 교체 대상으로 분류"),
+
+          // 👇👇 🌟 [고도화 추가] 역류 민원 접수 시 수직 라인 통제 👇👇
+          const SizedBox(height: 12),
+          _buildCaseBox("역류 긴급 통제", "해당 라인 세탁기 사용 즉시 금지", "• 배관 결빙으로 인한 저층부 세탁실 역류 민원 접수 시 지체 없이 행동\n• 해당 호수와 연결된 '수직 라인 전체 세대'에 세탁기 사용 금지 긴급 문자 발송 및 방송 송출을 통해 추가적인 대형 물난리 피해를 원천 차단"),
         ],
       ),
     );
