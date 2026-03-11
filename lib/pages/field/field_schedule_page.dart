@@ -1506,6 +1506,8 @@ class _AddScheduleDialogState extends State<_AddScheduleDialog> {
         scheduleData['uid'] = user.uid;
         scheduleData['author'] = myName;
         scheduleData['createdAt'] = FieldValue.serverTimestamp();
+        scheduleData['status'] = 'active';
+
         await FirebaseFirestore.instance.collection('schedules').add(scheduleData);
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("일정이 등록되었습니다.")));
       }

@@ -25,7 +25,7 @@ dependencies:
   printing: ^5.14.2
   google_fonts: ^6.2.1
   share_plus: ^12.0.1
-  url_launcher: ^6.2.4
+  url_launcher: ^6.3.2
   geolocator: ^14.0.2
   http: ^1.6.0
   # ✅ [추가] 국토부 API 데이터(XML) 처리를 위한 라이브러리 추가

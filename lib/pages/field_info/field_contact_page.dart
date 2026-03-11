@@ -111,6 +111,8 @@ class _FieldContactPageState extends State<FieldContactPage> {
   List<FieldContact> _naverContacts = [];
   bool _isNaverSearching = false;
   int _naverSearchStart = 1; // 네이버 추가 5개 불러오기를 위한 페이징 시작점
+  int _internalPage = 1;
+  int _naverPage = 1;
   int _currentPage = 1;
 
   // 👑 관리자 권한 검사
@@ -379,16 +381,19 @@ class _FieldContactPageState extends State<FieldContactPage> {
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
           backgroundColor: Colors.white,
+          surfaceTintColor: Colors.transparent,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: Text(dialogTitle, style: const TextStyle(fontWeight: FontWeight.bold)),
-          content: SizedBox(
-            width: 400,
+
+          // 👇 🌟 [고도화 1] 반응형 너비 설정 (최대 550px)
+          content: Container(
+            width: double.maxFinite,
+            constraints: const BoxConstraints(maxWidth: 550),
             child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // 🌟 [버그 수정 3] 신규 등록이 아니더라도 복사한 번호를 썼다면 파란색 안내창 띄우기
                   if (isClipboardUsed)
                     Container(
                       margin: const EdgeInsets.only(bottom: 12),
@@ -402,7 +407,14 @@ class _FieldContactPageState extends State<FieldContactPage> {
                         ],
                       ),
                     ),
-                  TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: "업체명 (상호)", border: OutlineInputBorder())),
+
+                  TextField(
+                      controller: nameCtrl,
+                      decoration: InputDecoration(
+                          labelText: "업체명 (상호)",
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))
+                      )
+                  ),
                   const SizedBox(height: 16),
 
                   // 🌟 다중 연락처 입력 UI 영역
@@ -415,34 +427,43 @@ class _FieldContactPageState extends State<FieldContactPage> {
                         const Text("📞 연락처 목록", style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryColor)),
                         const SizedBox(height: 8),
 
-                        // 🌟 리스트 길이만큼 반복해서 텍스트 필드를 그림
                         ...List.generate(labelCtrls.length, (index) {
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 8),
                             child: Row(
                               children: [
+                                // 🌟 [고도화 2] 전화번호 칸 너비 확장 (flex 2:4)
                                 Expanded(
                                   flex: 2,
                                   child: TextField(
                                     controller: labelCtrls[index],
-                                    decoration: const InputDecoration(hintText: "구분 (예: 본사, 팩스)", isDense: true, contentPadding: EdgeInsets.all(10)),
+                                    decoration: InputDecoration(
+                                        hintText: "구분",
+                                        isDense: true,
+                                        contentPadding: const EdgeInsets.all(12),
+                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))
+                                    ),
                                     style: const TextStyle(fontSize: 13),
                                   ),
                                 ),
                                 const SizedBox(width: 8),
                                 Expanded(
-                                  flex: 3,
+                                  flex: 4,
                                   child: TextField(
                                     controller: numCtrls[index],
                                     keyboardType: TextInputType.phone,
-                                    decoration: const InputDecoration(hintText: "전화번호", isDense: true, contentPadding: EdgeInsets.all(10)),
+                                    decoration: InputDecoration(
+                                        hintText: "전화번호",
+                                        isDense: true,
+                                        contentPadding: const EdgeInsets.all(12),
+                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))
+                                    ),
                                     style: const TextStyle(fontSize: 13),
                                   ),
                                 ),
-                                // 🌟 항목이 2개 이상일 때만 삭제 버튼 표시
                                 if (labelCtrls.length > 1)
                                   IconButton(
-                                    icon: const Icon(Icons.remove_circle, color: Colors.red, size: 20),
+                                    icon: const Icon(Icons.remove_circle, color: Colors.red, size: 22),
                                     onPressed: () {
                                       setDialogState(() {
                                         labelCtrls.removeAt(index);
@@ -451,19 +472,16 @@ class _FieldContactPageState extends State<FieldContactPage> {
                                     },
                                   )
                                 else
-                                  const SizedBox(width: 40), // 공간 채우기 용도
+                                  const SizedBox(width: 40),
                               ],
                             ),
                           );
                         }),
 
-                        // 🌟 연락처 추가(+) 버튼
                         Align(
                           alignment: Alignment.centerRight,
                           child: TextButton.icon(
-                            onPressed: () {
-                              setDialogState(() => addPhoneField('', ''));
-                            },
+                            onPressed: () => setDialogState(() => addPhoneField('', '')),
                             icon: const Icon(Icons.add, size: 18),
                             label: const Text("연락처 추가"),
                             style: TextButton.styleFrom(foregroundColor: AppTheme.primaryColor),
@@ -485,10 +503,36 @@ class _FieldContactPageState extends State<FieldContactPage> {
                     value: currentRating, min: 1.0, max: 5.0, divisions: 8, activeColor: Colors.amber,
                     onChanged: (val) { setDialogState(() => currentRating = val); },
                   ),
-                  const SizedBox(height: 12),
-                  TextField(controller: tagsCtrl, decoration: const InputDecoration(labelText: "태그 (쉼표로 구분)", border: OutlineInputBorder())),
-                  const SizedBox(height: 12),
-                  TextField(controller: memoCtrl, maxLines: 2, decoration: const InputDecoration(labelText: "메모", border: OutlineInputBorder())),
+                  const SizedBox(height: 16),
+
+                  // 👇 🌟 [고도화 3] 엔터 시 줄바꿈 자동 확장 (태그 입력창)
+                  TextField(
+                      controller: tagsCtrl,
+                      maxLines: null,
+                      minLines: 1,
+                      keyboardType: TextInputType.multiline,
+                      decoration: InputDecoration(
+                          labelText: "태그 (쉼표 또는 줄바꿈으로 구분)",
+                          alignLabelWithHint: true,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))
+                      )
+                  ),
+                  const SizedBox(height: 16),
+
+                  // 👇 🌟 [고도화 4] 넉넉한 시작 높이 + 자동 확장 (메모 입력창)
+                  TextField(
+                      controller: memoCtrl,
+                      maxLines: null,
+                      minLines: 3,
+                      keyboardType: TextInputType.multiline,
+                      decoration: InputDecoration(
+                          labelText: "메모",
+                          alignLabelWithHint: true,
+                          filled: true,
+                          fillColor: Colors.grey.shade50,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))
+                      )
+                  ),
                 ],
               ),
             ),
@@ -634,6 +678,7 @@ class _FieldContactPageState extends State<FieldContactPage> {
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
 
+        // --- 1. 우리 DB 데이터 준비 및 검색 필터링 ---
         List<FieldContact> internalContacts = [];
         if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
           internalContacts = snapshot.data!.docs.map((doc) => FieldContact.fromFirestore(doc)).toList();
@@ -641,19 +686,21 @@ class _FieldContactPageState extends State<FieldContactPage> {
 
         if (_searchQuery.isNotEmpty) {
           List<String> searchTerms = _searchQuery.toLowerCase().split(' ').where((s) => s.isNotEmpty).toList();
-
           internalContacts = internalContacts.where((c) {
             String nameLower = c.name.toLowerCase();
             String memoLower = c.memo.toLowerCase();
             String tagsLower = c.tags.join(' ').toLowerCase();
-
-            return searchTerms.every((term) =>
-            nameLower.contains(term) || tagsLower.contains(term) || memoLower.contains(term)
-            );
+            String phonesRaw = c.phones.map((p) => p.number).join(' ');
+            String phonesClean = phonesRaw.replaceAll(RegExp(r'[^0-9]'), '');
+            return searchTerms.every((term) {
+              String termClean = term.replaceAll(RegExp(r'[^0-9]'), '');
+              return nameLower.contains(term) || tagsLower.contains(term) || memoLower.contains(term) ||
+                  phonesRaw.contains(term) || (termClean.isNotEmpty && phonesClean.contains(termClean));
+            });
           }).toList();
         }
 
-        // 중복 제거 검사 (여러 번호 중 하나라도 겹치면 중복 처리)
+        // --- 2. 네이버 데이터 중복 제거 (우리 DB에 있는 번호 제외) ---
         List<FieldContact> uniqueNaverContacts = _naverContacts.where((naver) {
           bool isDuplicate = internalContacts.any((internal) {
             String naverCleanPhone = naver.phones.first.number.replaceAll(RegExp(r'[^0-9]'), '');
@@ -663,57 +710,141 @@ class _FieldContactPageState extends State<FieldContactPage> {
           return !isDuplicate;
         }).toList();
 
-        List<FieldContact> finalContacts = [...internalContacts, ...uniqueNaverContacts];
+        final int itemsPerPage = 5;
 
-        if (finalContacts.isEmpty) {
-          return const Center(child: Text("검색 결과가 없습니다.\n우측 하단 버튼을 눌러 등록해주세요.", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)));
-        }
+        // --- 3. 페이징 계산 (내부 DB) ---
+        int internalTotalPages = (internalContacts.length / itemsPerPage).ceil();
+        if (internalTotalPages == 0) internalTotalPages = 1;
+        if (_internalPage > internalTotalPages) _internalPage = internalTotalPages;
+        List<FieldContact> pageInternal = internalContacts.skip((_internalPage - 1) * itemsPerPage).take(itemsPerPage).toList();
 
-        int itemsPerPage = 5;
-        int totalPages = (finalContacts.length / itemsPerPage).ceil();
-        if (totalPages == 0) totalPages = 1;
-        if (_currentPage > totalPages) _currentPage = totalPages;
+        // --- 4. 페이징 계산 (네이버) ---
+        int naverTotalPages = (uniqueNaverContacts.length / itemsPerPage).ceil();
+        if (naverTotalPages == 0) naverTotalPages = 1;
+        if (_naverPage > naverTotalPages) _naverPage = naverTotalPages;
+        List<FieldContact> pageNaver = uniqueNaverContacts.skip((_naverPage - 1) * itemsPerPage).take(itemsPerPage).toList();
 
-        List<FieldContact> pageContacts = finalContacts.skip((_currentPage - 1) * itemsPerPage).take(itemsPerPage).toList();
+        return SingleChildScrollView(
+          child: Column(
+            children: [
+              // -------------------------------------------------------
+              // 🏢 구역 1: 우리 DB 등록 업체
+              // -------------------------------------------------------
+              _buildSectionHeader("🏢 우리 등록 업체 (${internalContacts.length}건)", Colors.blue),
 
-        return Column(
-          children: [
-            Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                itemCount: pageContacts.length,
-                itemBuilder: (context, index) {
-                  return _buildContactCard(pageContacts[index]);
-                },
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  IconButton(icon: const Icon(Icons.chevron_left, size: 30), color: _currentPage > 1 ? AppTheme.primaryColor : Colors.grey, onPressed: _currentPage > 1 ? () => setState(() => _currentPage--) : null,),
-                  Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: Text("$_currentPage / $totalPages", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),),
-                  IconButton(icon: const Icon(Icons.chevron_right, size: 30), color: _currentPage < totalPages ? AppTheme.primaryColor : Colors.grey, onPressed: _currentPage < totalPages ? () => setState(() => _currentPage++) : null,),
+              if (internalContacts.isEmpty)
+              // 👇 🌟 [대표님 요청 반영] 데이터가 없을 때 메시지 출력
+                _buildEmptyState("SM 저장 DB가 없습니다.")
+              else ...[
+                ...pageInternal.map((c) => Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: _buildContactCard(c),
+                )),
+                _buildSimplePager(_internalPage, internalTotalPages, (p) => setState(() => _internalPage = p)),
+              ],
+
+              const SizedBox(height: 10),
+              const Divider(thickness: 6, color: Color(0xFFF1F5F9)), // 구역 구분을 확실하게!
+              const SizedBox(height: 10),
+
+              // -------------------------------------------------------
+              // 🌐 구역 2: 네이버 검색 정보
+              // -------------------------------------------------------
+              _buildSectionHeader("🌐 네이버 검색 정보 (${uniqueNaverContacts.length}건)", Colors.green),
+
+              if (uniqueNaverContacts.isEmpty && !_isNaverSearching)
+                _buildEmptyState("검색어 입력 후 '엔터'를 치면 네이버 정보를 가져옵니다.")
+              else if (_isNaverSearching && uniqueNaverContacts.isEmpty)
+                const Padding(padding: EdgeInsets.all(40), child: CircularProgressIndicator(color: Colors.green))
+              else ...[
+                  ...pageNaver.map((c) => Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: _buildContactCard(c),
+                  )),
+                  _buildSimplePager(_naverPage, naverTotalPages, (p) => setState(() => _naverPage = p)),
+
+                  if (_searchQuery.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      child: TextButton.icon(
+                        onPressed: _isNaverSearching ? null : () async {
+                          await _searchNaver(_searchQuery, isLoadMore: true);
+                          // 데이터가 추가되면 마지막 페이지로 이동
+                          setState(() { _naverPage = (uniqueNaverContacts.length / itemsPerPage).ceil() + 1; });
+                        },
+                        icon: const Icon(Icons.add_circle_outline, size: 18),
+                        label: const Text("네이버에서 업체 더 찾아보기", style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                    ),
                 ],
-              ),
-            ),
-            if (_searchQuery.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: ElevatedButton.icon(
-                  onPressed: _isNaverSearching ? null : () async {
-                    await _searchNaver(_searchQuery, isLoadMore: true);
-                    setState(() { _currentPage = ((finalContacts.length + 5) / itemsPerPage).ceil(); });
-                  },
-                  icon: _isNaverSearching ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.add_circle_outline),
-                  label: const Text("네이버 더 검색하기 (추가 5개)", style: TextStyle(fontWeight: FontWeight.bold)),
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: AppTheme.primaryColor, side: const BorderSide(color: AppTheme.primaryColor)),
-                ),
-              ),
-          ],
+              const SizedBox(height: 40),
+            ],
+          ),
         );
       },
+    );
+  }
+
+  // --- [도우미 위젯들] ---
+
+  // 1. 섹션 헤더 디자인
+  Widget _buildSectionHeader(String title, Color color) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+      child: Row(
+        children: [
+          Container(width: 5, height: 20, decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(2))),
+          const SizedBox(width: 12),
+          Text(title, style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: color.withOpacity(0.9))),
+        ],
+      ),
+    );
+  }
+
+  // 2. 심플 페이징 컨트롤러
+  Widget _buildSimplePager(int current, int total, Function(int) onPageChanged) {
+    if (total <= 1) return const SizedBox(height: 10);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          IconButton(
+              icon: const Icon(Icons.chevron_left, size: 28),
+              onPressed: current > 1 ? () => onPageChanged(current - 1) : null
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(20)),
+            child: Text("$current / $total", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+          ),
+          IconButton(
+              icon: const Icon(Icons.chevron_right, size: 28),
+              onPressed: current < total ? () => onPageChanged(current + 1) : null
+          ),
+        ],
+      ),
+    );
+  }
+
+  // 3. 데이터 없음 상태 디자인
+  Widget _buildEmptyState(String msg) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(50),
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey.shade200)
+      ),
+      child: Column(
+        children: [
+          Icon(Icons.info_outline, color: Colors.grey[300], size: 40),
+          const SizedBox(height: 12),
+          Text(msg, textAlign: TextAlign.center, style: TextStyle(color: Colors.grey[500], fontSize: 14, fontWeight: FontWeight.w500)),
+        ],
+      ),
     );
   }
 

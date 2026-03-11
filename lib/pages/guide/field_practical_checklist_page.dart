@@ -10,7 +10,21 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
 class FieldPracticalChecklistPage extends StatefulWidget {
-  const FieldPracticalChecklistPage({super.key});
+  final String? initialBuildingName;
+  final String? linkedScheduleId;
+  // 👇 🌟 [추가] 상세 보기 연동을 위한 파라미터 3개 👇
+  final Map<String, dynamic>? viewOnlyData;
+  final String? viewOnlyDateStr;
+  final String? viewOnlyDocId;
+
+  const FieldPracticalChecklistPage({
+    super.key,
+    this.initialBuildingName,
+    this.linkedScheduleId,
+    this.viewOnlyData,
+    this.viewOnlyDateStr,
+    this.viewOnlyDocId,
+  });
 
   @override
   State<FieldPracticalChecklistPage> createState() => _FieldPracticalChecklistPageState();
@@ -382,6 +396,9 @@ class _FieldPracticalChecklistPageState extends State<FieldPracticalChecklistPag
   @override
   void initState() {
     super.initState();
+    if (widget.initialBuildingName != null) {
+      _selectedBuilding = widget.initialBuildingName;
+    }
     void initControllers(List<Map<String, dynamic>> dataList) {
       for (var group in dataList) {
         for (var item in group['items']) {
@@ -391,6 +408,14 @@ class _FieldPracticalChecklistPageState extends State<FieldPracticalChecklistPag
     }
     initControllers(_inspectionData);
     initControllers(_specialInspectionData);
+
+    // 👇 🌟 [추가] 읽기 전용 모드로 넘어왔다면, 즉시 팝업을 띄우고 닫히면 원래 화면으로 복귀!
+    if (widget.viewOnlyData != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        await _showRecordDetailDialog(widget.viewOnlyData!, widget.viewOnlyDateStr!, widget.viewOnlyDocId ?? "");
+        if (mounted) Navigator.pop(context); // 팝업 닫히면 투명 배경 페이지도 닫힘
+      });
+    }
   }
 
   @override
@@ -401,9 +426,8 @@ class _FieldPracticalChecklistPageState extends State<FieldPracticalChecklistPag
     super.dispose();
   }
 
-  // 🌟 [추가됨] 작성자 본인 확인 후 기록 삭제
-  Future<void> _confirmDeleteRecord(String docId, String bName,
-      BuildContext dialogCtx) async {
+  // 🌟 [수정] 이미 지워진 업무보고(스케줄)를 찾지 못해도 에러 없이 부드럽게 삭제되는 로직
+  Future<void> _confirmDeleteRecord(String docId, String bName, BuildContext dialogCtx, {String? linkedScheduleId}) async {
     bool? confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) =>
@@ -433,16 +457,29 @@ class _FieldPracticalChecklistPageState extends State<FieldPracticalChecklistPag
 
     if (confirm == true) {
       try {
-        await FirebaseFirestore.instance
-            .collection('inspections')
-            .doc(docId)
-            .delete();
+        // 1. 체크리스트 원본 삭제 (이건 실패하면 진짜 에러)
+        await FirebaseFirestore.instance.collection('inspections').doc(docId).delete();
+
+        // 👇 🌟 [안전망 추가] 스케줄 DB 업데이트 부분을 별도의 try-catch로 감쌉니다.
+        if (linkedScheduleId != null && linkedScheduleId.isNotEmpty) {
+          try {
+            await FirebaseFirestore.instance.collection('schedules').doc(linkedScheduleId).update({
+              'linkedInspectionId': FieldValue.delete(),
+            });
+          } catch (e) {
+            // 🌟 스케줄이 이미 지워진 상태라면 update가 실패합니다.
+            // 하지만 체크리스트는 이미 지워졌으므로 이 에러는 무시하고 스무스하게 넘어갑니다!
+            debugPrint("연동된 스케줄이 이미 삭제되었으므로 꼬리표 제거 생략: $e");
+          }
+        }
+
+        // 3. 에러 없이 화면 닫고 초록색 성공 메시지 띄우기
         if (mounted) {
-          Navigator.pop(dialogCtx); // 상세 보기 팝업도 같이 닫기
-          _showSnackBar("점검 기록이 삭제되었습니다.", false);
+          Navigator.pop(dialogCtx); // 상세 보기 팝업 닫기
+          _showSnackBar("점검 기록이 깔끔하게 삭제되었습니다.", false);
         }
       } catch (e) {
-        _showSnackBar("삭제 중 오류가 발생했습니다.", true);
+        _showSnackBar("체크리스트 삭제 중 오류가 발생했습니다.", true);
       }
     }
   }
@@ -491,13 +528,25 @@ class _FieldPracticalChecklistPageState extends State<FieldPracticalChecklistPag
         return;
       }
 
-      await FirebaseFirestore.instance.collection('inspections').add({
+      // 🌟 [연동 추가] 점검표 생성 후 ID를 받아옵니다.
+      DocumentReference docRef = await FirebaseFirestore.instance.collection('inspections').add({
         "buildingName": _selectedBuilding, "inspectorUid": user?.uid ?? "unknown", "inspectorName": inspectorName, "inspectorRank": inspectorRank,
-        "createdAt": Timestamp.now(), // 🌟 [핵심 해결 1] 서버 시간 대기 없이 기기 시간을 즉시 꽂아 바로 노출되게 만듭니다!
+        "createdAt": Timestamp.now(),
         "isRegularActive": _isRegularActive,
         "isS1Active": _isS1Active, "isS2Active": _isS2Active, "isS3Active": _isS3Active, "isS4Active": _isS4Active,
         "results": results,
+        "linkedScheduleId": widget.linkedScheduleId, // 🌟 꼬리표 추가
       });
+
+      // 🌟 [핵심] 업무보고(스케줄)에서 넘어왔다면, 스케줄 DB에도 점검표 ID를 기록하고 즉시 원래 화면으로 돌아갑니다!
+      if (widget.linkedScheduleId != null) {
+        await FirebaseFirestore.instance.collection('schedules').doc(widget.linkedScheduleId).update({
+          'linkedInspectionId': docRef.id,
+        });
+        _showSnackBar("✅ 점검표가 업무 보고에 성공적으로 첨부되었습니다.", false);
+        if (mounted) Navigator.pop(context, true);
+        return;
+      }
 
       _showSnackBar("✅ 점검 결과가 성공적으로 서버에 저장되었습니다.", false);
 
@@ -615,7 +664,7 @@ class _FieldPracticalChecklistPageState extends State<FieldPracticalChecklistPag
   // ---------------------------------------------------------
   // 📋 3. 기록 팝업 (동적 타이틀 연동)
   // ---------------------------------------------------------
-  void _showRecordDetailDialog(Map<String, dynamic> data, String dateStr, String docId) {
+  Future<void> _showRecordDetailDialog(Map<String, dynamic> data, String dateStr, String docId) async {
     String bName = data['buildingName'] ?? '미상';
     String iName = data['inspectorName'] ?? '현장 담당자';
     String iRank = data['inspectorRank'] ?? '';
@@ -639,7 +688,7 @@ class _FieldPracticalChecklistPageState extends State<FieldPracticalChecklistPag
     if (s3Act) activeGroups.add(_specialInspectionData[2]);
     if (s4Act) activeGroups.add(_specialInspectionData[3]);
 
-    showDialog(
+    await showDialog(
       context: context,
       builder: (ctx) => Dialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -733,7 +782,15 @@ class _FieldPracticalChecklistPageState extends State<FieldPracticalChecklistPag
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    if (isAuthor) TextButton.icon(onPressed: () => _confirmDeleteRecord(docId, bName, ctx), icon: const Icon(Icons.delete, color: Colors.red), label: const Text("기록 삭제", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))) else const SizedBox(),
+                    // 🌟 [수정] 삭제 함수를 호출할 때 linkedScheduleId도 같이 넘겨줍니다!
+                    if (isAuthor)
+                      TextButton.icon(
+                          onPressed: () => _confirmDeleteRecord(docId, bName, ctx, linkedScheduleId: data['linkedScheduleId']),
+                          icon: const Icon(Icons.delete, color: Colors.red),
+                          label: const Text("기록 삭제", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))
+                      )
+                    else
+                      const SizedBox(),
                     TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("닫기", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey))),
                   ],
                 ),
@@ -756,13 +813,17 @@ class _FieldPracticalChecklistPageState extends State<FieldPracticalChecklistPag
   // ---------------------------------------------------------
   @override
   Widget build(BuildContext context) {
+    // 👇 🌟 [수정 1-4의 진짜 위치] 읽기 전용 팝업 모드일 때는 뒷배경을 투명하게 렌더링합니다!
+    if (widget.viewOnlyData != null) {
+      return const Scaffold(backgroundColor: Colors.transparent);
+    }
+
     final bool isMobile = MediaQuery.of(context).size.width < 600;
     String currentTitle = _getDynamicTitle(_isRegularActive, _isS1Active, _isS2Active, _isS3Active, _isS4Active);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF1F5F9),
       appBar: AppBar(
-        // 👇 🌟 [모바일 최적화] 긴 제목이 모바일에서 두 줄로 깨지거나 짤리지 않도록 FittedBox 장착 👇
         title: FittedBox(
             fit: BoxFit.scaleDown,
             child: Text(currentTitle, style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E293B), fontSize: 18))
@@ -816,7 +877,22 @@ class _FieldPracticalChecklistPageState extends State<FieldPracticalChecklistPag
           const SizedBox(height: 8),
 
           // 자동완성 검색 기능 (유지)
-          StreamBuilder<QuerySnapshot>(
+          // 🌟 [핵심] 업무보고에서 넘어온 경우 건물명 고정, 아니면 기존 검색창 사용
+          widget.initialBuildingName != null
+              ? Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFFCBD5E1))),
+            child: Row(
+              children: [
+                const Icon(Icons.domain, color: Color(0xFF2563EB)), const SizedBox(width: 10),
+                Text(widget.initialBuildingName!, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
+                const Spacer(),
+                const Text("업무 연동됨", style: TextStyle(fontSize: 12, color: Color(0xFF2563EB), fontWeight: FontWeight.bold)),
+              ],
+            ),
+          )
+              : StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance.collection('buildings').orderBy('name').snapshots(),
             builder: (context, snapshot) {
               if (!snapshot.hasData) return const LinearProgressIndicator();
@@ -1283,11 +1359,17 @@ class _FieldPracticalChecklistPageState extends State<FieldPracticalChecklistPag
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             const SizedBox(height: 4),
-                            Text("점검일: $dateStr\n점검자: ${data['inspectorName'] ??
-                                '미상'} ${data['inspectorRank'] ?? ''}",
-                                style: const TextStyle(fontSize: 12,
-                                    color: Colors.grey,
-                                    height: 1.4)),
+                            Text("점검일: $dateStr\n점검자: ${data['inspectorName'] ?? '미상'} ${data['inspectorRank'] ?? ''}",
+                                style: const TextStyle(fontSize: 12, color: Colors.grey, height: 1.4)),
+
+                            // 👇 🌟 여기에 뱃지 코드 추가 👇
+                            if (data['linkedScheduleId'] != null)
+                              Container(
+                                margin: const EdgeInsets.only(top: 6),
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(4), border: Border.all(color: Colors.blue.shade200)),
+                                child: const Text("💡 업무보고에서 작성된 체크리스트 입니다.", style: TextStyle(fontSize: 11, color: Colors.blue, fontWeight: FontWeight.bold)),
+                              ),
                             const SizedBox(height: 8),
                             Wrap(
                               spacing: 6, runSpacing: 6,

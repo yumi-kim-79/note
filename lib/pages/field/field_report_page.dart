@@ -17,6 +17,7 @@ import 'dart:io'; // 파일 처리
 import 'package:flutter/foundation.dart';// ✅ kIsWeb을 사용하기 위해 반드시 필요합니다.
 import '../../services/notification_service.dart';
 import '../../main.dart'; // 🌟 [고도화 추가] GlobalUserState(스마트 캐싱)를 가져옵니다.
+import '../guide/field_practical_checklist_page.dart'; // 🌟 체크리스트 연동용 임포트
 
 // ✅ [추가] 아래 4줄을 import 목록에 추가하세요
 import '../../services/sales_service.dart';
@@ -356,11 +357,11 @@ class FieldReportPageState extends State<FieldReportPage> with SingleTickerProvi
       }
     }
 
-    // ✅ [고도화] 완료자 실명(completerName) 저장 및 삭제
+    // ✅ [버그 해결] 완료 취소 시 'pending(수락대기)'이 아닌 'active(진행중)'로 변경합니다.
     await _firestore.collection('schedules').doc(docId).update({
-      'status': isNowComplete ? 'pending' : 'completed',
+      'status': isNowComplete ? 'active' : 'completed', // 🌟 pending을 active로 수정!
       'completedAt': isNowComplete ? FieldValue.delete() : FieldValue.serverTimestamp(),
-      'completerName': isNowComplete ? FieldValue.delete() : _myName, // 완료한 사람 이름 저장
+      'completerName': isNowComplete ? FieldValue.delete() : _myName,
     });
     // -------------------------------------------------------------
     // ✅ [추가] 완료/취소 알림 발송
@@ -469,6 +470,38 @@ class FieldReportPageState extends State<FieldReportPage> with SingleTickerProvi
                         ),
                       ),
                       const SizedBox(height: 12),
+
+                      // 👇 🌟 [체크리스트 연동 버튼 추가] 👇
+                      Builder(
+                          builder: (context) {
+                            bool hasChecklist = data['linkedInspectionId'] != null;
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              width: double.infinity,
+                              height: 45,
+                              child: ElevatedButton.icon(
+                                onPressed: (hasChecklist || isDialogUploading) ? null : () async {
+                                  bool? result = await Navigator.push(context, MaterialPageRoute(builder: (_) => FieldPracticalChecklistPage(
+                                    initialBuildingName: data['buildingName'], // 건물명 패스!
+                                    linkedScheduleId: data['docId'],           // 업무 ID 패스!
+                                  )));
+                                  if (result == true) {
+                                    Navigator.pop(context); // 완료 후 현재 팝업 닫기 (새로고침 유도)
+                                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("체크리스트가 첨부되었습니다. 다시 상세열기를 눌러 확인하세요.")));
+                                  }
+                                },
+                                icon: Icon(hasChecklist ? Icons.check_circle : Icons.fact_check, size: 18),
+                                label: Text(hasChecklist ? "✅ 점검표 작성 및 첨부 완료" : "시설점검표(체크리스트)작성하기", style: const TextStyle(fontWeight: FontWeight.bold)),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: hasChecklist ? Colors.green.shade50 : AppTheme.primaryColor.withOpacity(0.1),
+                                  foregroundColor: hasChecklist ? Colors.green : AppTheme.primaryColor,
+                                  elevation: 0,
+                                  side: BorderSide(color: hasChecklist ? Colors.green.shade200 : AppTheme.primaryColor.withOpacity(0.3)),
+                                ),
+                              ),
+                            );
+                          }
+                      ),
 
                       // 사진 첨부 버튼
                       Row(
@@ -783,6 +816,44 @@ class FieldReportPageState extends State<FieldReportPage> with SingleTickerProvi
                           child: Text(data['reportContent'], style: const TextStyle(fontSize: 14)),
                         ),
                       ],
+
+                      // 👇 🌟 [첨부된 점검표 확인 버튼 추가] 👇
+                      if (data['linkedInspectionId'] != null) ...[
+                        const SizedBox(height: 16),
+                        const Text("첨부된 시설 점검표", style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.textSub)),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 45,
+                          child: ElevatedButton.icon(
+                            onPressed: () async {
+                              var inspDoc = await FirebaseFirestore.instance.collection('inspections').doc(data['linkedInspectionId']).get();
+                              if (inspDoc.exists && context.mounted) {
+                                var inspData = inspDoc.data() as Map<String, dynamic>;
+                                String dateStr = inspData['createdAt'] != null
+                                    ? DateFormat('yyyy.MM.dd HH:mm').format((inspData['createdAt'] as Timestamp).toDate())
+                                    : '날짜 없음';
+
+                                // 👇 🌟 [핵심 해결] 투명한 페이지 라우팅으로 체크리스트 팝업을 이 화면 바로 위에 띄웁니다! 👇
+                                Navigator.push(context, PageRouteBuilder(
+                                  opaque: false, // 배경 투명하게 (업무보고 창이 비쳐보임)
+                                  pageBuilder: (_, __, ___) => FieldPracticalChecklistPage(
+                                    viewOnlyData: inspData,
+                                    viewOnlyDateStr: dateStr,
+                                    viewOnlyDocId: inspDoc.id,
+                                  ),
+                                ));
+                              } else {
+                                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("삭제되거나 찾을 수 없는 점검표입니다.")));
+                              }
+                            },
+                            icon: const Icon(Icons.assignment_turned_in, size: 18),
+                            label: const Text("✅시설 점검표(체크리스트) 열람하기", style: TextStyle(fontWeight: FontWeight.bold)),
+                            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1E293B), foregroundColor: Colors.white),
+                          ),
+                        ),
+                      ],
+
                       // ✅ [추가] 업로드된 사진 목록 표시 및 다운로드 기능
                       if (data['imageUrls'] != null && (data['imageUrls'] as List).isNotEmpty) ...[
                         const SizedBox(height: 16),
