@@ -22,6 +22,8 @@ class AdminPage extends StatefulWidget {
 class _AdminPageState extends State<AdminPage> {
   // 직급 목록
   final List<String> _rankOptions = ['사원', '주임', '대리', '과장', '차장', '팀장', '부장', '이사', '상무', '전무', '대표'];
+  // 🌟 [추가됨] 부서 목록 추가
+  final List<String> _deptOptions = ['미지정', '영업부', '현장팀', '전산팀', '총무팀', '관리팀'];
 
   // [중요] 슈퍼 관리자 이메일 (정확해야 함)
   final String _superAdminEmail = "yuseok8052@gmail.com";
@@ -35,10 +37,9 @@ class _AdminPageState extends State<AdminPage> {
     bool isSuperAdmin = myEmail.trim().toLowerCase() == _superAdminEmail.trim().toLowerCase();
 
     return Container(
-      color: AppTheme.backgroundColor, // 배경색 통일
+      color: AppTheme.backgroundColor,
       child: Column(
         children: [
-          // 1. 헤더 영역
           Container(
             padding: const EdgeInsets.all(24),
             decoration: const BoxDecoration(
@@ -52,8 +53,6 @@ class _AdminPageState extends State<AdminPage> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text("직원 관리", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppTheme.textMain)),
-
-                    // 신규 직원 등록 버튼 (공통 버튼 사용)
                     CommonButton(
                       text: "신규 직원 등록",
                       icon: Icons.person_add,
@@ -62,7 +61,6 @@ class _AdminPageState extends State<AdminPage> {
                   ],
                 ),
                 const SizedBox(height: 8),
-                // [확인용] 접속자 정보
                 Text(
                   "현재 접속: $myEmail ${isSuperAdmin ? '(슈퍼관리자 인증됨)' : '(일반관리자 - 비번조회 불가)'}",
                   style: TextStyle(fontSize: 12, color: isSuperAdmin ? AppTheme.primaryColor : AppTheme.textSub),
@@ -90,17 +88,15 @@ class _AdminPageState extends State<AdminPage> {
                     String docId = docs[index].id;
                     String name = data['name'] ?? '이름 없음';
                     String rank = data['rank'] ?? '사원';
+                    // 🌟 부서 정보 장착 완료
+                    String department = data['department'] ?? '미지정';
                     String emailField = data['email'] ?? '';
 
-                    // 화면 표시용 ID
                     String displayId = emailField.contains('@') ? emailField.split('@')[0] : emailField;
-
-                    // DB에 저장된 비밀번호 가져오기
                     String? savedPw = data['password'];
                     String role = data['role'] == 'admin' ? '관리자모드' : '일반모드';
                     bool isAdminRole = data['role'] == 'admin';
 
-                    // ✅ 디자인 시스템: 공통 카드 사용
                     return CommonCard(
                       padding: EdgeInsets.zero,
                       child: ListTile(
@@ -113,6 +109,13 @@ class _AdminPageState extends State<AdminPage> {
                           children: [
                             Text("$name $rank", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppTheme.textMain)),
                             const SizedBox(width: 8),
+                            // 🌟 부서명 뱃지
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              margin: const EdgeInsets.only(right: 6),
+                              decoration: BoxDecoration(color: Colors.blue[50], borderRadius: BorderRadius.circular(4), border: Border.all(color: Colors.blue[100]!)),
+                              child: Text(department, style: TextStyle(fontSize: 11, color: Colors.blue[800], fontWeight: FontWeight.bold)),
+                            ),
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                               decoration: BoxDecoration(
@@ -170,7 +173,7 @@ class _AdminPageState extends State<AdminPage> {
   }
 
   // ----------------------------------------------------------------
-  // [기능 1] 신규 직원 등록 (디자인 적용)
+  // [기능 1] 신규 직원 등록
   // ----------------------------------------------------------------
   void _showAddEmployeeDialog() {
     final phoneCtrl = TextEditingController();
@@ -178,6 +181,7 @@ class _AdminPageState extends State<AdminPage> {
     final nameCtrl = TextEditingController();
 
     String selectedRank = _rankOptions[0];
+    String selectedDept = _deptOptions[0]; // 🌟 추가됨
     String selectedRole = 'user';
 
     showDialog(
@@ -189,89 +193,112 @@ class _AdminPageState extends State<AdminPage> {
             return Dialog(
               backgroundColor: Colors.transparent,
               insetPadding: const EdgeInsets.all(16),
-              child: CommonCard(
-                width: 400,
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text("신규 직원 등록", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.textMain)),
-                    const SizedBox(height: 24),
+              // 🌟 [수정] 모바일 팝업창 깨짐 방지 장착 (maxWidth: 400)
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: 400),
+                child: CommonCard(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text("신규 직원 등록", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.textMain)),
+                      const SizedBox(height: 24),
 
-                    TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: "이름", hintText: "홍길동")),
-                    const SizedBox(height: 16),
+                      TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: "이름", hintText: "홍길동")),
+                      const SizedBox(height: 16),
 
-                    DropdownButtonFormField<String>(
-                      value: selectedRank,
-                      decoration: const InputDecoration(labelText: "직급"),
-                      items: _rankOptions.map((rank) => DropdownMenuItem(value: rank, child: Text(rank))).toList(),
-                      onChanged: (val) => setStateDialog(() => selectedRank = val!),
-                    ),
-                    const SizedBox(height: 16),
+                      // 🌟 직급 & 부서 나란히 배치
+                      Row(
+                        children: [
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              value: selectedDept,
+                              decoration: const InputDecoration(labelText: "부서"),
+                              items: _deptOptions.map((dept) => DropdownMenuItem(value: dept, child: Text(dept))).toList(),
+                              onChanged: (val) => setStateDialog(() => selectedDept = val!),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              value: selectedRank,
+                              decoration: const InputDecoration(labelText: "직급"),
+                              items: _rankOptions.map((rank) => DropdownMenuItem(value: rank, child: Text(rank))).toList(),
+                              onChanged: (val) => setStateDialog(() => selectedRank = val!),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
 
-                    TextField(
-                      controller: phoneCtrl,
-                      keyboardType: TextInputType.phone,
-                      decoration: const InputDecoration(labelText: "아이디 (휴대폰 번호)", hintText: "01012345678"),
-                    ),
-                    const SizedBox(height: 16),
+                      TextField(
+                        controller: phoneCtrl,
+                        keyboardType: TextInputType.phone,
+                        decoration: const InputDecoration(labelText: "아이디 (휴대폰 번호)", hintText: "01012345678"),
+                      ),
+                      const SizedBox(height: 16),
 
-                    TextField(
-                      controller: passCtrl,
-                      keyboardType: TextInputType.number,
-                      maxLength: 4,
-                      decoration: const InputDecoration(labelText: "비밀번호 (숫자 4자리)", counterText: ""),
-                    ),
-                    const SizedBox(height: 24),
+                      TextField(
+                        controller: passCtrl,
+                        keyboardType: TextInputType.number,
+                        maxLength: 4,
+                        decoration: const InputDecoration(labelText: "비밀번호 (숫자 4자리)", counterText: ""),
+                      ),
+                      const SizedBox(height: 24),
 
-                    const Align(alignment: Alignment.centerLeft, child: Text("권한 설정", style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.textMain))),
-                    RadioListTile(
-                      title: const Text("일반모드", style: TextStyle(fontSize: 14)), subtitle: const Text("본인 글만 관리", style: TextStyle(fontSize: 12)),
-                      value: 'user', groupValue: selectedRole,
-                      activeColor: AppTheme.primaryColor,
-                      onChanged: (val) => setStateDialog(() => selectedRole = val.toString()),
-                    ),
-                    RadioListTile(
-                      title: const Text("관리자모드", style: TextStyle(fontSize: 14)), subtitle: const Text("모든 권한 보유", style: TextStyle(fontSize: 12)),
-                      value: 'admin', groupValue: selectedRole,
-                      activeColor: AppTheme.primaryColor,
-                      onChanged: (val) => setStateDialog(() => selectedRole = val.toString()),
-                    ),
+                      const Align(alignment: Alignment.centerLeft, child: Text("권한 설정", style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.textMain))),
+                      RadioListTile(
+                        title: const Text("일반모드", style: TextStyle(fontSize: 14)), subtitle: const Text("본인 글만 관리", style: TextStyle(fontSize: 12)),
+                        value: 'user', groupValue: selectedRole,
+                        activeColor: AppTheme.primaryColor,
+                        onChanged: (val) => setStateDialog(() => selectedRole = val.toString()),
+                      ),
+                      RadioListTile(
+                        title: const Text("관리자모드", style: TextStyle(fontSize: 14)), subtitle: const Text("모든 권한 보유", style: TextStyle(fontSize: 12)),
+                        value: 'admin', groupValue: selectedRole,
+                        activeColor: AppTheme.primaryColor,
+                        onChanged: (val) => setStateDialog(() => selectedRole = val.toString()),
+                      ),
 
-                    const SizedBox(height: 24),
+                      const SizedBox(height: 24),
 
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        TextButton(
-                            onPressed: () => Navigator.pop(context),
-                            child: const Text("취소", style: TextStyle(color: AppTheme.textSub))
-                        ),
-                        const SizedBox(width: 8),
-                        CommonButton(
-                          text: "등록하기",
-                          onPressed: () async {
-                            if (phoneCtrl.text.isEmpty || passCtrl.text.length != 4 || nameCtrl.text.isEmpty) {
-                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("정보를 올바르게 입력해주세요 (비번 4자리)")));
-                              return;
-                            }
-                            String realEmailId = "${phoneCtrl.text}@sm.com";
+                      // 🌟 [수정] 모바일 화면 버튼 픽셀 깨짐 해결 (Expanded 적용)
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextButton(
+                                onPressed: () => Navigator.pop(context),
+                                child: const Text("취소", style: TextStyle(color: AppTheme.textSub))
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: CommonButton(
+                              text: "등록하기",
+                              onPressed: () async {
+                                if (phoneCtrl.text.isEmpty || passCtrl.text.length != 4 || nameCtrl.text.isEmpty) {
+                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("정보를 올바르게 입력해주세요 (비번 4자리)")));
+                                  return;
+                                }
+                                String realEmailId = "${phoneCtrl.text}@sm.com";
 
-                            await _registerEmployee(
-                              email: realEmailId,
-                              password: "${passCtrl.text}00",
-                              displayPw: passCtrl.text,
-                              name: nameCtrl.text.trim(),
-                              rank: selectedRank,
-                              role: selectedRole,
-                            );
-                            Navigator.pop(context);
-                          },
-                          width: 100,
-                        ),
-                      ],
-                    ),
-                  ],
+                                await _registerEmployee(
+                                  email: realEmailId,
+                                  password: "${passCtrl.text}00",
+                                  displayPw: passCtrl.text,
+                                  name: nameCtrl.text.trim(),
+                                  department: selectedDept, // 🌟 추가됨
+                                  rank: selectedRank,
+                                  role: selectedRole,
+                                );
+                                Navigator.pop(context);
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
             );
@@ -282,14 +309,16 @@ class _AdminPageState extends State<AdminPage> {
   }
 
   // ----------------------------------------------------------------
-  // [기능 2] 직원 수정 (디자인 적용)
+  // [기능 2] 직원 수정
   // ----------------------------------------------------------------
   void _showEditEmployeeDialog(String docId, Map<String, dynamic> data) {
     final nameCtrl = TextEditingController(text: data['name']);
     String selectedRank = data['rank'] ?? '사원';
+    String selectedDept = data['department'] ?? '미지정'; // 🌟 추가됨
     String selectedRole = data['role'] ?? 'user';
 
     if (!_rankOptions.contains(selectedRank)) selectedRank = _rankOptions[0];
+    if (!_deptOptions.contains(selectedDept)) selectedDept = _deptOptions[0];
 
     showDialog(
       context: context,
@@ -300,64 +329,88 @@ class _AdminPageState extends State<AdminPage> {
             return Dialog(
               backgroundColor: Colors.transparent,
               insetPadding: const EdgeInsets.all(16),
-              child: CommonCard(
-                width: 400,
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text("직원 정보 수정", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.textMain)),
-                    const SizedBox(height: 24),
+              // 🌟 [수정] 모바일 팝업창 깨짐 방지 장착 (maxWidth: 400)
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: 400),
+                child: CommonCard(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text("직원 정보 수정", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.textMain)),
+                      const SizedBox(height: 24),
 
-                    TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: "이름")),
-                    const SizedBox(height: 16),
+                      TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: "이름")),
+                      const SizedBox(height: 16),
 
-                    DropdownButtonFormField<String>(
-                      value: selectedRank,
-                      decoration: const InputDecoration(labelText: "직급"),
-                      items: _rankOptions.map((rank) => DropdownMenuItem(value: rank, child: Text(rank))).toList(),
-                      onChanged: (val) => setStateDialog(() => selectedRank = val!),
-                    ),
-                    const SizedBox(height: 24),
+                      // 🌟 직급 & 부서 나란히 배치
+                      Row(
+                        children: [
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              value: selectedDept,
+                              decoration: const InputDecoration(labelText: "부서"),
+                              items: _deptOptions.map((dept) => DropdownMenuItem(value: dept, child: Text(dept))).toList(),
+                              onChanged: (val) => setStateDialog(() => selectedDept = val!),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              value: selectedRank,
+                              decoration: const InputDecoration(labelText: "직급"),
+                              items: _rankOptions.map((rank) => DropdownMenuItem(value: rank, child: Text(rank))).toList(),
+                              onChanged: (val) => setStateDialog(() => selectedRank = val!),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 24),
 
-                    const Align(alignment: Alignment.centerLeft, child: Text("권한 설정", style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.textMain))),
-                    RadioListTile(
-                      title: const Text("일반모드", style: TextStyle(fontSize: 14)),
-                      value: 'user', groupValue: selectedRole,
-                      activeColor: AppTheme.primaryColor,
-                      onChanged: (val) => setStateDialog(() => selectedRole = val.toString()),
-                    ),
-                    RadioListTile(
-                      title: const Text("관리자모드", style: TextStyle(fontSize: 14)),
-                      value: 'admin', groupValue: selectedRole,
-                      activeColor: AppTheme.primaryColor,
-                      onChanged: (val) => setStateDialog(() => selectedRole = val.toString()),
-                    ),
-                    const SizedBox(height: 10),
-                    const Text("* 아이디와 비밀번호 변경은 삭제 후 재등록해주세요.", style: TextStyle(color: AppTheme.errorColor, fontSize: 12)),
+                      const Align(alignment: Alignment.centerLeft, child: Text("권한 설정", style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.textMain))),
+                      RadioListTile(
+                        title: const Text("일반모드", style: TextStyle(fontSize: 14)),
+                        value: 'user', groupValue: selectedRole,
+                        activeColor: AppTheme.primaryColor,
+                        onChanged: (val) => setStateDialog(() => selectedRole = val.toString()),
+                      ),
+                      RadioListTile(
+                        title: const Text("관리자모드", style: TextStyle(fontSize: 14)),
+                        value: 'admin', groupValue: selectedRole,
+                        activeColor: AppTheme.primaryColor,
+                        onChanged: (val) => setStateDialog(() => selectedRole = val.toString()),
+                      ),
+                      const SizedBox(height: 10),
+                      const Text("* 아이디와 비밀번호 변경은 삭제 후 재등록해주세요.", style: TextStyle(color: AppTheme.errorColor, fontSize: 12)),
 
-                    const SizedBox(height: 24),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        TextButton(onPressed: () => Navigator.pop(context), child: const Text("취소", style: TextStyle(color: AppTheme.textSub))),
-                        const SizedBox(width: 8),
-                        CommonButton(
-                          text: "수정 완료",
-                          onPressed: () async {
-                            await FirebaseFirestore.instance.collection('users').doc(docId).update({
-                              'name': nameCtrl.text,
-                              'rank': selectedRank,
-                              'role': selectedRole,
-                            });
-                            Navigator.pop(context);
-                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("수정되었습니다.")));
-                          },
-                          width: 100,
-                        ),
-                      ],
-                    ),
-                  ],
+                      const SizedBox(height: 24),
+
+                      // 🌟 [수정] 모바일 화면 버튼 픽셀 깨짐 해결 (Expanded 적용)
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextButton(onPressed: () => Navigator.pop(context), child: const Text("취소", style: TextStyle(color: AppTheme.textSub))),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: CommonButton(
+                              text: "수정 완료",
+                              onPressed: () async {
+                                await FirebaseFirestore.instance.collection('users').doc(docId).update({
+                                  'name': nameCtrl.text,
+                                  'department': selectedDept, // 🌟 추가됨
+                                  'rank': selectedRank,
+                                  'role': selectedRole,
+                                });
+                                Navigator.pop(context);
+                                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("수정되었습니다.")));
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
             );
@@ -368,9 +421,9 @@ class _AdminPageState extends State<AdminPage> {
   }
 
   // ----------------------------------------------------------------
-  // [기능 3] 직원 등록 로직 (기능 100% 유지)
+  // [기능 3] 직원 등록 로직
   // ----------------------------------------------------------------
-  Future<void> _registerEmployee({required String email, required String password, required String displayPw, required String name, required String rank, required String role}) async {
+  Future<void> _registerEmployee({required String email, required String password, required String displayPw, required String name, required String department, required String rank, required String role}) async {
     FirebaseApp? tempApp;
     try {
       tempApp = await Firebase.initializeApp(name: 'temporaryRegisterApp', options: Firebase.app().options);
@@ -379,8 +432,9 @@ class _AdminPageState extends State<AdminPage> {
       if (userCredential.user != null) {
         await FirebaseFirestore.instance.collection('users').doc(userCredential.user!.uid).set({
           'email': email,
-          'password': displayPw, // [중요] 관리자 확인용 비번 저장
+          'password': displayPw,
           'name': name,
+          'department': department, // 🌟 추가됨
           'rank': rank,
           'role': role,
           'createdAt': FieldValue.serverTimestamp(),

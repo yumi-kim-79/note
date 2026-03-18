@@ -109,15 +109,14 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
 // =======================================================
 // 🌟 [고도화 추가] 스마트 캐싱 (전역 사용자 정보 보관함)
-// 앱 어디서든 DB 조회 없이 내 이름/직급을 즉시 꺼내 쓸 수 있습니다.
 // =======================================================
 class GlobalUserState {
   static String uid = '';
   static String name = '직원';
   static String rank = '';
   static String role = 'user';
+  static String department = '미지정'; // 🌟 [추가됨] 부서 정보 보관
 
-  // 이름+직급 조합 (예: 홍길동 대리)을 바로 꺼내쓰는 마법의 헬퍼
   static String get fullName => rank.isNotEmpty ? '$name $rank'.trim() : name;
   static bool get isAdmin => role == 'admin';
 }
@@ -593,6 +592,24 @@ class MainLayoutPageState extends State<MainLayoutPage> {
         .map((snapshot) => snapshot.docs.length);
   }
 
+  // =========================================================
+  // 🌟 [핵심 고도화] 영업부서 전용 '공유 큐(Shared Queue)' 뱃지 스캐너
+  // =========================================================
+  Stream<int> _getSalesBadgeCountStream() {
+    // 1. 내 부서가 '영업부'이거나 '관리자(admin)'일 때만 CCTV를 켭니다.
+    if (GlobalUserState.department != '영업부' && GlobalUserState.role != 'admin') {
+      return Stream.value(0); // 다른 부서는 뱃지 숫자 0 고정
+    }
+
+    // 2. 파이어베이스의 sales_inquiries DB를 실시간 감시하여 '신규접수' 개수만 셉니다.
+    return FirebaseFirestore.instance
+        .collection('sales_inquiries')
+    // 👇 🌟 [수술 완료] 타겟을 '접수완료'에서 '신규접수'로 변경!
+        .where('status', isEqualTo: '신규접수')
+        .snapshots()
+        .map((snapshot) => snapshot.docs.length);
+  }
+
   Future<void> _deleteReadNotifications(BuildContext context) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -818,6 +835,7 @@ class MainLayoutPageState extends State<MainLayoutPage> {
         GlobalUserState.name = userName;
         GlobalUserState.rank = userRank;
         GlobalUserState.role = userData?['role'] ?? 'user';
+        GlobalUserState.department = userData?['department'] ?? '미지정'; // 🌟 [추가됨] 부서 장착!
 
         if (!isAdmin && _selectedIndex == 3) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1002,7 +1020,15 @@ class MainLayoutPageState extends State<MainLayoutPage> {
 
                       // 🌟 [추가됨] 총무팀 밑 구분선 및 신규 메뉴 3개
                       const Divider(height: 24, indent: 24, endIndent: 24, color: AppTheme.borderColor),
-                      _buildMenuItem(icon: Icons.assessment, title: '영업 정보', index: 14), // trending_up 대신 assessment
+                      // 🌟 [수술 적용] 영업 정보 메뉴에 공유 뱃지 감시기를 달아줍니다!
+                      StreamBuilder<int>(
+                        stream: _getSalesBadgeCountStream(),
+                        builder: (context, snap) => _buildMenuItem(
+                            icon: Icons.assessment,
+                            title: '영업 정보',
+                            index: 14,
+                            badgeCount: snap.data ?? 0),
+                      ),
                       _buildMenuItem(icon: Icons.business, title: '현장 정보', index: 15),   // Stack 제거하고 기본 business 사용
                       _buildMenuItem(icon: Icons.contact_phone, title: '공유 전화번호부', index: 16),
 
@@ -1200,8 +1226,21 @@ class MainLayoutPageState extends State<MainLayoutPage> {
               // 1. 홈 (대시보드 아이콘)
               _buildBottomNavItem(icon: Icons.dashboard, label: '홈', isSelected: bottomSelectedIndex == 0, onTap: () => _onMenuSelected(0, isDrawerClick: false)),
 
-              // 2. 영업 (차트 아이콘)
-              _buildBottomNavItem(icon: Icons.assessment, label: '영업', isSelected: bottomSelectedIndex == 1, onTap: () => _onMenuSelected(14, isDrawerClick: false)),
+              // 2. 영업 (차트 아이콘) - 🌟 공유 뱃지 장착!
+              Expanded(
+                child: StreamBuilder<int>(
+                    stream: _getSalesBadgeCountStream(),
+                    builder: (context, snap) {
+                      return _buildBottomNavItem(
+                          icon: Icons.assessment,
+                          label: '영업',
+                          isSelected: bottomSelectedIndex == 1,
+                          onTap: () => _onMenuSelected(14, isDrawerClick: false),
+                          badgeCount: snap.data ?? 0 // 🌟 하단 바 함수에 뱃지 숫자 넘겨주기
+                      );
+                    }
+                ),
+              ),
 
               // 3. 현장 (건물 아이콘 - Stack 제거)
               _buildBottomNavItem(icon: Icons.business, label: '현장', isSelected: bottomSelectedIndex == 2, onTap: () => _onMenuSelected(15, isDrawerClick: false)),
@@ -1225,14 +1264,15 @@ class MainLayoutPageState extends State<MainLayoutPage> {
     );
   }
 
-  // 🌟 [수정됨] 커스텀 아이콘(겹친 아이콘) 렌더링 시 웹 충돌 완벽 방어!
+  // 🌟 [수정됨] 커스텀 아이콘(겹친 아이콘) 렌더링 시 웹 충돌 완벽 방어 + 숫자 뱃지 카운트 추가!
   Widget _buildBottomNavItem({
     IconData? icon,
     Widget? customIcon,
     required String label,
     required bool isSelected,
     required VoidCallback onTap,
-    bool showBadge = false
+    bool showBadge = false,
+    int badgeCount = 0, // 👈 🌟 [문제 해결!] 여기에 badgeCount 파라미터를 추가했습니다!
   }) {
     return Expanded(
       child: InkWell(
@@ -1250,6 +1290,7 @@ class MainLayoutPageState extends State<MainLayoutPage> {
                     ? Icon(icon, size: 26, color: isSelected ? AppTheme.textMain : Colors.grey.shade400)
                     : const SizedBox()),
 
+                // 1. 기존의 점(Dot) 뱃지 (전체 알림용)
                 if (showBadge)
                   StreamBuilder<int>(
                       stream: _getUnreadNotificationCountStream(),
@@ -1262,6 +1303,26 @@ class MainLayoutPageState extends State<MainLayoutPage> {
                           child: Container(width: 6, height: 6, decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle)),
                         );
                       }
+                  ),
+
+                // 2. 🌟 새로 추가된 숫자 뱃지 (영업부 새 문의 카운트용)
+                if (badgeCount > 0)
+                  Positioned(
+                    right: -8,
+                    top: -4,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: AppTheme.errorColor,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                      child: Text(
+                        badgeCount > 99 ? '99+' : '$badgeCount',
+                        style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
                   ),
               ],
             ),

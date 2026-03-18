@@ -17,10 +17,48 @@ class SalesInquiryListPage extends StatefulWidget {
   State<SalesInquiryListPage> createState() => _SalesInquiryListPageState();
 }
 
+// 🌟 [추가] 영업부 전체 실시간 푸시 알림 발송 엔진
+Future<void> _sendNotificationToSalesDept(String bName, String receiptNo) async {
+  try {
+    // 1. '영업부' 소속 직원들만 싹 찾아냅니다.
+    final salesUsers = await FirebaseFirestore.instance
+        .collection('users')
+        .where('department', isEqualTo: '영업부')
+        .get();
+
+    if (salesUsers.docs.isEmpty) return;
+
+    // 2. 한 번에 여러 명에게 알림을 쏘기 위해 '배치(Batch)' 작업을 준비합니다.
+    WriteBatch batch = FirebaseFirestore.instance.batch();
+
+    for (var userDoc in salesUsers.docs) {
+      // 각 영업부 직원의 알림장(notifications)에 배달지를 넣습니다.
+      final notiRef = FirebaseFirestore.instance.collection('notifications').doc();
+      batch.set(notiRef, {
+        'targetUid': userDoc.id,
+        'title': '🚨 신규 영업 문의 접수',
+        'body': '[$receiptNo] $bName 건이 신규 접수되었습니다.',
+        'type': 'sales_inquiry', // 나중에 알림 클릭 시 이동할 표식
+        'isRead': false,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    }
+
+    // 3. 일괄 발송!
+    await batch.commit();
+    debugPrint("📢 영업부 전체 알림 발송 완료 (${salesUsers.docs.length}명)");
+  } catch (e) {
+    debugPrint("❌ 알림 발송 중 오류: $e");
+  }
+}
+
 class _SalesInquiryListPageState extends State<SalesInquiryListPage> {
   final Color primaryNavy = const Color(0xFF1E293B);
   final Color safetyBlue = const Color(0xFF4A89DC);
   final Color tableHeaderColor = const Color(0xFF8B95A1);
+
+  // 👇 🌟 [수술 1] 스위치를 키보드 충격에도 끄떡없는 '클래스 전역 변수(금고)'로 완전히 피신시킵니다!
+  bool _isSearchingAddress = false;
 
   String _searchQuery = "";
   final TextEditingController _searchCtrl = TextEditingController();
@@ -191,9 +229,44 @@ class _SalesInquiryListPageState extends State<SalesInquiryListPage> {
 
     String currentReceiptNo = "";
 
+    // 👇 🌟 [수술 2-1] 팝업을 열자마자 내 직책과 이름을 서버에서 잽싸게 가져옵니다.
+    String myFullName = '담당자';
+    if (currentUser != null) {
+      try {
+        var userDoc = await FirebaseFirestore.instance.collection('users').doc(currentUser.uid).get();
+        if (userDoc.exists) {
+          var uData = userDoc.data()!;
+          String rank = uData['rank'] ?? '';
+          String name = uData['name'] ?? '';
+          if (name.isEmpty && currentUser.email != null) name = currentUser.email!.split('@').first;
+          myFullName = "$rank $name".trim();
+        }
+      } catch (e) {
+        debugPrint("내 정보 로드 실패: $e");
+      }
+    }
+
+    // 👇 🌟 [수술 2-2] 상태 리스트를 4개로 간소화하고, 실명제 메뉴를 자동으로 꽂아 넣습니다!
+    String myCompleteStatus = '접수완료($myFullName)';
+    List<String> _statusOptions = [
+      '신규접수',
+      '접수완료($myFullName)',
+      '계약완료($myFullName)',
+      '보류/드랍($myFullName)'
+    ];
+    String _selectedStatus = '신규접수';
+
     if (isEdit) {
       var data = doc.data() as Map<String, dynamic>;
       currentReceiptNo = data['receiptNo'] ?? '';
+
+      _selectedStatus = data['status'] ?? '신규접수';
+
+      // 🌟 남이 이미 접수한 건(예: 접수완료(대리 김철수))을 열었을 때 메뉴가 깨지지 않도록, 남의 상태도 선택지에 안전하게 추가해줍니다.
+      if (!_statusOptions.contains(_selectedStatus)) {
+        _statusOptions.insert(1, _selectedStatus);
+      }
+
       _bNameCtrl.text = data['buildingName'] ?? '';
       _bAddressCtrl.text = data['address'] ?? '';
       _bInfoCtrl.text = data['buildingInfo'] ?? '';
@@ -246,9 +319,6 @@ class _SalesInquiryListPageState extends State<SalesInquiryListPage> {
     showDialog(
         context: context,
         builder: (ctx) {
-          // 🌟 1. 주소 검색 중인지 판단하는 마법의 스위치!
-          bool isSearchingAddress = false;
-
           return StatefulBuilder(
               builder: (context, setDialogState) {
                 bool isMobileDialog = MediaQuery.of(context).size.width < 600;
@@ -266,102 +336,91 @@ class _SalesInquiryListPageState extends State<SalesInquiryListPage> {
                           child: FittedBox(
                               fit: BoxFit.scaleDown,
                               alignment: Alignment.centerLeft,
-                              child: Text(isEdit ? (isAuthor ? "문의 상세 및 수정 [$currentReceiptNo]" : "문의 상세 (읽기 전용) [$currentReceiptNo]") : "신규 문의 접수", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18))
+                              // 🌟 [수술 1] 제목에서 "읽기 전용"이라는 문구를 뺐습니다. (누구나 수정 가능하니까요!)
+                              child: Text(isEdit ? "문의 상세 및 수정 [$currentReceiptNo]" : "신규 문의 접수", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18))
                           )
                       ),
-                      if (isEdit && !isAuthor && !isMobileDialog)
-                        Container(margin: const EdgeInsets.only(left: 12), padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(4)), child: Text("작성자만 수정 가능", style: TextStyle(fontSize: 12, color: Colors.red.shade700, fontWeight: FontWeight.bold)))
+                      // 🌟 [수술 2] "작성자만 수정 가능" 이라는 빨간 경고 딱지도 삭제했습니다.
                     ],
                   ),
                   content: Container(
                     width: double.maxFinite,
                     constraints: const BoxConstraints(maxWidth: 800),
-                    // 🌟 2. 스위치 상태에 따라 카카오 웹뷰 ↔ 기존 입력폼 부드럽게 갈아끼우기!
-                    child: isSearchingAddress
-                        ? SizedBox(
-                      height: 500, // 카카오 검색창이 들어갈 넉넉한 높이
-                      child: Column(
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text("📍 카카오 주소 검색", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF1E293B))),
-                              IconButton(
-                                icon: const Icon(Icons.close, color: Colors.grey),
-                                onPressed: () => setDialogState(() => isSearchingAddress = false), // 닫기 누르면 원래 폼으로 복귀
-                              )
-                            ],
-                          ),
-                          const Divider(),
-                          Expanded(
-                            // 🌟 새 창 팝업 대신 화면 안쪽에 카카오 맵을 매립시킵니다!
-                            child: buildDaumPostcodeWidget(
-                                onComplete: (result) async {
-                                  // 주소 검색 완료 시 스위치 끄고 주소 입력
-                                  setDialogState(() {
-                                    isSearchingAddress = false;
-                                  });
-                                  // 기존 통합 연동 엔진을 그대로 돌려서 데이터 확보!
-                                  await _searchAddressAndFetchMolit(embeddedResult: result);
-                                  setDialogState(() {}); // 화면 최신화
-                                }
-                            ),
-                          ),
-                        ],
-                      ),
-                    )
-                        : SingleChildScrollView(
+                    child: SingleChildScrollView(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          const SizedBox(height: 16),
+
                           if (isMobileDialog) ...[
-                            _buildTextField("건물명 (단지명)", _bNameCtrl, Icons.domain, readOnly: !isAuthor),
+                            // 🌟 [수술 3] readOnly 옵션을 풀어 누구나 글씨를 고칠 수 있게 했습니다!
+                            _buildTextField("건물명 (단지명)", _bNameCtrl, Icons.domain, readOnly: false),
                             const SizedBox(height: 12),
-                            // 🌟 버튼 누르면 스위치 ON!
-                            SizedBox(width: double.infinity, height: 48, child: _buildKakaoButton(isAuthor, () => setDialogState(() => isSearchingAddress = true))),
+                            SizedBox(width: double.infinity, height: 48, child: _buildKakaoButton(true, () { // 누구나 카카오 검색 가능
+                              Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                      builder: (fullscreenCtx) => Scaffold(
+                                        appBar: AppBar(title: const Text("📍 카카오 주소 검색", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF1E293B))), backgroundColor: Colors.white, iconTheme: const IconThemeData(color: Colors.black87), elevation: 1),
+                                        body: buildDaumPostcodeWidget(
+                                            onComplete: (result) async {
+                                              Navigator.pop(fullscreenCtx);
+                                              await _searchAddressAndFetchMolit(embeddedResult: result);
+                                              setDialogState(() {});
+                                            }
+                                        ),
+                                      )
+                                  )
+                              );
+                            })),
                           ] else ...[
                             Row(
                               children: [
-                                Expanded(flex: 3, child: _buildTextField("건물명 (단지명)", _bNameCtrl, Icons.domain, readOnly: !isAuthor)),
+                                Expanded(flex: 3, child: _buildTextField("건물명 (단지명)", _bNameCtrl, Icons.domain, readOnly: false)),
                                 const SizedBox(width: 12),
-                                Expanded(flex: 2, child: SizedBox(height: 48, child: _buildKakaoButton(isAuthor, () => setDialogState(() => isSearchingAddress = true)))),
+                                Expanded(flex: 2, child: SizedBox(height: 48, child: _buildKakaoButton(true, () {
+                                  Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                          builder: (fullscreenCtx) => Scaffold(
+                                            appBar: AppBar(title: const Text("📍 카카오 주소 검색", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF1E293B))), backgroundColor: Colors.white, iconTheme: const IconThemeData(color: Colors.black87), elevation: 1),
+                                            body: buildDaumPostcodeWidget(
+                                                onComplete: (result) async {
+                                                  Navigator.pop(fullscreenCtx);
+                                                  await _searchAddressAndFetchMolit(embeddedResult: result);
+                                                  setDialogState(() {});
+                                                }
+                                            ),
+                                          )
+                                      )
+                                  );
+                                }))),
                               ],
                             ),
                           ],
                           const SizedBox(height: 16),
-                          _buildTextField("상세 주소 (검색 시 자동 입력)", _bAddressCtrl, Icons.location_on, readOnly: !isAuthor),
+                          _buildTextField("상세 주소 (검색 시 자동 입력)", _bAddressCtrl, Icons.location_on, readOnly: false),
                           const SizedBox(height: 20),
 
                           Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
-                              // 👇 🌟 [수정 2] 글자 크기를 15 -> 18로 시원하게 키워서 버튼과 시각적 밸런스를 맞춤!
-                              const Flexible(
-                                  child: FittedBox(
-                                    fit: BoxFit.scaleDown,
-                                    alignment: Alignment.centerLeft,
-                                    child: Text("🏢 건축물대장 상세 제원", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF475569), fontSize: 18)),
-                                  )
+                              Expanded(
+                                child: Text("🏢 건축물대장 제원", style: TextStyle(fontWeight: FontWeight.bold, color: const Color(0xFF475569), fontSize: isMobileDialog ? 18 : 20, height: 1.3)),
                               ),
-                              const Spacer(),
                               if (_currentMolitRawData != null)
-                                ElevatedButton.icon(
-                                  onPressed: () {
-                                    setState(() => _registerPage = 1);
-                                    _showFullRegisterPopup(_currentMolitRawData!);
-                                  },
-                                  icon: const Icon(Icons.find_in_page, size: 16),
-                                  label: Text(MediaQuery.of(context).size.width < 768 ? "건대장 보기" : "건대장 전체보기"),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: primaryNavy,
-                                    foregroundColor: Colors.white,
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                    padding: EdgeInsets.symmetric(
-                                        horizontal: MediaQuery.of(context).size.width < 768 ? 10 : 16,
-                                        vertical: 10
-                                    ),
-                                    elevation: 0,
+                                Container(
+                                  margin: const EdgeInsets.only(left: 12),
+                                  child: ElevatedButton.icon(
+                                    onPressed: () {
+                                      setState(() => _registerPage = 1);
+                                      _showFullRegisterPopup(_currentMolitRawData!);
+                                    },
+                                    icon: const Icon(Icons.find_in_page, size: 16),
+                                    label: Text(isMobileDialog ? "건대장 보기" : "건대장 전체보기"),
+                                    style: ElevatedButton.styleFrom(backgroundColor: primaryNavy, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)), padding: EdgeInsets.symmetric(horizontal: isMobileDialog ? 10 : 16, vertical: 10), elevation: 0),
                                   ),
                                 ),
                             ],
@@ -369,12 +428,10 @@ class _SalesInquiryListPageState extends State<SalesInquiryListPage> {
                           const SizedBox(height: 12),
 
                           TextField(
-                            controller: _bInfoCtrl, maxLines: null, readOnly: !isAuthor,
+                            controller: _bInfoCtrl, maxLines: null, readOnly: false,
                             style: const TextStyle(fontSize: 14, height: 1.6, letterSpacing: 0.5),
                             decoration: InputDecoration(
-                              hintText: "카카오 주소 검색 시 자동으로 제원 정보가 입력됩니다.",
-                              filled: true, fillColor: Colors.grey.shade50,
-                              contentPadding: const EdgeInsets.all(16),
+                              hintText: "카카오 주소 검색 시 자동으로 제원 정보가 입력됩니다.", filled: true, fillColor: Colors.grey.shade50, contentPadding: const EdgeInsets.all(16),
                               border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey.shade300)),
                               enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey.shade300)),
                               focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF4A89DC), width: 1.5)),
@@ -384,31 +441,68 @@ class _SalesInquiryListPageState extends State<SalesInquiryListPage> {
                           const Padding(padding: EdgeInsets.symmetric(vertical: 24), child: Divider(height: 1, color: Color(0xFFE2E8F0))),
 
                           if (isMobileDialog) ...[
-                            _buildTextField("문의자 성함", _callerNameCtrl, Icons.person, readOnly: !isAuthor),
+                            _buildTextField("문의자 성함", _callerNameCtrl, Icons.person, readOnly: false),
                             const SizedBox(height: 12),
-                            _buildTextField("직책 (예: 대표,회장 등)", _callerRankCtrl, Icons.badge, readOnly: !isAuthor),
+                            _buildTextField("직책 (예: 대표,회장 등)", _callerRankCtrl, Icons.badge, readOnly: false),
                             const SizedBox(height: 12),
-                            _buildPhoneField("연락처 (번호)", _callerPhoneCtrl, readOnly: !isAuthor)
+                            _buildPhoneField("연락처 (번호)", _callerPhoneCtrl, readOnly: false)
                           ] else ...[
                             Row(
                               children: [
-                                Expanded(child: _buildTextField("문의자 성함", _callerNameCtrl, Icons.person, readOnly: !isAuthor)),
+                                Expanded(child: _buildTextField("문의자 성함", _callerNameCtrl, Icons.person, readOnly: false)),
                                 const SizedBox(width: 12),
-                                Expanded(child: _buildTextField("직책 (예: 대표,회장,총무 등)", _callerRankCtrl, Icons.badge, readOnly: !isAuthor)),
+                                Expanded(child: _buildTextField("직책 (예: 대표,회장,총무 등)", _callerRankCtrl, Icons.badge, readOnly: false)),
                                 const SizedBox(width: 12),
-                                Expanded(child: _buildPhoneField("연락처 (번호)", _callerPhoneCtrl, readOnly: !isAuthor)),
+                                Expanded(child: _buildPhoneField("연락처 (번호)", _callerPhoneCtrl, readOnly: false)),
                               ],
                             ),
                           ],
                           const SizedBox(height: 24),
 
+                          if (isEdit) ...[
+                            const Text("📌 영업 진행 상태 (공유 뱃지 연동)", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF475569), fontSize: 15)),
+                            const SizedBox(height: 10),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              decoration: BoxDecoration(
+                                color: Colors.blue.shade50, // 누구나 활성화된 색상으로 보이게 함
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.blue.shade200),
+                              ),
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<String>(
+                                  value: _selectedStatus,
+                                  isExpanded: true,
+                                  icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF4A89DC)),
+                                  // 👇 🌟 [방어 1] 좁은 모바일 화면에서 드롭다운 글씨가 길면 '...'으로 예쁘게 생략하여 팝업창 찢어짐을 방지합니다.
+                                  items: _statusOptions.map((status) => DropdownMenuItem(
+                                      value: status,
+                                      child: Text(
+                                          status,
+                                          style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis // 👈 넘치면 자동으로 ... 처리
+                                      )
+                                  )).toList(),
+                                  // 🌟 [수술 4] 작성자 제한 없이 누구나 드롭다운을 조작할 수 있게 잠금 완전 해제!
+                                  onChanged: (val) {
+                                    setDialogState(() {
+                                      _selectedStatus = val!;
+                                    });
+                                  },
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                          ],
+
                           const Text("📝 상세 상담 내용 및 영업 메모", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF475569), fontSize: 15)),
                           const SizedBox(height: 10),
                           TextField(
-                            controller: _memoCtrl, maxLines: null, minLines: 5, keyboardType: TextInputType.multiline, readOnly: !isAuthor,
+                            controller: _memoCtrl, maxLines: null, minLines: 5, keyboardType: TextInputType.multiline, readOnly: false, // 누구나 메모 수정 가능
                             decoration: InputDecoration(
-                              hintText: isAuthor ? "고객의 니즈, 현재 업체의 불만사항, 견적 요청 내용 등을 상세히 적어주세요." : "작성자만 수정할 수 있습니다.",
-                              filled: true, fillColor: isAuthor ? Colors.amber.shade50.withOpacity(0.3) : Colors.grey.shade50,
+                              hintText: "고객의 니즈, 현재 업체의 불만사항, 견적 요청 내용 등을 상세히 적어주세요.",
+                              filled: true, fillColor: Colors.amber.shade50.withOpacity(0.3),
                               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300)),
                               enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300)),
                               focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF4A89DC), width: 2)),
@@ -421,8 +515,8 @@ class _SalesInquiryListPageState extends State<SalesInquiryListPage> {
                   actionsAlignment: MainAxisAlignment.spaceBetween,
                   actionsPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
                   actions: [
-                    // 🌟 3. 주소 검색 중일 때는 하단의 삭제, 저장 닫기 버튼들을 모두 숨깁니다!
-                    if (isEdit && _isSuperAdmin && !isSearchingAddress)
+                    // 👇 🌟 [핵심 수술] 삭제 버튼: 오직 최초 작성자(isAuthor) 이거나 슈퍼관리자(대표님)일 때만 노출!
+                    if (isEdit && (isAuthor || _isSuperAdmin))
                       TextButton.icon(
                         onPressed: () => _deleteInquiry(doc!.id, _bNameCtrl.text, dialogCtx: ctx),
                         icon: const Icon(Icons.delete, color: Colors.red, size: 20),
@@ -431,69 +525,85 @@ class _SalesInquiryListPageState extends State<SalesInquiryListPage> {
                     else
                       const SizedBox.shrink(),
 
-                    if (!isSearchingAddress)
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("닫기", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, fontSize: 15))),
-                          const SizedBox(width: 12),
-                          if (isAuthor)
-                            ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: safetyBlue,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                                elevation: 0,
-                              ),
-                              onPressed: () async {
-                                if (_bNameCtrl.text.isEmpty) {
-                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("건물명은 필수입니다."))); return;
-                                }
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("닫기", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, fontSize: 15))),
+                        const SizedBox(width: 12),
+                        // 👇 🌟 [핵심 수술] 저장 버튼: 누구나 저장할 수 있도록 자물쇠 제거!
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: safetyBlue,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                            elevation: 0,
+                          ),
+                          onPressed: () async {
+                            if (_bNameCtrl.text.isEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("건물명은 필수입니다."))); return;
+                            }
 
-                                final data = {
-                                  'buildingName': _bNameCtrl.text, 'address': _bAddressCtrl.text, 'buildingInfo': _bInfoCtrl.text,
-                                  'callerName': _callerNameCtrl.text, 'callerRank': _callerRankCtrl.text, 'callerPhone': _callerPhoneCtrl.text,
-                                  'memo': _memoCtrl.text, 'updatedAt': FieldValue.serverTimestamp(),
-                                };
+                            final data = {
+                              'buildingName': _bNameCtrl.text, 'address': _bAddressCtrl.text, 'buildingInfo': _bInfoCtrl.text,
+                              'callerName': _callerNameCtrl.text, 'callerRank': _callerRankCtrl.text, 'callerPhone': _callerPhoneCtrl.text,
+                              'memo': _memoCtrl.text,
+                              'status': _selectedStatus,
+                              'updatedAt': FieldValue.serverTimestamp(),
+                            };
 
-                                if (isEdit) {
-                                  await FirebaseFirestore.instance.collection('sales_inquiries').doc(doc!.id).update(data);
-                                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("수정되었습니다.")));
-                                } else {
-                                  String yy = (DateTime.now().year % 100).toString();
-                                  String newReceiptNo = '$yy-0001';
+                            if (isEdit) {
+                              // [수정 모드] 기존 데이터 업데이트
+                              await FirebaseFirestore.instance.collection('sales_inquiries').doc(doc!.id).update(data);
+                              if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("수정되었습니다.")));
+                            } else {
+                              // [신규 등록 모드] 접수번호 생성 및 저장
+                              String yy = (DateTime.now().year % 100).toString();
+                              String newReceiptNo = '$yy-0001';
 
-                                  var qs = await FirebaseFirestore.instance.collection('sales_inquiries')
-                                      .orderBy('createdAt', descending: true)
-                                      .limit(1)
-                                      .get();
+                              var qs = await FirebaseFirestore.instance.collection('sales_inquiries')
+                                  .orderBy('createdAt', descending: true)
+                                  .limit(1)
+                                  .get();
 
-                                  if (qs.docs.isNotEmpty) {
-                                    var lastData = qs.docs.first.data();
-                                    if (lastData.containsKey('receiptNo')) {
-                                      String lastNo = lastData['receiptNo'];
-                                      if (lastNo.startsWith('$yy-')) {
-                                        int nextNum = int.parse(lastNo.split('-')[1]) + 1;
-                                        newReceiptNo = '$yy-${nextNum.toString().padLeft(4, '0')}';
-                                      }
-                                    }
+                              if (qs.docs.isNotEmpty) {
+                                var lastData = qs.docs.first.data() as Map<String, dynamic>;
+                                if (lastData.containsKey('receiptNo')) {
+                                  String lastNo = lastData['receiptNo'];
+                                  if (lastNo.startsWith('$yy-')) {
+                                    int nextNum = int.parse(lastNo.split('-')[1]) + 1;
+                                    newReceiptNo = '$yy-${nextNum.toString().padLeft(4, '0')}';
                                   }
-
-                                  data['receiptNo'] = newReceiptNo;
-                                  data['status'] = '접수완료';
-                                  data['createdAt'] = FieldValue.serverTimestamp();
-                                  data['authorUid'] = currentUser?.uid ?? '';
-                                  data['authorName'] = currentUser?.displayName ?? '영업 담당자';
-
-                                  await FirebaseFirestore.instance.collection('sales_inquiries').add(data);
-                                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("접수 성공 (접수번호: $newReceiptNo)")));
                                 }
-                                if (mounted) Navigator.pop(ctx);
-                              },
-                              child: Text(isEdit ? "수정 저장" : "접수 등록", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 15)),
-                            )
-                        ],
-                      )
+                              }
+
+                              String finalAuthorName = '영업 담당자';
+                              if (currentUser?.displayName != null && currentUser!.displayName!.trim().isNotEmpty) {
+                                finalAuthorName = currentUser!.displayName!;
+                              } else if (currentUser?.email != null && currentUser!.email!.contains('@')) {
+                                finalAuthorName = currentUser!.email!.split('@').first;
+                              }
+
+                              data['receiptNo'] = newReceiptNo;
+                              data['status'] = '신규접수';
+                              data['createdAt'] = FieldValue.serverTimestamp();
+                              data['authorUid'] = currentUser?.uid ?? '';
+                              data['authorName'] = finalAuthorName;
+
+                              // 1. DB 저장
+                              await FirebaseFirestore.instance.collection('sales_inquiries').add(data);
+
+                              // 2. 🌟 [영업부 전체 알림 발송]
+                              await _sendNotificationToSalesDept(_bNameCtrl.text, newReceiptNo);
+
+                              if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("접수 성공 (접수번호: $newReceiptNo) 및 영업부 알림 완료")));
+                            }
+
+                            if (mounted) Navigator.pop(ctx);
+                          },
+                          child: Text(isEdit ? "수정 저장" : "접수 등록", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 15)),
+                        )
+                      ],
+                    )
                   ],
                 );
               }
@@ -626,16 +736,28 @@ class _SalesInquiryListPageState extends State<SalesInquiryListPage> {
                 ),
                 const SizedBox(width: 12),
                 Expanded(child: Text(bName, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.black87, height: 1.3), maxLines: 2, overflow: TextOverflow.ellipsis)),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(color: safetyBlue.withOpacity(0.1), borderRadius: BorderRadius.circular(6)),
-                  child: Text(data['status'] ?? '접수완료', style: TextStyle(color: safetyBlue, fontSize: 12, fontWeight: FontWeight.bold)),
+                // 👇 🌟 [수술 3-1] 우측 상단 뱃지 텍스트 줄바꿈 적용 (괄호 앞에서 줄바꿈)
+                // 👇 🌟 [방어 2] 뱃지를 'Flexible'이라는 유연한 스펀지로 감싸서, 공간이 부족하면 알아서 찌그러지거나 글씨를 줄이도록 세팅했습니다!
+                Flexible(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(color: safetyBlue.withOpacity(0.1), borderRadius: BorderRadius.circular(6)),
+                    child: Text(
+                      (data['status'] ?? '신규접수').replaceAll('(', '\n('),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: safetyBlue, fontSize: 11, fontWeight: FontWeight.bold, height: 1.2),
+                      maxLines: 2, // 최대 2줄까지만 허용
+                      overflow: TextOverflow.ellipsis, // 공간 모자라면 ... 처리
+                    ),
+                  ),
                 ),
               ],
             ),
-            const Padding(padding: EdgeInsets.symmetric(vertical: 16), child: Divider(height: 1, color: Color(0xFFF1F5F9))), // 🌟 선 색상 연하게
+            const Padding(padding: EdgeInsets.symmetric(vertical: 16), child: Divider(height: 1, color: Color(0xFFF1F5F9))),
 
+            // 👇 🌟 [수술 3-2] 모바일에서도 가독성을 위해 접수일과 접수인을 별도 라인으로 분리하고, 직책/이름을 줄바꿈 처리했습니다.
             _buildMobileInfoRow(Icons.calendar_today, "접수일", dateStr),
+            _buildMobileInfoRow(Icons.assignment_ind, "접수인", (data['authorName'] ?? '담당자 미정').replaceFirst(' ', '\n')),
             _buildMobileInfoRow(Icons.location_on, "주소", data['address'] ?? ''),
             _buildMobileInfoRow(Icons.person, "문의자", "${data['callerName'] ?? ''}$rankStr  |  ${data['callerPhone'] ?? ''}"),
             if (memo.isNotEmpty) _buildMobileInfoRow(Icons.edit_note, "메모", memo.replaceAll('\n', ' '), maxLines: 2),
@@ -716,9 +838,35 @@ class _SalesInquiryListPageState extends State<SalesInquiryListPage> {
             if (snapshot.hasData) {
               docs = snapshot.data!.docs.where((doc) {
                 if (_searchQuery.isEmpty) return true;
+
                 Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-                return (data['buildingName'] ?? '').toString().contains(_searchQuery) || (data['callerName'] ?? '').toString().contains(_searchQuery);
+
+                // 1. 기본 텍스트 정보 (건물명, 문의자, 주소)
+                String bName = (data['buildingName'] ?? '').toString();
+                String cName = (data['callerName'] ?? '').toString();
+                String addr = (data['address'] ?? '').toString();
+
+                // 2. 📅 날짜 검색용 데이터 생성 (여러 형식을 하나의 긴 문자열로 합침)
+                String dateSearchStr = "";
+                if (data['createdAt'] != null) {
+                  DateTime dt = (data['createdAt'] as Timestamp).toDate();
+                  // 대표님이 요청하신 모든 포맷을 다 때려넣습니다.
+                  // '26.03.16', '3.16', '3/16', '3월 16일', '03.16' 등
+                  dateSearchStr = "${DateFormat('yy.MM.dd').format(dt)} "
+                      "${DateFormat('M.d').format(dt)} "
+                      "${DateFormat('M/d').format(dt)} "
+                      "${DateFormat('M월 d일').format(dt)} "
+                      "${DateFormat('MM.dd').format(dt)} "
+                      "${DateFormat('MM/dd').format(dt)}";
+                }
+
+                // 3. 🔍 통합 검색 (모든 조건 중 하나라도 맞으면 통과!)
+                return bName.contains(_searchQuery) ||
+                    cName.contains(_searchQuery) ||
+                    addr.contains(_searchQuery) || // 🌟 주소 검색 추가
+                    dateSearchStr.contains(_searchQuery); // 🌟 날짜 검색 추가
               }).toList();
+
               totalCount = docs.length;
             }
 
@@ -836,13 +984,15 @@ class _SalesInquiryListPageState extends State<SalesInquiryListPage> {
                                           padding: const EdgeInsets.symmetric(vertical: 14),
                                           child: const Row(
                                             children: [
+                                              // 👇 🌟 [수술 2] PC 화면: 표가 찌그러지지 않도록 가로 비율(flex)을 재조정하고, '접수인' 칸을 추가했습니다.
                                               Expanded(flex: 2, child: Text("접수번호", textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13))),
                                               Expanded(flex: 2, child: Text("접수일", textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13))),
                                               Expanded(flex: 3, child: Text("단지명 (건물명)", textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13))),
                                               Expanded(flex: 3, child: Text("건물 주소", textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13))),
                                               Expanded(flex: 2, child: Text("문의자 / 연락처", textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13))),
                                               Expanded(flex: 2, child: Text("진행 상태", textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13))),
-                                              Expanded(flex: 2, child: Text("비고 (메모)", textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13))),
+                                              Expanded(flex: 3, child: Text("비고 (메모)", textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13))),
+                                              Expanded(flex: 2, child: Text("접수인", textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13))), // 🌟 추가됨
                                               Expanded(flex: 2, child: Text("관리", textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13))),
                                             ],
                                           ),
@@ -867,17 +1017,22 @@ class _SalesInquiryListPageState extends State<SalesInquiryListPage> {
                                                     padding: const EdgeInsets.symmetric(vertical: 14),
                                                     child: Row(
                                                       children: [
+                                                        // 👇 🌟 [수술 3] 헤더(제목)와 1:1로 오와 열이 정확하게 맞도록 데이터 칸의 flex도 동일하게 맞춰줍니다.
                                                         Expanded(flex: 2, child: Text(receiptNo, textAlign: TextAlign.center, style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: primaryNavy))),
                                                         Expanded(flex: 2, child: Text(dateStr, textAlign: TextAlign.center, style: const TextStyle(fontSize: 13, color: Colors.black87))),
                                                         Expanded(flex: 3, child: Text(data['buildingName'] ?? '', textAlign: TextAlign.center, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black87))),
                                                         Expanded(flex: 3, child: Padding(padding: const EdgeInsets.symmetric(horizontal: 8), child: Text(data['address'] ?? '', textAlign: TextAlign.center, style: const TextStyle(fontSize: 13, color: Colors.black87), overflow: TextOverflow.ellipsis))),
                                                         Expanded(flex: 2, child: Text("${data['callerName'] ?? ''}$rankStr\n${data['callerPhone'] ?? ''}", textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, color: Colors.black54))),
-                                                        Expanded(flex: 2, child: Text(data['status'] ?? '접수완료', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: safetyBlue))),
-                                                        Expanded(flex: 2, child: Padding(padding: const EdgeInsets.symmetric(horizontal: 8), child: Text(memo.replaceAll('\n', ' '), textAlign: TextAlign.left, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Colors.black54)))),
+                                                        // 👇 🌟 [방어 3] PC나 태블릿에서도 폭이 좁아지면 칸을 벗어나지 않게 maxLines와 ellipsis(말줄임표)를 꽉 채워 넣었습니다.
+                                                        Expanded(flex: 2, child: Text((data['status'] ?? '신규접수').replaceAll('(', '\n('), textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: safetyBlue, height: 1.3))),
+                                                        Expanded(flex: 3, child: Padding(padding: const EdgeInsets.symmetric(horizontal: 8), child: Text(memo.replaceAll('\n', ' '), textAlign: TextAlign.left, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Colors.black54)))),
+
+                                                        // 접수자 (가독성 유지 + 넘침 방지)
+                                                        Expanded(flex: 2, child: Text((data['authorName'] ?? '담당자 미정').replaceFirst(' ', '\n'), textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black87, height: 1.3))),
 
                                                         Expanded(
                                                             flex: 2,
-                                                            child: Row(
+                                                            child: Row( // 👈 기존의 [열기/삭제] 관리 버튼 시작 부분
                                                               mainAxisAlignment: MainAxisAlignment.center,
                                                               children: [
                                                                 SizedBox(
@@ -1077,7 +1232,11 @@ class _SalesInquiryListPageState extends State<SalesInquiryListPage> {
           _buildResponsiveTable(
               _buildOfficialTable([
                 _buildTableRow("대지위치", _bAddressCtrl.text, "지번", item['platGbCdNm']?.toString() ?? "-"),
-                _buildTableRow("명칭", item['bldNm']?.toString() ?? "-", "호수/세대수", "${item['hoCnt'] ?? 0}호 / ${item['hhldCnt'] ?? 0}세대"),
+                // 👇 🌟 [수술 완료] 가구수를 추가하여 '세대/가구/호' 3종 세트를 모두 표기합니다.
+                _buildTableRow(
+                    "명칭", item['bldNm']?.toString() ?? "-",
+                    "세대/가구/호", "${item['hhldCnt'] ?? 0} 세대 / ${item['fmlyCnt'] ?? 0} 가구 / ${item['hoCnt'] ?? 0} 호"
+                ),
                 _buildTableRow("대지면적", "${item['platArea'] ?? 0} ㎡", "연면적", "${item['totArea'] ?? 0} ㎡"),
                 _buildTableRow("건축면적", "${item['archArea'] ?? 0} ㎡", "용적률산정연면적", "${item['vlRatEstmTotArea'] ?? 0} ㎡"),
                 _buildTableRow("건폐율", "${item['bcRat'] ?? 0} %", "용적률", "${item['vlRat'] ?? 0} %"),

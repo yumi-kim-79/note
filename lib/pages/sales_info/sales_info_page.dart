@@ -1,13 +1,49 @@
-//영업정보 페이지 허브 페이지
+// 영업정보 페이지 허브 페이지
 
 import 'package:flutter/material.dart';
-import 'sales_inquiry_list_page.dart'; // 1번 메뉴 연결용
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../main.dart'; // 👇 🌟 [에러 해결!] main.dart에 있는 GlobalUserState를 불러오는 마법의 연결선입니다.
+import 'sales_inquiry_list_page.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class SalesInfoPage extends StatelessWidget {
   const SalesInfoPage({super.key});
 
   final Color primaryNavy = const Color(0xFF1E293B);
   final Color safetyBlue = const Color(0xFF2563EB);
+
+  // 🌟 [고도화] 새로고침 시에도 중단 없는 실시간 뱃지 감시기
+  Stream<int> _getSalesBadgeCountStream() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return Stream.value(0);
+
+    // 1. 유저의 정보를 실시간으로 감시하는 스트림을 먼저 생성합니다.
+    return FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .snapshots()
+        .asyncMap((userSnap) async {
+
+      if (!userSnap.exists) return 0;
+
+      final userData = userSnap.data() as Map<String, dynamic>;
+      final String department = userData['department'] ?? '미지정';
+      final String role = userData['role'] ?? 'user';
+
+      // 2. 영업부이거나 관리자인지 여기서 직접 확인합니다. (GlobalUserState가 늦게 채워져도 상관없음)
+      if (department != '영업부' && role != 'admin') {
+        return 0;
+      }
+
+      // 3. 조건이 맞다면 실제 신규접수 개수를 가져옵니다.
+      final inquirySnap = await FirebaseFirestore.instance
+          .collection('sales_inquiries')
+          .where('status', isEqualTo: '신규접수')
+          .get();
+
+      return inquirySnap.docs.length;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -41,12 +77,19 @@ class SalesInfoPage extends StatelessWidget {
                     mainAxisSpacing: 20,
                     childAspectRatio: isMobile ? 2.5 : 2.0,
                     children: [
-                      // 🌟 1. 신규 문의 접수 (활성화)
-                      _buildMenuCard(
-                          context,
-                          "신규 문의 접수", "전화/온라인으로 들어온 신규 건물 관리 문의를 기록하고 관리합니다.",
-                          Icons.add_call, safetyBlue,
-                          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SalesInquiryListPage()))
+                      // 🌟 1. 신규 문의 접수 카드에 실시간 뱃지 감시기를 씌워줍니다!
+                      StreamBuilder<int>(
+                          stream: _getSalesBadgeCountStream(),
+                          builder: (context, snapshot) {
+                            int badgeCount = snapshot.data ?? 0;
+                            return _buildMenuCard(
+                                context,
+                                "신규 문의 접수", "전화/온라인으로 들어온 신규 건물 관리 문의를 기록하고 관리합니다.",
+                                Icons.add_call, safetyBlue,
+                                badgeCount: badgeCount,
+                                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SalesInquiryListPage()))
+                            );
+                          }
                       ),
 
                       // 2. 준비 중
@@ -68,7 +111,8 @@ class SalesInfoPage extends StatelessWidget {
     );
   }
 
-  Widget _buildMenuCard(BuildContext context, String title, String desc, IconData icon, Color color, {bool isReady = true, VoidCallback? onTap}) {
+  // 🌟 badgeCount 파라미터를 추가하고, 아이콘 우측 상단에 빨간 뱃지를 그리는 로직
+  Widget _buildMenuCard(BuildContext context, String title, String desc, IconData icon, Color color, {bool isReady = true, VoidCallback? onTap, int badgeCount = 0}) {
     return InkWell(
       onTap: isReady ? onTap : () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("현재 개발 준비 중인 메뉴입니다."))),
       borderRadius: BorderRadius.circular(16),
@@ -82,10 +126,34 @@ class SalesInfoPage extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
-              child: Icon(icon, size: 36, color: color),
+            // 🌟 아이콘과 뱃지를 겹쳐서 그리기 위해 Stack 사용
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
+                  child: Icon(icon, size: 36, color: color),
+                ),
+                // 🌟 숫자가 1 이상일 때만 빨간 뱃지 표시
+                if (badgeCount > 0)
+                  Positioned(
+                    right: -4,
+                    top: -4,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.white, width: 2),
+                      ),
+                      child: Text(
+                        badgeCount > 99 ? '99+' : '$badgeCount',
+                        style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+              ],
             ),
             const SizedBox(width: 20),
             Expanded(

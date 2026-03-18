@@ -41,6 +41,7 @@ dependencies:
   googleapis_auth: ^2.0.0
   vibration: ^1.9.0
   cp949_codec: ^1.0.2
+  csv: ^6.0.0
 
 dev_dependencies:
   flutter_test:

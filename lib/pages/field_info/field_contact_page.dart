@@ -380,12 +380,14 @@ class _FieldContactPageState extends State<FieldContactPage> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
+          // 👇 🌟 [수술 1] 모바일 기기의 기본 좌우 여백(40px)을 16px로 대폭 줄여서 팝업창을 화면 끝까지 넓게 펼칩니다! (연락처 잘림 완벽 방지)
+          insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
           backgroundColor: Colors.white,
           surfaceTintColor: Colors.transparent,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: Text(dialogTitle, style: const TextStyle(fontWeight: FontWeight.bold)),
 
-          // 👇 🌟 [고도화 1] 반응형 너비 설정 (최대 550px)
+          // 👇 반응형 너비 설정 (최대 550px)
           content: Container(
             width: double.maxFinite,
             constraints: const BoxConstraints(maxWidth: 550),
@@ -394,6 +396,10 @@ class _FieldContactPageState extends State<FieldContactPage> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // 👇 🌟 [수술 2] 팝업창 천장에 투명한 숨구멍(8px)을 뚫어줍니다.
+                  // 이제 "상호명" 라벨이 입력창 위로 떠올라도 천장에 부딪히지 않고 온전히 보입니다!
+                  const SizedBox(height: 8),
+
                   if (isClipboardUsed)
                     Container(
                       margin: const EdgeInsets.only(bottom: 12),
