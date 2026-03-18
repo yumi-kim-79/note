@@ -68,3 +68,4 @@ flutter:
     - assets/images/sm_logo.png
     - assets/images/app_icon.png
     - assets/service-account.json
+    - assets/fire_images/  # 🌟 [여기 수정!] fire_images

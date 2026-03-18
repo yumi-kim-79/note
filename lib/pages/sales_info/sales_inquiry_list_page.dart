@@ -576,18 +576,14 @@ class _SalesInquiryListPageState extends State<SalesInquiryListPage> {
                                 }
                               }
 
-                              String finalAuthorName = '영업 담당자';
-                              if (currentUser?.displayName != null && currentUser!.displayName!.trim().isNotEmpty) {
-                                finalAuthorName = currentUser!.displayName!;
-                              } else if (currentUser?.email != null && currentUser!.email!.contains('@')) {
-                                finalAuthorName = currentUser!.email!.split('@').first;
-                              }
+                              // 🌟 [삭제] 전화번호/이메일을 가져오던 구형 로직(finalAuthorName) 폐기 완료
 
                               data['receiptNo'] = newReceiptNo;
                               data['status'] = '신규접수';
                               data['createdAt'] = FieldValue.serverTimestamp();
                               data['authorUid'] = currentUser?.uid ?? '';
-                              data['authorName'] = finalAuthorName;
+                              // 👇 🌟 [명찰 고도화 수술] 팝업 열 때 이미 users DB에서 가져온 "직책 이름(myFullName)"을 명찰로 딱 붙여줍니다!
+                              data['authorName'] = myFullName.isNotEmpty ? myFullName : '영업 담당자';
 
                               // 1. DB 저장
                               await FirebaseFirestore.instance.collection('sales_inquiries').add(data);

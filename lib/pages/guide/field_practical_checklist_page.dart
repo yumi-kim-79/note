@@ -612,7 +612,7 @@ class _FieldPracticalChecklistPageState extends State<FieldPracticalChecklistPag
           var res = results[title];
           String statusText = "미점검"; PdfColor statusColor = PdfColors.grey600;
           if (res != null) {
-            if (res['status'] == 'pass') { statusText = "합격"; statusColor = PdfColors.green700; }
+            if (res['status'] == 'pass') { statusText = "양호"; statusColor = PdfColors.green700; }
             else if (res['status'] == 'warn') { statusText = "미흡"; statusColor = PdfColors.orange700; }
             else if (res['status'] == 'fail') { statusText = "불량"; statusColor = PdfColors.red700; }
             else if (res['status'] == 'na') { statusText = "해당없음"; statusColor = PdfColors.grey500; }
@@ -745,7 +745,7 @@ class _FieldPracticalChecklistPageState extends State<FieldPracticalChecklistPag
                             String title = item['title']; var res = results[title];
                             IconData sIcon = Icons.help_outline; Color sColor = Colors.grey; String sText = "미점검"; String sRemark = "";
                             if (res != null) {
-                              if (res['status'] == 'pass') { sIcon = Icons.check_circle; sColor = successGreen; sText = "합격"; }
+                              if (res['status'] == 'pass') { sIcon = Icons.check_circle; sColor = successGreen; sText = "양호"; }
                               else if (res['status'] == 'warn') { sIcon = Icons.warning_rounded; sColor = warningOrange; sText = "미흡"; }
                               else if (res['status'] == 'fail') { sIcon = Icons.cancel; sColor = dangerRed; sText = "불량"; }
                               else if (res['status'] == 'na') { sIcon = Icons.remove_circle_outline; sColor = naGrey; sText = "해당없음"; }
@@ -1128,7 +1128,7 @@ class _FieldPracticalChecklistPageState extends State<FieldPracticalChecklistPag
           Row(
             children: [
               Expanded(
-                  child: _buildStateBtn(title, 'pass', "합격", successGreen)),
+                  child: _buildStateBtn(title, 'pass', "양호", successGreen)),
               const SizedBox(width: 6),
               Expanded(
                   child: _buildStateBtn(title, 'warn', "미흡", warningOrange)),
@@ -1388,7 +1388,7 @@ class _FieldPracticalChecklistPageState extends State<FieldPracticalChecklistPag
                                     decoration: BoxDecoration(
                                         color: successGreen.withOpacity(0.1),
                                         borderRadius: BorderRadius.circular(4)),
-                                    child: Text("합격 $passCount",
+                                    child: Text("양호 $passCount",
                                         style: TextStyle(fontSize: 11,
                                             color: successGreen,
                                             fontWeight: FontWeight.bold))),

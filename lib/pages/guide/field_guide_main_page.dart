@@ -6,6 +6,7 @@ import '../../theme/app_theme.dart'; // 🌟 테마 경로 확인
 import 'field_standard_manual_page.dart'; // 🌟 아까 만든 1번 가이드 페이지 불러오기
 import 'field_inspection_checklist_page.dart'; // 🌟 2번 체리리스트 페이지 불러오기
 import 'field_practical_checklist_page.dart'; // 🚀 [추가] 3번 실전 체크리스트 페이지 (같은 폴더이므로 경로 최적화)
+import 'fire_safety_handbook_page.dart'; // 🚨 [추가] 4번 소방시설 자체점검 안내 핸드북 페이지 불러오기
 
 class FieldGuideMainPage extends StatelessWidget {
   const FieldGuideMainPage({super.key});
@@ -63,6 +64,16 @@ class FieldGuideMainPage extends StatelessWidget {
                 icon: Icons.engineering,
                 color: Colors.teal,
                 destinationPage: const FieldPracticalChecklistPage(),
+              ),
+
+              // 👇 🚨 [신규 추가] 4. 소방시설 자체점검 안내 핸드북
+              _buildGuideItem(
+                context,
+                title: "4. 공동주택 소방시설\n   자체점검 안내 설명서",
+                date: "2026.03.19", // 최신 업데이트 날짜 적용
+                icon: Icons.local_fire_department, // 직관적인 소방(불꽃) 아이콘 적용
+                color: Colors.red, // 안전/소방을 의미하는 빨간색 테마
+                destinationPage: const FireSafetyHandbookPage(),
               ),
 
               const SizedBox(height: 24),
