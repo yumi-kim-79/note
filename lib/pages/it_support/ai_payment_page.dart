@@ -31,6 +31,7 @@ class ResidentRow {
   String matchedBankName;
   String matchedDate;
   String matchedMemo;
+  String matchedName;
   BankTx? matchedTx;
   String managerMemo;
 
@@ -44,7 +45,7 @@ class ResidentRow {
     required this.others, this.type = "", this.remark = "",
     this.isMatched = false, this.isCheckRequired = false, this.matchedBankText = "",
     this.matchedField = "", this.matchedAmount = 0, this.matchedBankName = "",
-    this.matchedDate = "", this.matchedMemo = "", this.matchedTx, this.managerMemo = "",
+    this.matchedDate = "", this.matchedMemo = "", this.matchedName = "", this.matchedTx, this.managerMemo = "",
     this.isMerged = false,
   });
 
@@ -55,7 +56,7 @@ class ResidentRow {
       isMatched: isMatched, isCheckRequired: isCheckRequired,
       matchedBankText: matchedBankText, matchedField: matchedField,
       matchedAmount: matchedAmount, matchedBankName: matchedBankName,
-      matchedDate: matchedDate, matchedMemo: matchedMemo,
+      matchedDate: matchedDate, matchedMemo: matchedMemo, matchedName: matchedName,
       matchedTx: matchedTx, managerMemo: managerMemo,
       isMerged: isMerged,
     );
@@ -186,48 +187,6 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
       return a.compareTo(b);
     });
 
-    String getMatchedName(ResidentRow row) {
-      String descNoSpace = row.matchedBankText.replaceAll(' ', '').toLowerCase();
-      String safeDesc = descNoSpace.replaceAll(RegExp(r'\d+원'), '');
-      String bankNameCandidate = safeDesc.replaceAll(RegExp(r'[0-9]'), '').replaceAll(RegExp(r'[^a-z가-힣]'), '').replaceAll(RegExp(r'^[동호]+|[동호]+$'), '');
-      String pureBankName = bankNameCandidate.replaceAll(RegExp(r'타행|모바일|인터넷|스마트|이체|건별|대량|지점|자동'), '');
-
-      bool checkNameMatched(String rawName) {
-        if (rawName.isEmpty || rawName == "-") return false;
-        bool isCorporation = RegExp(r'\(주\)|주식회사|\(유\)|\(사\)|\(재\)').hasMatch(rawName);
-        String preProcessedName = rawName.replaceAll(RegExp(r'\(주\)|주식회사|\(유\)|\(사\)|\(재\)'), '');
-        List<String> subNames = preProcessedName.split(RegExp(r'[,/.;|()\[\]]'));
-        subNames.add(preProcessedName.replaceAll(RegExp(r'[()\[\]<>{}_*?!]'), ''));
-
-        for (String sub in subNames) {
-          String cleanName = sub.toLowerCase().replaceAll(RegExp(r'[^a-z가-힣]'), '');
-          if (cleanName.isEmpty) continue;
-          if (cleanName.length < 2) {
-            if (isCorporation) { if (cleanName != pureBankName && !pureBankName.contains(cleanName)) continue; }
-            else { if (cleanName != pureBankName && cleanName != bankNameCandidate) continue; }
-          }
-          if (cleanName == bankNameCandidate || cleanName == pureBankName || descNoSpace.contains(cleanName)) return true;
-          if (pureBankName.length >= 2 && pureBankName.contains(cleanName)) return true;
-          if (RegExp(r'[a-z]').hasMatch(cleanName) && RegExp(r'[a-z]').hasMatch(pureBankName)) {
-            int charIdx = 0;
-            for (int i = 0; i < cleanName.length && charIdx < pureBankName.length; i++) {
-              if (cleanName[i] == pureBankName[charIdx]) charIdx++;
-            }
-            if (charIdx == pureBankName.length && pureBankName.length >= 2) return true;
-          }
-        }
-        return false;
-      }
-
-      String matchedName = "";
-      if (checkNameMatched(row.owner)) matchedName = row.owner;
-      else if (checkNameMatched(row.resident)) matchedName = row.resident;
-      else { for (var o in row.others) { if (checkNameMatched(o)) { matchedName = o; break; } } }
-      if (matchedName.isEmpty && row.remark.isNotEmpty) { if (checkNameMatched(row.remark)) matchedName = row.remark; }
-      if (matchedName.isEmpty) matchedName = row.owner.isNotEmpty ? row.owner : row.resident;
-      return matchedName;
-    }
-
     showDialog(
         context: context,
         builder: (ctx) {
@@ -281,7 +240,7 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                     else { unRcvAmt1 += row.matchedAmount; unRcvCnt1++; }
 
                     sheet1.appendRow([
-                      TextCellValue(row.matchedDate.split(' ')[0]), TextCellValue(_formatCurrency(row.matchedAmount)), TextCellValue(row.dong), TextCellValue(row.ho), TextCellValue(getMatchedName(row)), TextCellValue(row.matchedBankText), TextCellValue(row.matchedBankName), TextCellValue(row.managerMemo), TextCellValue(isProcessed ? "수납완료" : "미수납")
+                      TextCellValue(row.matchedDate.split(' ')[0]), TextCellValue(_formatCurrency(row.matchedAmount)), TextCellValue(row.dong), TextCellValue(row.ho), TextCellValue(row.matchedName), TextCellValue(row.matchedBankText), TextCellValue(row.matchedBankName), TextCellValue(row.managerMemo), TextCellValue(isProcessed ? "수납완료" : "미수납")
                     ]);
                     int rIdx = sheet1.maxRows - 1;
                     sheet1.cell(CellIndex.indexByColumnRow(columnIndex: 7, rowIndex: rIdx)).cellStyle = CellStyle(backgroundColorHex: ExcelColor.fromHexString('#FFFFF9C4')); // 메모 노란색
@@ -521,7 +480,7 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                                         itemCount: displayList.length,
                                         itemBuilder: (context, index) {
                                           var row = displayList[index];
-                                          String matchedName = getMatchedName(row);
+                                          String matchedName = row.matchedName;
                                           bool isActive = _activeReceiptRow == row;
                                           bool isProcessed = _processedReceipts.contains(row) && !isActive;
                                           Color bgColor = isActive ? Colors.blue.withOpacity(0.15) : (isProcessed ? Colors.grey[100]! : (index % 2 == 0 ? Colors.white : Colors.grey[50]!));
@@ -1267,7 +1226,7 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
       );
 
       // 👇 🌟 [방해 단어 분쇄기 초고도화] 은행명, 이체 방식 등 찌꺼기를 완벽하게 날립니다.
-      String stopWordsPattern = r'(pg|자동|카드|결제|체크|페이|pay|토스|toss|나이스|nice|kcp|다날|danal|모빌리언스|카카오|kakao|네이버|비대면|펌뱅킹|입금|송금|cd|atm|이체|대체|스마트|인터넷|올원|뱅크|은행|nh|농협|국민|신한|우리|기업|하나|새마을|수협|신협|우체국|타행|창구|mb|pc|폰|e-|센터일괄|cm)';
+      String stopWordsPattern = r'(pg|자동|카드|결제|체크|페이|pay|토스|toss|나이스|nice|kcp|다날|danal|모빌리언스|카카오|kakao|네이버|비대면|펌뱅킹|입금|송금|cd|atm|이체|대체|스마트|인터넷|올원|뱅크|은행|nh|농협|국민|신한|우리|기업|하나|새마을|수협|신협|우체국|타행|창구|mb|pc|폰|e-|센터일괄|cm|관리비)';
       String cleanDescNoSpace = descNoSpace.replaceAll(RegExp(stopWordsPattern), '');
 
       cleanDescNoSpace = cleanDescNoSpace.replaceAll(RegExp(r'(거래|거래일|거래일자)[:\s]*\d{1,4}[-./]?\d{1,4}'), '');
@@ -1329,9 +1288,9 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
       int highestScore = 0;
       String bestMatchReason = "";
       bool bestNeedsCheck = false;
+      String bestMatchedNameStr = "";
 
-      // 🌟 [특급 수술 1] 동(Dong) 판독기: 단방향 일방통행 (1동의 새치기 완벽 차단!)
-      // 🌟 [특급 수술 1] 동(Dong) 판독기: 숫자 contains 오탐지 완벽 차단!
+      // 🌟 [특급 수술 1] 동(Dong) 판독기: 단방향 일방통행 및 영문 이름 흡수 방어!
       bool isSmartDongMatch(String dbDongStr, String bankDongStr, {bool allowMath = true}) {
         String cleanDb = dbDongStr.toLowerCase().trim();
         String cleanBank = bankDongStr.toLowerCase().trim();
@@ -1346,13 +1305,8 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
           int? bkN = int.tryParse(cleanBank);
           if (dbN != null && bkN != null) {
             if (dbN == bkN) return true;
-
-            // 👇 🌟 [단방향 흡수] 1-902 처럼 '1'을 보냈을 때 '101'에 단방향으로 꽂히게 만듭니다!
             if (bkN > 0 && bkN < 100 && dbN >= 100 && (dbN % 100) == bkN) return true;
             if (dbN > 0 && dbN < 100 && bkN >= 100 && (bkN % 100) == dbN) return true;
-
-            // 👇 🌟 [새치기 철통 방어] 숫자끼리의 대결은 무조건 여기서 끝내야 합니다!
-            // 이걸 안 막으면 contains로 넘어가서 "102".contains("1") 이 합격해버리는 대형 사고가 납니다.
             return false;
           }
         }
@@ -1375,10 +1329,20 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
           if (bankNum.toString() == cleanDb) return true;
         }
 
+        // 👇 🌟 [초정밀 안전 수술] 영문 이름 흡수 방어 (ex: 104yangyingzi -> 104)
+        if (cleanBank.startsWith(cleanDb)) {
+          String leftover = cleanBank.substring(cleanDb.length);
+          if (RegExp(r'^[a-z]+$').hasMatch(leftover)) return true;
+        }
+        if (cleanBank.endsWith(cleanDb)) {
+          String leftover = cleanBank.substring(0, cleanBank.length - cleanDb.length);
+          if (RegExp(r'^[a-z]+$').hasMatch(leftover)) return true;
+        }
+
         return cleanDb.contains(cleanBank);
       }
 
-      // 🌟 [특급 수술 2] 호수(Ho) 판독기: 엄격한 일치 + 핀셋 흡수 (104호 오탐지 롤백)
+      // 🌟 [특급 수술 2] 호수(Ho) 판독기: 엄격한 일치 및 영문 이름 흡수 방어!
       bool isSmartHoMatch(String dbHoStr, String bankHoStr, String fullRawDesc) {
         if (dbHoStr.isEmpty || bankHoStr.isEmpty) return false;
 
@@ -1393,11 +1357,9 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
         if (isBankNumeric && isDbNumeric) {
           int bN = int.tryParse(cleanBankHo) ?? 0;
           int dN = int.tryParse(cleanDbHo) ?? 0;
-          // 👇 🌟 대표님 지시대로 호수는 무조건 정확히 일치할 때만 통과!
           if (bN == dN) return true;
 
         } else {
-          // 👇 🌟 b111-1을 완벽히 흡수하는 새치기 방지 핀셋
           if (cleanBankHo.startsWith("$cleanDbHo-")) return true;
           if (cleanDbHo.startsWith("$cleanBankHo-")) return true;
         }
@@ -1410,7 +1372,16 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
               return true;
             }
           }
+          // 👇 🌟 [초정밀 안전 수술] 영문 이름 흡수 방어 (ex: 301yangyingzi -> 301)
+          if (RegExp(r'^[a-z]+$').hasMatch(leftover)) return true;
         }
+
+        // 👇 🌟 [초정밀 안전 수술] 영문 이름이 호수 앞에 붙은 경우 방어 (ex: yangyingzi301 -> 301)
+        if (cleanBankHo.endsWith(cleanDbHo)) {
+          String leftover = cleanBankHo.substring(0, cleanBankHo.length - cleanDbHo.length);
+          if (RegExp(r'^[a-z]+$').hasMatch(leftover)) return true;
+        }
+
         return false;
       }
 
@@ -1519,6 +1490,8 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
         // 이렇게 하면 '김정호'의 '호'는 앞에 숫자가 없으므로 절대 잘리지 않고 100% 살아남습니다!
         String bankNameCandidate = safeDesc.replaceAll(RegExp(r'\d+[동호]?'), '').replaceAll(RegExp(r'[^a-z가-힣]'), '');
 
+        String currentMatchedNameStr = "";
+
         // 🌟 [최종 무결점 고도화] 1글자 법인명 보호 + 역방향 축약형 완벽 인식
         void checkName(String rawName, String type) {
           if (rawName.isEmpty || rawName == "-") return;
@@ -1530,7 +1503,7 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
           subNames.add(preProcessedName.replaceAll(RegExp(r'[()\[\]<>{}_*?!]'), ''));
 
           // 👇 🌟 이름 세척기에도 찌꺼기(mb, pc 등)를 추가하여 이름이 엉뚱하게 변형되는 것을 막습니다.
-          String pureBankName = bankNameCandidate.replaceAll(RegExp(r'타행|모바일|인터넷|스마트|이체|건별|대량|지점|자동|nh|농협|국민|신한|우리|기업|하나|새마을|수협|신협|우체국|올원|뱅크|은행|cd|atm|폰|페이|pay|mb|pc|e|센터일괄'), '');
+          String pureBankName = bankNameCandidate.replaceAll(RegExp(r'타행|모바일|인터넷|스마트|이체|건별|대량|지점|자동|nh|농협|국민|신한|우리|기업|하나|새마을|수협|신협|우체국|올원|뱅크|은행|cd|atm|폰|페이|pay|mb|pc|e-|센터일괄|cm|관리비'), '');
 
           for (String sub in subNames) {
             String cleanName = sub.toLowerCase().replaceAll(RegExp(r'[^a-z가-힣]'), '');
@@ -1568,15 +1541,17 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
 
             if (isExact) {
               if (type == "비고") remarkNameHit = true; else exactNameHit = true;
-              matchedNameType = type; return;
+              matchedNameType = type;
+              currentMatchedNameStr = rawName; // 👇 🌟 [핵심 수술] 100% 완벽하게 매칭되었을 때도 잊지 않고 이름표를 챙깁니다!
+              return;
             }
 
             if (!exactNameHit && !remarkNameHit && (isDongHoMatch || isHoMatch || isJoinedMatch) && pureBankName.isNotEmpty) {
               double sim = _calculateSimilarity(cleanName, pureBankName);
-              if (sim >= 0.8) { partialNameHit = true; matchedNameType = "$type(오타-신뢰고)"; }
-              else if (sim >= 0.6) { typoNameHit = true; matchedNameType = "$type(오타-신뢰저)"; }
+              if (sim >= 0.8) { partialNameHit = true; matchedNameType = "$type(오타-신뢰고)"; currentMatchedNameStr = rawName; } // 🌟 [추가]
+              else if (sim >= 0.6) { typoNameHit = true; matchedNameType = "$type(오타-신뢰저)"; currentMatchedNameStr = rawName; } // 🌟 [추가]
               else if (!partialNameHit && pureBankName.length >= 2 && cleanName.contains(pureBankName)) {
-                partialNameHit = true; matchedNameType = "$type(일부)";
+                partialNameHit = true; matchedNameType = "$type(일부)"; currentMatchedNameStr = rawName; // 🌟 [추가]
               }
             }
           }
@@ -1598,6 +1573,7 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
         if (currentScore > highestScore) {
           highestScore = currentScore;
           bestMatchRow = row;
+          bestMatchedNameStr = currentMatchedNameStr.isNotEmpty ? currentMatchedNameStr : (row.owner.isNotEmpty ? row.owner : row.resident);
 
           if (currentScore >= 40) {
             if (isDongHoMatch || isHoMatch || isStrongJoinedMatch || exactNameHit || remarkNameHit || partialNameHit) {
@@ -1631,6 +1607,7 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
         targetRow.matchedBankName = tx.bankName;
         targetRow.matchedDate = tx.date;
         targetRow.matchedMemo = tx.memo;
+        targetRow.matchedName = bestMatchedNameStr;
         targetRow.matchedField = "$bestMatchReason(${highestScore}점)";
         targetRow.matchedTx = tx;
         tx.isUsed = true;
@@ -2051,7 +2028,32 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
         if (_residentSearch.isNotEmpty && !r.resident.contains(_residentSearch)) continue;
         wrappedList.add({'index': i, 'item': r});
       }
-      if (_sortAiMode == 1) { wrappedList.sort((a, b) { int scoreA = a['item'].matchedField.contains("수동") ? 1 : 0; int scoreB = b['item'].matchedField.contains("수동") ? 1 : 0; if (scoreA != scoreB) return scoreB.compareTo(scoreA); return (a['index'] as int).compareTo(b['index'] as int); }); } else if (_sortAiMode == 2) { wrappedList.sort((a, b) { ResidentRow rowA = a['item']; ResidentRow rowB = b['item']; if (!rowA.isMatched && rowB.isMatched) return 1; if (rowA.isMatched && !rowB.isMatched) return -1; if (!rowA.isMatched && !rowB.isMatched) return (a['index'] as int).compareTo(b['index'] as int); int dateCmp = rowA.matchedDate.compareTo(rowB.matchedDate); if (dateCmp != 0) return dateCmp; return (a['index'] as int).compareTo(b['index'] as int); }); } else if (_sortTypeMode != 0) { wrappedList.sort((a, b) { ResidentRow rowA = a['item']; ResidentRow rowB = b['item']; int scoreA = 0; int scoreB = 0; if (_sortTypeMode == 1) { if (rowA.type.contains("소유주")) scoreA = 1; if (rowB.type.contains("소유주")) scoreB = 1; } else if (_sortTypeMode == 2) { if (rowA.type.contains("임차인")) scoreA = 1; if (rowB.type.contains("임차인")) scoreB = 1; } if (scoreA != scoreB) return scoreB.compareTo(scoreA); return (a['index'] as int).compareTo(b['index'] as int); }); }
+      if (_sortAiMode == 1) {
+        // 수동 등록된 항목을 위로 올리는 정렬
+        wrappedList.sort((a, b) {
+          int scoreA = a['item'].matchedField.contains("수동") ? 1 : 0;
+          int scoreB = b['item'].matchedField.contains("수동") ? 1 : 0;
+          if (scoreA != scoreB) return scoreB.compareTo(scoreA);
+          return (a['index'] as int).compareTo(b['index'] as int);
+        });
+
+      } else if (_sortAiMode == 2) {
+        // 거래일 순서대로 정렬
+        wrappedList.sort((a, b) {
+          ResidentRow rowA = a['item'];
+          ResidentRow rowB = b['item'];
+
+          if (!rowA.isMatched && rowB.isMatched) return 1;
+          if (rowA.isMatched && !rowB.isMatched) return -1;
+          if (!rowA.isMatched && !rowB.isMatched) {
+            return (a['index'] as int).compareTo(b['index'] as int);
+          }
+
+          int dateCmp = rowA.matchedDate.compareTo(rowB.matchedDate);
+          if (dateCmp != 0) return dateCmp;
+          return (a['index'] as int).compareTo(b['index'] as int);
+        });
+      }
       displayList = wrappedList.map((e) => e['item']).toList();
     }
 
@@ -2679,31 +2681,45 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
     return false;
   }
 
-    // 🗂️ [자동이체 식별기]
-    bool _isAutoPaymentTx(BankTx tx) {
+  // 🗂️ [자동이체 식별기]
+  bool _isAutoPaymentTx(BankTx tx) {
     if (_isVirtualAccountTx(tx)) return false;
 
     // 🌟 상대은행명 검사 제외! 순수하게 내용(description)만 검사합니다.
     String normalizedDesc = "";
     for (int k = 0; k < tx.description.length; k++) {
-    int code = tx.description.codeUnitAt(k);
-    if (code >= 0xFF01 && code <= 0xFF5E) normalizedDesc += String.fromCharCode(code - 0xFEE0);
-    else if (code == 0x3000) normalizedDesc += " ";
-    else normalizedDesc += String.fromCharCode(code);
+      int code = tx.description.codeUnitAt(k);
+      if (code >= 0xFF01 && code <= 0xFF5E) normalizedDesc += String.fromCharCode(code - 0xFEE0);
+      else if (code == 0x3000) normalizedDesc += " ";
+      else normalizedDesc += String.fromCharCode(code);
     }
     String cleanDesc = normalizedDesc.toLowerCase().replaceAll(RegExp(r'\s+'), '');
 
-    // 👇 🌟 [자동이체 키워드 완료] 단어들 사이에 빠져있던 콤마(,)를 완벽하게 채워 넣었습니다!
-    List<String> pgKeywords = [
-    'pg', '자동', '카드', '결제', '페이', 'pay', '한강아이린관리',
-    '나이스', 'nice', 'kcp', '다날', 'danal', '카드납부',
-    '모빌리언스', '비대면', '펌뱅킹', '전자금융', '아파트관리비', '아파트', '관리비'
+    // 1️⃣ [절대 키워드] 무조건 자동이체(PG)로 빼야 하는 기계적인 단어들
+    List<String> strongPgKeywords = [
+      'pg', '자동', '카드', '결제', '페이', 'pay', '한강아이린관리',
+      '나이스', 'nice', 'kcp', '다날', 'danal', '카드납부',
+      '모빌리언스', '비대면', '펌뱅킹', '전자금융', '센터일괄'
     ];
-    for (String k in pgKeywords) {
-    if (cleanDesc.contains(k)) return true;
+    for (String k in strongPgKeywords) {
+      if (cleanDesc.contains(k)) return true;
     }
+
+    // 2️⃣ 🌟 [위험 키워드 스마트 필터] 대행사도 쓰고 주민도 쓰는 단어 핀셋 분류!
+    if (cleanDesc.contains('아파트관리') || cleanDesc.contains('관리비')) {
+      // 만약 텍스트 안에 '숫자'(예: 101, 202 등)가 단 하나라도 섞여 있다면?
+      // -> 이것은 99.9% 주민이 "101-202 관리비"라고 손으로 친 일반 입금입니다!
+      if (RegExp(r'\d').hasMatch(cleanDesc)) {
+        return false; // 일반 매칭 엔진으로 넘김
+      }
+
+      // 숫자가 하나도 없는 순수 "아파트관리비" 텍스트라면?
+      // -> 파크1차 데이터처럼 대행사가 보낸 300만 원짜리 대량 정산금일 확률 100%!
+      return true; // 자동이체(수납확인 탭)로 합격!
+    }
+
     return false;
-    }
+  }
 
   // =======================================================
   // 🌟 [수정 2] 요약 칩에 "수납 확인(PG)" 탭 추가 및 카운트 분리
