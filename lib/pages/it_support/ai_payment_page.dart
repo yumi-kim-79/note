@@ -2144,8 +2144,23 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
         if (_othersSearch.isNotEmpty && !r.others.any((name) => name.toLowerCase().contains(_othersSearch.toLowerCase()))) continue;
         if (_remarkSearch.isNotEmpty && !r.remark.toLowerCase().contains(_remarkSearch.toLowerCase())) continue;
 
-        // 🌟 [추가] AI 분석 결과 필터링
-        if (_aiSearch.isNotEmpty && !r.matchedField.toLowerCase().contains(_aiSearch.toLowerCase())) continue;
+        // 🌟 [최종 고도화] AI 분석 결과 '열' 전체 데이터 통합 검색 엔진
+        if (_aiSearch.isNotEmpty) {
+          // 사용자가 입력한 검색어 (소문자 변환 + 콤마 제거로 금액 검색 대응)
+          String search = _aiSearch.toLowerCase().replaceAll(',', '');
+
+          // 🧐 이 칸에 표시되는 모든 데이터를 하나의 '검색용 텍스트'로 합체!
+          String combinedText = (
+              r.matchedDate +              // 1. 날짜 (2024.03.19)
+                  r.matchedBankText +          // 2. 은행 적요 (아파트관리비...)
+                  r.matchedAmount.toString() + // 3. 금액 (50000)
+                  r.matchedField +             // 4. AI 판정 근거 (이름일치...)
+                  r.matchedName                // 5. AI가 최종 매칭한 이름
+          ).toLowerCase().replaceAll(',', ''); // 검색 대상에서도 콤마 제거
+
+          // 합쳐진 전체 텍스트 중에 검색어가 하나라도 없으면 이 행은 탈락!
+          if (!combinedText.contains(search)) continue;
+        }
 
         wrappedList.add({'index': i, 'item': r});
       }
