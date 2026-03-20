@@ -1228,6 +1228,15 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
         return '${pMap[match.group(1)!]}동';
       });
 
+      // 🌟 [지하 고도화 1] 다양한 지하 표기 b로 통일
+      // 숫자+지하 역순 표기 (111지하 → b111)
+      descNoSpace = descNoSpace.replaceAllMapped(
+        RegExp(r'(\d+)지하'),
+            (match) => 'b${match.group(1)}',
+      );
+      // 남은 지하 표기 제거 (지하111 → b111)
+      descNoSpace = descNoSpace.replaceAll('지하', 'b');
+
       // =======================================================
       // 🛡️ [수술 1] 1~100동 무한 번역기 (Safety Lock 최종 고도화)
       // 🌟 [수정] 한 글자(A~Z)일 때만 동으로 번역하고, CM/SK 등 건물명 약자는 보호합니다!
@@ -1260,6 +1269,11 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
           .replaceAll(RegExp(r'\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2}'), '')
           .replaceAll(RegExp(r'010[.\-]?\d{3,4}[.\-]?\d{4}'), '')
           .replaceAll(RegExp(r'\d{9,11}'), '');
+
+      // 🌟 [신규] 월/분기 숫자 찌꺼기 원천 차단
+      cleanDescNoSpace = cleanDescNoSpace
+          .replaceAll(RegExp(r'\d{1,2}월'), '')
+          .replaceAll(RegExp(r'\d분기'), '');
 
       // =======================================================
       // 🛡️ [수술 2] 영문+숫자 복합 추출기 (cm 오탐지 방지 및 하이픈 보존)
@@ -1407,6 +1421,18 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
           if (leftover != 'b' && RegExp(r'^[a-z]+$').hasMatch(leftover)) return true;
         }
 
+        // 🌟 [지하 고도화 2] b(지하) 포함 시 하이픈 제거 후 비교
+        // B1111 → b1111 → 하이픈 제거 → b1111
+        // DB b111-1 → 하이픈 제거 → b1111
+        // → 일치! ✅
+        if (cleanDbHo.contains('b') || cleanBankHo.contains('b')) {
+          String bankNoHyphen = cleanBankHo
+              .replaceAll(RegExp(r'[^a-z0-9]'), '');
+          String dbNoHyphen = cleanDbHo
+              .replaceAll(RegExp(r'[^a-z0-9]'), '');
+          if (bankNoHyphen == dbNoHyphen) return true;
+        }
+
         return false;
       }
 
@@ -1464,7 +1490,10 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
         } else if (hasExplicitHoOnly) {
           if (isSmartHoMatch(targetHoNum, exHo, descNoSpace)) {
             isHoMatch = true;
-            if (targetHoNum == exHo.toLowerCase().trim()) isPerfectHo = true;
+            if (targetHoNum == exHo.toLowerCase().trim()) {
+              isPerfectHo = true;
+              isSuperExactHo = true; // 🌟 1103호 명시적 입력 시 최고 등급 부여!
+            }
           }
         } else {
           if (rawNumbers.length == 1) {
@@ -1473,17 +1502,18 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
             String joinedTargetReverse = cleanHo + cleanDong;
 
             // 👇 🌟 [우선순위 0] 절대 불변의 100% 호수 단독 일치 (1202 == 1202호)
-            // 찰흙 합체(1+202=1202)의 오해보다 무조건 우선하도록 최고 권한 부여!
             if (numStr == targetHoNum.toLowerCase().trim()) {
               isSuperExactHo = true;
             }
             // 👇 🌟 [우선순위 1] 찰흙 합체 매칭 (1동 202호 -> 1202)
             else if (joinedTarget.isNotEmpty && numStr == joinedTarget) {
               isDongHoMatch = true;
-              if (targetHoNum == numStr.replaceAll(cleanDong, '').toLowerCase().trim()) isPerfectHo = true;
+              // 🚨 도둑질 방지 수술: 문자열 전체에서 1을 다 빼는게 아니라, 딱 '앞에 붙은 동'만 정확히 잘라냅니다!
+              if (numStr.startsWith(cleanDong) && targetHoNum == numStr.substring(cleanDong.length).toLowerCase().trim()) isPerfectHo = true;
             } else if (joinedTargetReverse.isNotEmpty && numStr == joinedTargetReverse) {
               isDongHoMatch = true;
-              if (targetHoNum == numStr.replaceAll(cleanDong, '').toLowerCase().trim()) isPerfectHo = true;
+              // 뒤에 붙은 동을 정확히 잘라냄
+              if (numStr.endsWith(cleanDong) && targetHoNum == numStr.substring(0, numStr.length - cleanDong.length).toLowerCase().trim()) isPerfectHo = true;
             }
             // 👇 🌟 [우선순위 2] 지하세대 단독 호수 완벽 방어 (b105 == b105)
             else if (isSmartHoMatch(targetHoNum, numStr, descNoSpace)) {
@@ -1519,13 +1549,17 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
         // [동·호수 점수 부여]
         // 👇 🌟 아래 점수 부여 블록을 이렇게 덮어씌워 주십시오!
         if (isSuperExactHo) {
-          currentScore += 65; // 찰흙합체(62점)를 무조건 박살내는 절대 권한 점수!
+          currentScore += 85; // 🌟 75->85점 상향! 찰흙합체 만점(80점)을 완벽하게 압살하는 절대 권력!
           hitReasons.add("호수(완벽일치)");
         }
         else if (isDongHoMatch) {
           currentScore += 60;
-          if (isPerfectHo) currentScore += 2;
-          hitReasons.add("동-호");
+          if (isPerfectHo) {
+            currentScore += 20; // 총 80점
+            hitReasons.add("동호(완벽일치)");
+          } else {
+            hitReasons.add("동-호");
+          }
         }
         else if (isHoMatch) {
           currentScore += 50;
@@ -1537,7 +1571,9 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
           else { currentScore += 20; hitReasons.add("동호단순유추"); }
         }
 
-        // 2. [이름 판단 로직]
+        // ====================================================================
+        // 2. [이름 판단 로직] (🌟 완벽하게 통합/정리된 클린 엔진)
+        // ====================================================================
         bool exactNameHit = false;
         bool remarkNameHit = false;
         bool partialNameHit = false;
@@ -1545,21 +1581,16 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
         String matchedNameType = "";
 
         String safeDesc = cleanDescNoSpace.replaceAll(RegExp(r'\d+원'), '');
-
-        // 👇 🌟 [대표님 천재적 아이디어 적용: 김정호 꼬리 자르기 방어]
         String bankNameCandidate = safeDesc.replaceAll(RegExp(r'\d+[동호]?'), '').replaceAll(RegExp(r'[^a-z가-힣]'), '');
-
         String currentMatchedNameStr = "";
 
-        // 🌟 [추가 수술] 스팸 필터 단어장
+        // 스팸 필터 적용
         String pureBankName = bankNameCandidate.replaceAll(RegExp(r'타행|모바일|인터넷|스마트|이체|건별|대량|지점|자동|nh|농협|국민|신한|우리|기업|하나|새마을|수협|신협|우체국|올원|뱅크|은행|cd|atm|폰|페이|pay|mb|pc|e-|센터일괄|cm|관리비'), '');
-
-        // 👇 🌟 [핵심 수술 1] '상대은행(보낸분)' 기둥도 영어 이름의 성지이므로 검색 대상에 긴급 추가합니다!
         String bankNameSpace = tx.bankName.toLowerCase().replaceAll(RegExp(r'[^a-z가-힣]'), '');
 
-        // 🌟 [최종 무결점 고도화] 영어 3글자 연속 매칭 룰 추가
+        // 🌟 [통합 이름 검사 함수]
         void checkName(String rawName, String type) {
-          if (rawName.isEmpty || rawName == "-") return;
+          if (rawName.isEmpty || rawName == "-" || exactNameHit || remarkNameHit) return;
 
           bool isCorporation = RegExp(r'\(주\)|주식회사|\(유\)|\(사\)|\(재\)').hasMatch(rawName);
           String preProcessedName = rawName.replaceAll(RegExp(r'\(주\)|주식회사|\(유\)|\(사\)|\(재\)'), '');
@@ -1572,54 +1603,37 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
             if (cleanName.isEmpty) continue;
 
             if (cleanName.length < 2) {
-              if (isCorporation) {
-                if (cleanName != pureBankName && !pureBankName.contains(cleanName)) continue;
-              } else {
-                if (cleanName != pureBankName && cleanName != bankNameCandidate) continue;
-              }
+              if (isCorporation) { if (cleanName != pureBankName && !pureBankName.contains(cleanName)) continue; }
+              else { if (cleanName != pureBankName && cleanName != bankNameCandidate) continue; }
             }
 
             bool isExact = false;
 
-            // 1. 기본 포함 검사 (거래내용 + 상대은행 모두 뒤집니다!)
+            // [내국인/기본 공통 검사]
             if (cleanName == bankNameCandidate || cleanName == pureBankName ||
                 descNoSpace.contains(cleanName) || bankNameSpace.contains(cleanName)) {
               isExact = true;
             }
-            else if (pureBankName.length >= 2 && pureBankName.contains(cleanName)) {
-              isExact = true;
-            }
-            // 2. 상대은행 데이터가 명부 이름의 일부를 포함할 때
-            else if (bankNameSpace.length >= 2 && bankNameSpace.contains(cleanName)) {
-              isExact = true;
-            }
-            else if (pureBankName.length >= 3 && cleanName.contains(pureBankName)) {
-              isExact = true;
-            }
-            else if (bankNameSpace.length >= 3 && cleanName.contains(bankNameSpace)) {
-              isExact = true;
-            }
+            else if (pureBankName.length >= 2 && pureBankName.contains(cleanName)) isExact = true;
+            else if (bankNameSpace.length >= 2 && bankNameSpace.contains(cleanName)) isExact = true;
+            else if (pureBankName.length >= 3 && cleanName.contains(pureBankName)) isExact = true;
+            else if (bankNameSpace.length >= 3 && cleanName.contains(bankNameSpace)) isExact = true;
             else if (pureBankName.length == 2 && cleanName.length == 3 && (cleanName.endsWith('동') || cleanName.endsWith('호')) && cleanName.startsWith(pureBankName)) {
               isExact = true;
             }
-            // 👇 🌟 [핵심 수술 완료] 대표님 아이디어 적용: 무조건 이름 덩어리의 '맨 앞 3글자(Prefix)'만 핀셋 매칭!
-            // (eng 같은 꼬리 글자 우연 일치로 인한 과오납 완벽 차단)
-            else if (RegExp(r'[a-z]').hasMatch(cleanName) && cleanName.length >= 3) {
-              String prefix = cleanName.substring(0, 3); // 앞에서 딱 3글자만 자릅니다!
 
-              // 은행 거래내용이나 상대은행 텍스트에 그 앞 3글자가 있으면 즉시 검거!
-              if (descNoSpace.contains(prefix) || bankNameSpace.contains(prefix)) {
-                isExact = true;
+            // [외국인 전용 초정밀 검사 (잘림 & 오타 방어)]
+            if (!isExact && RegExp(r'[a-z]').hasMatch(cleanName) && cleanName.length >= 4) {
+              String dbPrefix = cleanName.substring(0, 4); // 무조건 첫 4글자 추출
+              if (pureBankName.length >= 4 && pureBankName.contains(dbPrefix)) {
+                if (_calculateSimilarity(cleanName, pureBankName) >= 0.75) isExact = true;
+              }
+              else if (bankNameSpace.length >= 4 && bankNameSpace.contains(dbPrefix)) {
+                if (_calculateSimilarity(cleanName, bankNameSpace) >= 0.75) isExact = true;
               }
             }
-            else if (RegExp(r'[a-z]').hasMatch(cleanName) && RegExp(r'[a-z]').hasMatch(pureBankName)) {
-              int charIdx = 0;
-              for (int i = 0; i < cleanName.length && charIdx < pureBankName.length; i++) {
-                if (cleanName[i] == pureBankName[charIdx]) charIdx++;
-              }
-              if (charIdx == pureBankName.length && pureBankName.length >= 2) isExact = true;
-            }
 
+            // 🎯 완벽 일치 판정 시 즉시 VIP 티켓 발급
             if (isExact) {
               if (type == "비고") remarkNameHit = true; else exactNameHit = true;
               matchedNameType = type;
@@ -1627,9 +1641,10 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
               return;
             }
 
-            // 오타 및 부분 일치 로직 유지
+            // [오타 및 부분 일치 검사]
             if (!exactNameHit && !remarkNameHit && (isDongHoMatch || isHoMatch || isJoinedMatch) && pureBankName.isNotEmpty) {
               double sim = _calculateSimilarity(cleanName, pureBankName);
+              // 🚨 VIP 티켓 미발급 (부분 점수만)
               if (sim >= 0.8) { partialNameHit = true; matchedNameType = "$type(오타-신뢰고)"; currentMatchedNameStr = rawName; }
               else if (sim >= 0.6) { typoNameHit = true; matchedNameType = "$type(오타-신뢰저)"; currentMatchedNameStr = rawName; }
               else if (!partialNameHit && pureBankName.length >= 2 && cleanName.contains(pureBankName)) {
@@ -1639,30 +1654,146 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
           }
         }
 
-        //checkName(row.owner, "소유자"); //소유자 매칭제외 앞에 주석 처리로 못읽게 처리함.
+        // 🚀 순차적 이름 검사 실행
         if (!exactNameHit) checkName(row.resident, "입주자");
+        // 🌟 [신규] 공동명의 콤보 보너스
+        // 소유자 + 입주자/기타인원 이름이 둘 다 발견되면 +20점!
+        if (exactNameHit || partialNameHit) {
+          List<String> allNames = [
+            row.owner, row.resident, ...row.others
+          ].where((n) => n.trim().isNotEmpty && n != "-").toList();
+
+          int matchedNameCount = 0;
+          for (String name in allNames) {
+            String cleanName = name.toLowerCase()
+                .replaceAll(RegExp(r'\s+'), '')
+                .replaceAll(RegExp(r'[^a-z가-힣]'), '');
+            if (cleanName.length < 2) continue;
+
+            String superClean = (tx.description + tx.bankName)
+                .toLowerCase()
+                .replaceAll(RegExp(r'\s+'), '');
+
+            if (superClean.contains(cleanName)) {
+              matchedNameCount++;
+            }
+          }
+
+          // 2명 이상 이름이 발견되면 콤보 보너스!
+          if (matchedNameCount >= 2) {
+            currentScore += 20;
+            hitReasons.add("공동명의콤보(+20)");
+          }
+        }
         if (!exactNameHit) { for (String other in row.others) checkName(other, "기타인원"); }
         if (!exactNameHit && !remarkNameHit) checkName(row.remark, "비고");
 
-        // 👇 🌟 [에클라 새치기 방지] 이름이 완벽하게 맞았을 때, 남들에게 스틸당하지 않도록 점수를 55점(슈퍼 만점)으로 올립니다!
+        // 🌟 [최후의 보루] 띄어쓰기가 파괴된 외국인 이름 (W U H A I Y A) 및 혼합 찌꺼기 구출
+        if (!exactNameHit && !remarkNameHit) {
+          String superCleanBankText = (tx.description + tx.bankName).replaceAll(RegExp(r'\s+'), '').toLowerCase();
+          String descEngOnly = tx.description.replaceAll(RegExp(r'[^a-zA-Z]'), '').toLowerCase();
+          String bankNameEngOnly = tx.bankName.replaceAll(RegExp(r'[^a-zA-Z]'), '').toLowerCase();
+
+          for (String name in [row.resident, row.owner, row.remark]) {
+            if (name.trim().isEmpty || name == "-") continue;
+            String superCleanName = name.replaceAll(RegExp(r'\s+'), '').toLowerCase();
+            String dbEngOnly = superCleanName.replaceAll(RegExp(r'[^a-z]'), '');
+
+            bool isRescued = false;
+
+            // 1단계: 완벽 포함 (W U H A I Y A)
+            if (RegExp(r'[a-z]').hasMatch(superCleanName) && superCleanName.length >= 3 && superCleanBankText.contains(superCleanName)) {
+              isRescued = true;
+            }
+            // 2단계: 순수 영문 오타/잘림 방어 (장설화(ZHANGXUEHUA) 같은 오염 데이터 구출)
+            else if (dbEngOnly.length >= 4) {
+              String dbPrefix = dbEngOnly.substring(0, 4);
+              if (descEngOnly.length >= 4 && descEngOnly.contains(dbPrefix) && _calculateSimilarity(dbEngOnly, descEngOnly) >= 0.75) isRescued = true;
+              else if (bankNameEngOnly.length >= 4 && bankNameEngOnly.contains(dbPrefix) && _calculateSimilarity(dbEngOnly, bankNameEngOnly) >= 0.75) isRescued = true;
+            }
+
+            if (isRescued) {
+              exactNameHit = true; // 🌟 VIP 티켓 발급!
+              matchedNameType = "영문특수구출";
+              currentMatchedNameStr = name;
+              break;
+            }
+          }
+        }
+
+        // ====================================================================
+        // 💰 점수 결산 및 타세대 기재 감점 폭탄
+        // ====================================================================
         if (exactNameHit || remarkNameHit) { currentScore += 55; hitReasons.add(matchedNameType); }
         else if (partialNameHit) { currentScore += 40; hitReasons.add(matchedNameType); }
         else if (typoNameHit) { currentScore += 30; hitReasons.add(matchedNameType); }
 
         if (currentScore > 0 && isEmptyRecord) { currentScore -= 10; hitReasons.add("정보없음(-10)"); }
 
-        // 3. [최종 판정 로직]
+        // 👇 🌟 [중복 채점 폭탄 제거] 동호수 붙여쓰기 레이더 (1011508)
+        if (!isSuperExactHo && !isDongHoMatch && !isHoMatch) {
+          String superCleanBankTextForHo = (tx.description + tx.bankName).replaceAll(RegExp(r'\s+'), '').toLowerCase();
+          String squashedDongHo = "${targetDongNum.toLowerCase().trim()}${targetHoNum.toLowerCase().trim()}";
+
+          if (squashedDongHo.length >= 3 && superCleanBankTextForHo.contains(squashedDongHo)) {
+            // 🚨 오탐지 방어: 102204(2동 204호) 안에 2204(22동 4호)가 있다고 우기는 현상 방지!
+            int idx = superCleanBankTextForHo.indexOf(squashedDongHo);
+            bool isPartialNumber = false;
+
+            if (idx > 0 && RegExp(r'\d').hasMatch(superCleanBankTextForHo[idx - 1])) isPartialNumber = true;
+            if (idx + squashedDongHo.length < superCleanBankTextForHo.length && RegExp(r'\d').hasMatch(superCleanBankTextForHo[idx + squashedDongHo.length])) isPartialNumber = true;
+
+            if (!isPartialNumber) {
+              currentScore += 64; // 🌟 65->64점으로 하향! 진짜 1103호 단독(75점)에게 무조건 꿇어라!
+              hitReasons.add("동호수붙여쓰기(+64)");
+              isSuperExactHo = true;
+              isHoMatch = true;
+            }
+          }
+        }
+
+        // [타세대 오기재 감점 폭탄]
+        if (currentScore >= 20 && rawNumbers.isNotEmpty) {
+          bool isNumberMatchAny = false;
+          for (String numStr in rawNumbers) {
+            if (numStr == targetHoNum.toLowerCase().trim() || numStr == targetDongNum.toLowerCase().trim()) {
+              isNumberMatchAny = true;
+              break;
+            }
+          }
+          if (!isNumberMatchAny && !isHoMatch && !isSuperExactHo && !isDongHoMatch) {
+            currentScore -= 45;
+            hitReasons.add("타세대번호기재감점(-45)");
+          }
+        }
+
+        // ====================================================================
+        // 3. [최종 판정 로직] 문지기 (Gatekeeper)
+        // ====================================================================
         if (currentScore > highestScore) {
           highestScore = currentScore;
           bestMatchRow = row;
           bestMatchedNameStr = currentMatchedNameStr.isNotEmpty ? currentMatchedNameStr : (row.owner.isNotEmpty ? row.owner : row.resident);
 
           if (currentScore >= 40) {
-            // 👇 🌟 [핵심 수술] VIP 프리패스 명단 맨 앞에 'isSuperExactHo'를 당당하게 추가합니다!
-            if (isSuperExactHo || isDongHoMatch || isHoMatch || isStrongJoinedMatch || exactNameHit || remarkNameHit || partialNameHit) {
+            bool hasDongHoMatch = isSuperExactHo || isDongHoMatch ||
+                isHoMatch || isStrongJoinedMatch;
+            bool hasNameMatch = exactNameHit || remarkNameHit;
+            bool hasDongHoInfo = hasExplicitPattern || hasExplicitHoOnly;
+
+            // 동호수 정보가 있었는데 불일치한 경우
+            bool isDongHoWrong = hasDongHoInfo && !hasDongHoMatch;
+
+            if (isDongHoWrong && hasNameMatch) {
+              // 이름은 맞지만 동호수 틀림 → 확인필요
+              bestNeedsCheck = true;
+              bestMatchReason = "확인필요(동호수불일치+${hitReasons.join("+")})";
+            } else if (hasDongHoMatch || hasNameMatch) {
+              // 동호수 OR 이름 중 하나라도 일치 → 매칭완료
               bestNeedsCheck = false;
               bestMatchReason = hitReasons.join("+");
             } else {
+              // 나머지 → 확인필요
               bestNeedsCheck = true;
               bestMatchReason = "확인필요(${hitReasons.join("+")})";
             }
@@ -1671,11 +1802,131 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
             bestMatchReason = "확인필요(${hitReasons.join("+")})";
           }
         }
+      } // 👈 🌟 여기가 for(_residentList) 반복문이 닫히는 핵심 괄호입니다!
+
+      // 🌟 [신규] 동 없는 호수 단독 입금 안전망
+      if (hasExplicitHoOnly && bestMatchRow != null) {
+        int sameHoCount = _residentList.where((r) {
+          String cleanR = r.ho.trim().toLowerCase()
+              .replaceAll(RegExp(r'\.0+$'), '')
+              .replaceAll('지하', 'b')
+              .replaceAll(RegExp(r'[^a-z0-9\-]'), '');
+          return cleanR == exHo.toLowerCase().trim();
+        }).length;
+
+        if (sameHoCount >= 2) {
+          bool hasNameMatch =
+              bestMatchReason.contains("소유자") ||
+                  bestMatchReason.contains("입주자") ||
+                  bestMatchReason.contains("기타인원") ||
+                  bestMatchReason.contains("비고") ||
+                  bestMatchReason.contains("영문특수구출");
+
+          if (!hasNameMatch) {
+            bestNeedsCheck = true;
+            bestMatchReason =
+            "확인필요(동미확인-${sameHoCount}개동에 ${exHo}호 존재)";
+          }
+        }
+      }
+
+      // 🌟 [신규] 비슷한 이름으로 매칭됐는데 완벽이름 세대가 따로 있으면 교체
+      if (bestMatchRow != null && bestMatchReason.contains("오타")) {
+        String bankNameForCheck = tx.description.toLowerCase()
+            .replaceAll(RegExp(r'\s+'), '')
+            .replaceAll(RegExp(r'[^a-z가-힣]'), '');
+
+        ResidentRow? exactNameCandidate;
+
+        for (var r in _residentList) {
+          if (r == bestMatchRow) continue;
+          List<String> namesToCheck = [r.owner, r.resident, r.remark, ...r.others];
+
+          for (String name in namesToCheck) {
+            if (name.trim().isEmpty || name == "-") continue;
+            String cleanName = name.toLowerCase()
+                .replaceAll(RegExp(r'\s+'), '')
+                .replaceAll(RegExp(r'[^a-z가-힣]'), '');
+            if (cleanName.length < 2) continue;
+
+            bool isExact = cleanName == bankNameForCheck ||
+                bankNameForCheck.contains(cleanName) ||
+                (cleanName.length >= 4 && cleanName.contains(bankNameForCheck));
+
+            if (isExact) {
+              exactNameCandidate = r;
+              break;
+            }
+          }
+          if (exactNameCandidate != null) break;
+        }
+
+        if (exactNameCandidate != null) {
+          bestMatchRow = exactNameCandidate;
+          highestScore = highestScore + 30;
+          bestNeedsCheck = false;
+          bestMatchReason = "완벽이름우선(${bestMatchReason})";
+          bestMatchedNameStr = exactNameCandidate.resident.isNotEmpty
+              ? exactNameCandidate.resident
+              : exactNameCandidate.owner;
+        }
+      }
+
+      // ======================================================
+      // 🌟 [신규] 완벽한 동명이인 레이더
+      // 동호수 단서 없이 이름만으로 매칭됐는데
+      // 같은 이름을 가진 세대가 2명 이상이면 → 확인필요 강제!
+      // ======================================================
+      if (bestMatchRow != null) {
+        bool noDongHoInfo = !hasExplicitPattern && !hasExplicitHoOnly;
+        bool nameOnlyMatch =
+            (bestMatchReason.contains("소유자") ||
+                bestMatchReason.contains("입주자") ||
+                bestMatchReason.contains("기타인원") ||
+                bestMatchReason.contains("비고") ||
+                bestMatchReason.contains("영문특수구출")) &&
+                !bestMatchReason.contains("동-호") &&
+                !bestMatchReason.contains("호수") &&
+                !bestMatchReason.contains("동호");
+
+        if (noDongHoInfo && nameOnlyMatch) {
+          String matchedName = bestMatchedNameStr.toLowerCase()
+              .replaceAll(RegExp(r'\s+'), '')
+              .replaceAll(RegExp(r'[^a-z가-힣]'), '');
+
+          if (matchedName.length >= 2) {
+            int sameNameCount = _residentList.where((r) {
+              List<String> names = [r.owner, r.resident, ...r.others, r.remark];
+              return names.any((name) {
+                String cleanName = name.toLowerCase()
+                    .replaceAll(RegExp(r'\s+'), '')
+                    .replaceAll(RegExp(r'[^a-z가-힣]'), '');
+                return cleanName == matchedName;
+              });
+            }).length;
+
+            if (sameNameCount >= 2) {
+              bestNeedsCheck = true;
+              bestMatchReason =
+              "확인필요(동명이인${sameNameCount}명-${bestMatchReason})";
+            }
+          }
+        }
       }
 
       if (highestScore >= 30 && bestMatchRow != null) {
         ResidentRow targetRow = bestMatchRow;
         if (targetRow.isMatched) {
+          // 🌟 [신규] 중복 입금 의심 - 자동이체/가상계좌는 제외!
+          bool isSpecialTx = targetRow.matchedTx != null &&
+              (_isAutoPaymentTx(targetRow.matchedTx!) ||
+                  _isVirtualAccountTx(targetRow.matchedTx!));
+
+          if (!isSpecialTx && !targetRow.matchedField.contains("⚠️중복입금")) {
+            targetRow.matchedField = "⚠️중복입금의심 / ${targetRow.matchedField}";
+            targetRow.isCheckRequired = true;
+          }
+
           ResidentRow cloneRow = ResidentRow(dong: targetRow.dong, ho: targetRow.ho, owner: targetRow.owner, resident: targetRow.resident, others: List.from(targetRow.others), type: targetRow.type, remark: targetRow.remark);
           cloneRow.managerMemo = targetRow.managerMemo;
           int insertIdx = _residentList.indexOf(targetRow) + 1;
@@ -1691,7 +1942,29 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
         targetRow.matchedDate = tx.date;
         targetRow.matchedMemo = tx.memo;
         targetRow.matchedName = bestMatchedNameStr;
-        targetRow.matchedField = "$bestMatchReason(${highestScore}점)";
+
+        // 🌟 자동이체/가상계좌 여부 먼저 확인
+        bool isSpecialMatch = tx.txType == '수동PG' ||
+            tx.txType == '수동가상' ||
+            _isAutoPaymentTx(tx) ||
+            _isVirtualAccountTx(tx);
+
+        bool isDuplicate = !isSpecialMatch && (
+            bestMatchReason.contains("⚠️중복입금") ||
+                _residentList.where((r) =>
+                r.dong == targetRow.dong &&
+                    r.ho == targetRow.ho &&
+                    r.isMatched &&
+                    r != targetRow
+                ).isNotEmpty);
+
+        if (isDuplicate) {
+          targetRow.matchedField = "⚠️중복입금의심 / $bestMatchReason(${highestScore}점)";
+          targetRow.isCheckRequired = true;
+        } else {
+          targetRow.matchedField = "$bestMatchReason(${highestScore}점)";
+        }
+
         targetRow.matchedTx = tx;
         tx.isUsed = true;
       }
@@ -1709,9 +1982,18 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
         if (!row.matchedField.contains("[수동확정]")) {
           row.matchedField = "${row.matchedField} [수동확정]";
         }
+        if (row.matchedTx != null && (row.matchedTx!.txType == '수동PG' || row.matchedTx!.txType == '수동가상')) row.matchedTx!.txType = "";
       } else if (newStatus == "확인필요") {
         row.isMatched = true;
         row.isCheckRequired = true;
+        if (row.matchedTx != null && (row.matchedTx!.txType == '수동PG' || row.matchedTx!.txType == '수동가상')) row.matchedTx!.txType = "";
+      } else if (newStatus == "수동PG" || newStatus == "수동가상") {
+        // 👇 🌟 [신규] 담당자가 자동/가상으로 강제 이동시킨 경우
+        row.isMatched = true;
+        row.isCheckRequired = false;
+        row.matchedField = "[수동이동] 대행사 수납";
+        if (row.matchedTx != null) row.matchedTx!.txType = newStatus;
+        _showSnackBar(newStatus == "수동PG" ? "자동이체(PG) 탭으로 이동되었습니다." : "가상계좌 탭으로 이동되었습니다.");
       } else if (newStatus == "매칭대기") {
         if (row.matchedTx != null) { row.matchedTx!.isUsed = false; row.matchedTx = null; }
         int cloneCount = _residentList.where((r) => r.dong == row.dong && r.ho == row.ho).length;
@@ -2232,10 +2514,12 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                       Row(
                         // 🌟 자동이체, 가상계좌 모두 동/호수 헤더를 표시하도록 통일!
                         children: [
-                          _headerCell("동", 5), _headerCell("호", 6), _sortableDateHeader(10),
-                          _headerCell(_receiptSubTab == 0 ? "구분 (결제수단)" : "구분 (가상계좌)", 12),
-                          _headerCell("적요 (입금내역)", 22), _headerCell("입금액", 10),
-                          _headerCell("상대은행", 10), _headerCell("담당자 메모", 20)
+                          _headerCell("동", 5), _headerCell("호", 5), _sortableDateHeader(10),
+                          _headerCell(_receiptSubTab == 0 ? "구분 (결제수단)" : "구분 (가상계좌)", 10),
+                          _headerCell("적요 (입금내역)", 20), _headerCell("입금액", 9),
+                          _headerCell("상대은행", 9),
+                          _headerCell("상태(보내기)", 11), // 🌟 신규 추가된 헤더 공간
+                          _headerCell("담당자 메모", 16)
                         ],
                       )
                     ],
@@ -2449,28 +2733,109 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
           _editableCell("type", row.type, (v) => row.type = v, 6, isType: true),
           _editableCell("remark", row.remark, (v) => row.remark = v, 10),
 
-          Expanded(
+        Expanded(
             flex: 11,
-            child: (row.isMatched || row.isCheckRequired) ? Container(
-              height: 26, margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              decoration: BoxDecoration(color: Colors.white, border: Border.all(color: Colors.grey[300]!), borderRadius: BorderRadius.circular(4)),
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<String>(
-                  value: row.isCheckRequired ? "확인필요" : "매칭완료",
+            child: (row.isMatched || row.isCheckRequired) ? Builder(
+                builder: (context) {
+                  // 🌟 자동이체/가상계좌 여부 확인
+                  bool isAuto = row.matchedTx != null && _isAutoPaymentTx(row.matchedTx!);
+                  bool isVBank = row.matchedTx != null && _isVirtualAccountTx(row.matchedTx!);
+
+                  // 🌟 자동이체/가상계좌 → 드롭다운으로 보내기 가능
+                  if (isAuto || isVBank) {
+                    return Container(
+                      height: 26,
+                      margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      decoration: BoxDecoration(
+                        color: isVBank ? Colors.teal[50] : Colors.indigo[50],
+                        border: Border.all(
+                            color: isVBank ? Colors.teal[300]! : Colors.indigo[300]!
+                        ),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: isVBank ? "수동가상" : "수동PG",
+                          icon: Icon(
+                            Icons.arrow_drop_down,
+                            size: 16,
+                            color: isVBank ? Colors.teal[800] : Colors.indigo[800],
+                          ),
+                          isExpanded: true,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: isVBank ? Colors.teal[800] : Colors.indigo[800],
+                          ),
+                          items: const [
+                            DropdownMenuItem(value: "수동PG",
+                                child: Text("자동이체", style: TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold))),
+                            DropdownMenuItem(value: "수동가상",
+                                child: Text("가상계좌", style: TextStyle(color: Colors.teal, fontWeight: FontWeight.bold))),
+                            DropdownMenuItem(value: "매칭완료",
+                                child: Text("일반매칭으로", style: TextStyle(color: Colors.green))),
+                            DropdownMenuItem(value: "확인필요",
+                                child: Text("확인필요로", style: TextStyle(color: Colors.orange))),
+                            DropdownMenuItem(value: "매칭대기",
+                                child: Text("매칭취소", style: TextStyle(color: Colors.red))),
+                          ],
+                          onChanged: (val) {
+                            if (val == null) return;
+                            if (val == "수동PG" || val == "수동가상") {
+                              // 🌟 자동이체 ↔ 가상계좌 전환
+                              setState(() {
+                                if (row.matchedTx != null) {
+                                  row.matchedTx!.txType = val;
+                                }
+                              });
+                              _showSnackBar(val == "수동PG"
+                                  ? "자동이체 탭으로 변경되었습니다."
+                                  : "가상계좌 탭으로 변경되었습니다.");
+                            } else {
+                              // 🌟 일반매칭/확인필요/취소로 보내기
+                              _changeStatus(row, val == "매칭취소" ? "매칭대기" : val);
+                              if (val == "매칭완료" || val == "확인필요") {
+                                // 일반으로 보낼 때 txType 초기화
+                                if (row.matchedTx != null) {
+                                  row.matchedTx!.txType = "수동일반";
+                                }
+                                _showSnackBar(val == "매칭완료"
+                                    ? "일반 매칭완료로 이동되었습니다."
+                                    : "확인필요로 이동되었습니다.");
+                              }
+                            }
+                          },
+                        ),
+                      ),
+                    );
+                  }
+
+                  // 🌟 일반 매칭은 기존 드롭다운 그대로
+                  return Container(
+                    height: 26, margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    decoration: BoxDecoration(color: Colors.white, border: Border.all(color: Colors.grey[300]!), borderRadius: BorderRadius.circular(4)),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: row.isCheckRequired ? "확인필요" : "매칭완료",
                   icon: const Icon(Icons.arrow_drop_down, size: 16),
                   isExpanded: true,
                   style: const TextStyle(fontSize: 11, color: Colors.black87, fontWeight: FontWeight.bold),
                   items: const [
                     DropdownMenuItem(value: "매칭완료", child: Text("매칭완료", style: TextStyle(color: Colors.green))),
                     DropdownMenuItem(value: "확인필요", child: Text("확인필요", style: TextStyle(color: Colors.orange))),
+                    DropdownMenuItem(value: "수동PG", child: Text("자동이체(PG)로", style: TextStyle(color: Colors.indigo))),
+                    DropdownMenuItem(value: "수동가상", child: Text("가상계좌로", style: TextStyle(color: Colors.teal))),
                     DropdownMenuItem(value: "매칭대기", child: Text("매칭 취소", style: TextStyle(color: Colors.red))),
                   ],
-                  onChanged: (val) { if (val != null) _changeStatus(row, val == "매칭 취소" ? "매칭대기" : val); },
-                ),
-              ),
+                        onChanged: (val) { if (val != null) _changeStatus(row, val == "매칭 취소" ? "매칭대기" : val); },
+                      ),
+                    ),
+                  );
+                }
             ) : const SizedBox(),
-          ),
+        ),
 
           Expanded(
             flex: 20,
@@ -2559,7 +2924,6 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
             child: InlineEditableText(
               text: value,
               hintText: hint,
-              // 🚨 여기서 화면 새로고침 지시!
               onChanged: (v) {
                 setState(() {
                   onChanged(v);
@@ -2570,6 +2934,37 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
           )
       );
     }
+
+    // =======================================================
+    // 🌟 [최종 고도화] 소유자 자동 스캔 레이더 (다주택자 완벽 지원!)
+    // =======================================================
+    bool isOwnerRegistered = false;
+    String matchedOwnerInfo = "";
+    String cleanBankText = (tx.description + tx.bankName).replaceAll(RegExp(r'\s+'), '');
+
+    List<String> ownedUnits = []; // 🌟 소유한 모든 호수를 담을 바구니
+
+    for (var r in _residentList) {
+      if (r.owner.trim().isEmpty || r.owner == "-") continue;
+      String cleanOwner = r.owner.replaceAll(RegExp(r'\s+'), '');
+
+      // 이름이 2글자 이상이고, 은행 내역에 소유자 이름이 포함되어 있다면?
+      if (cleanOwner.length >= 2 && cleanBankText.contains(cleanOwner)) {
+        ownedUnits.add("${r.dong}동 ${r.ho}호"); // 찾을 때마다 바구니에 담습니다!
+      }
+    }
+
+    // 바구니에 담긴 데이터가 있다면 뱃지 생성!
+    if (ownedUnits.isNotEmpty) {
+      isOwnerRegistered = true;
+      if (ownedUnits.length == 1) {
+        matchedOwnerInfo = ownedUnits.first; // 1채면 그냥 보여줌
+      } else {
+        // 🌟 여러 채를 가지고 있다면 "ㅇㅇ동 ㅇㅇ호 외 N세대" 형태로 깔끔하게 축약!
+        matchedOwnerInfo = "${ownedUnits.first} 외 ${ownedUnits.length - 1}세대";
+      }
+    }
+    // =======================================================
 
     return Container(
       decoration: BoxDecoration(
@@ -2602,16 +2997,28 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                     DropdownMenuItem(value: "미확인", child: Text("미확인", style: TextStyle(color: Colors.red))),
                     DropdownMenuItem(value: "확인필요", child: Text("확인필요(보내기)", style: TextStyle(color: Colors.orange))),
                     DropdownMenuItem(value: "매칭완료", child: Text("매칭완료(보내기)", style: TextStyle(color: Colors.green))),
+                    DropdownMenuItem(value: "수동PG", child: Text("자동이체(PG)로", style: TextStyle(color: Colors.indigo))),
+                    DropdownMenuItem(value: "수동가상", child: Text("가상계좌로", style: TextStyle(color: Colors.teal))),
                   ],
                   onChanged: (val) {
                     if (val == "매칭완료") _manualMatchFromBank(tx, isCheckRequired: false);
                     else if (val == "확인필요") _manualMatchFromBank(tx, isCheckRequired: true);
+                    else if (val == "수동PG" || val == "수동가상") {
+                      setState(() {
+                        tx.txType = val!; // 무적 패스 태그 부착
+                        if (tx.inputDong.trim().isNotEmpty && tx.inputHo.trim().isNotEmpty) {
+                          _manualMatchFromBank(tx, isCheckRequired: false);
+                        }
+                      });
+                      _showSnackBar(val == "수동PG" ? "자동이체(PG) 탭으로 이동되었습니다." : "가상계좌 탭으로 이동되었습니다.");
+                    }
                   },
                 ),
               ),
             ),
           ),
 
+          // 👇 🌟 [UI 변경] 소유자 뱃지가 달리는 핵심 영역
           Expanded(
             flex: 20,
             child: Padding(
@@ -2626,6 +3033,23 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                     style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 11),
                     overflow: TextOverflow.ellipsis,
                   ),
+
+                  // 🎯 [여기입니다!] 소유자가 맞다면 예쁜 파란색 뱃지를 달아줍니다.
+                  if (isOwnerRegistered)
+                    Container(
+                      margin: const EdgeInsets.only(top: 3),
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                          color: Colors.blue[50],
+                          border: Border.all(color: Colors.blue[200]!),
+                          borderRadius: BorderRadius.circular(4)
+                      ),
+                      child: Text(
+                        "💡 (소유자 등록 : $matchedOwnerInfo)",
+                        style: TextStyle(fontSize: 10, color: Colors.blue[800], fontWeight: FontWeight.bold),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    )
                 ],
               ),
             ),
@@ -2685,7 +3109,7 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
   }
 
   // =======================================================
-  // 🌟 [수정] "수납 확인" 전용 UI (가상계좌 시 동/호 렌더링 지원)
+  // 🌟 [수정] "수납 확인" 전용 UI (가상계좌 시 동/호 렌더링 지원 및 상태보내기 추가)
   // =======================================================
   Widget _buildAutoPaidRow(BankTx tx, int index, bool isVBank) {
     String dong = "-";
@@ -2711,17 +3135,75 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
       ),
       child: Row(
         children: [
-          // 🌟 가상계좌/자동이체 모두 동/호수 열 렌더링 (매칭 안 된 건 - 로 표시됨)
           Expanded(flex: 5, child: Container(alignment: Alignment.center, child: Text(dong, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)))),
-          Expanded(flex: 6, child: Container(alignment: Alignment.center, child: Text(ho, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)))),
+          Expanded(flex: 5, child: Container(alignment: Alignment.center, child: Text(ho, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)))),
 
           Expanded(flex: 10, child: Container(padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 4), alignment: Alignment.center, child: Text(tx.date, textAlign: TextAlign.center, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.black87)))),
-          Expanded(flex: 12, child: Container(alignment: Alignment.center, child: Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), decoration: BoxDecoration(color: isVBank ? Colors.teal : Colors.indigo, borderRadius: BorderRadius.circular(4)), child: Text(isVBank ? "가상계좌" : "자동납부(PG)", textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold))))),
-          Expanded(flex: 22, child: Container(padding: const EdgeInsets.symmetric(horizontal: 4), alignment: Alignment.center, child: Text(tx.description, textAlign: TextAlign.center, style: TextStyle(color: isVBank ? Colors.teal[900] : Colors.indigo[900], fontWeight: FontWeight.bold, fontSize: 13), overflow: TextOverflow.ellipsis))),
-          Expanded(flex: 10, child: Container(padding: const EdgeInsets.symmetric(horizontal: 4), alignment: Alignment.center, child: Text("${_formatCurrency(tx.amount)}원", textAlign: TextAlign.center, style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 13)))),
-          Expanded(flex: 10, child: Container(padding: const EdgeInsets.symmetric(horizontal: 4), alignment: Alignment.center, child: Text(tx.bankName.isEmpty ? "-" : tx.bankName, textAlign: TextAlign.center, style: const TextStyle(color: Colors.grey, fontSize: 12)))),
+          Expanded(flex: 10, child: Container(alignment: Alignment.center, child: Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), decoration: BoxDecoration(color: isVBank ? Colors.teal : Colors.indigo, borderRadius: BorderRadius.circular(4)), child: Text(isVBank ? "가상계좌" : "자동납부(PG)", textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold))))),
+          Expanded(flex: 20, child: Container(padding: const EdgeInsets.symmetric(horizontal: 4), alignment: Alignment.center, child: Text(tx.description, textAlign: TextAlign.center, style: TextStyle(color: isVBank ? Colors.teal[900] : Colors.indigo[900], fontWeight: FontWeight.bold, fontSize: 13), overflow: TextOverflow.ellipsis))),
+          Expanded(flex: 9, child: Container(padding: const EdgeInsets.symmetric(horizontal: 4), alignment: Alignment.center, child: Text("${_formatCurrency(tx.amount)}원", textAlign: TextAlign.center, style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 13)))),
+          Expanded(flex: 9, child: Container(padding: const EdgeInsets.symmetric(horizontal: 4), alignment: Alignment.center, child: Text(tx.bankName.isEmpty ? "-" : tx.bankName, textAlign: TextAlign.center, style: const TextStyle(color: Colors.grey, fontSize: 12)))),
 
-          Expanded(flex: 20, child: InkWell(
+          // 👇 🌟 신규: 상태(보내기) 드롭다운 (양방향 데이터 컨트롤)
+          Expanded(
+            flex: 11,
+            child: Container(
+              height: 26, margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              decoration: BoxDecoration(color: Colors.white, border: Border.all(color: Colors.blue[300]!), borderRadius: BorderRadius.circular(4)),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  value: isVBank ? "수동가상" : "수동PG",
+                  icon: const Icon(Icons.arrow_drop_down, size: 16),
+                  isExpanded: true,
+                  style: const TextStyle(fontSize: 11, color: Colors.black87, fontWeight: FontWeight.bold),
+                  items: const [
+                    DropdownMenuItem(value: "수동PG", child: Text("자동이체로", style: TextStyle(color: Colors.indigo))),
+                    DropdownMenuItem(value: "수동가상", child: Text("가상계좌로", style: TextStyle(color: Colors.teal))),
+                    DropdownMenuItem(value: "수동일반", child: Text("일반 매칭으로", style: TextStyle(color: Colors.green))),
+                    DropdownMenuItem(value: "수동미확인", child: Text("미확인으로", style: TextStyle(color: Colors.red))),
+                  ],
+                  onChanged: (val) {
+                    if (val == null) return;
+                    setState(() {
+                      if (val == "수동PG" || val == "수동가상") {
+                        tx.txType = val;
+                        _showSnackBar(val == "수동PG" ? "자동이체(PG)로 변경되었습니다." : "가상계좌로 변경되었습니다.");
+                      } else if (val == "수동일반") {
+                        // 💡 일반 매칭으로 던질 때는 동/호수가 연결되어 있는지 검사!
+                        if (tx.isUsed) {
+                          tx.txType = "수동일반";
+                          try {
+                            var matchedRow = _residentList.firstWhere((r) => r.matchedTx == tx);
+                            matchedRow.isCheckRequired = false;
+                            matchedRow.matchedField = "[수동이동] 일반 수납확정";
+                          } catch(e) {}
+                          _showSnackBar("일반 매칭완료 탭으로 이동되었습니다.");
+                        } else {
+                          // 동호수가 없으면 일반 매칭을 할 수 없으므로 빨간 탭(미확인)으로 던짐
+                          tx.txType = "수동미확인";
+                          _showSnackBar("매칭된 세대가 없어 미확인 탭으로 이동합니다.", isError: true);
+                        }
+                      } else if (val == "수동미확인") {
+                        tx.txType = "수동미확인";
+                        if (tx.isUsed) {
+                          try {
+                            var matchedRow = _residentList.firstWhere((r) => r.matchedTx == tx);
+                            matchedRow.isMatched = false;
+                            matchedRow.matchedTx = null;
+                            tx.isUsed = false;
+                          } catch(e) {}
+                        }
+                        _showSnackBar("미확인 입금 탭으로 이동되었습니다.");
+                      }
+                    });
+                  },
+                ),
+              ),
+            ),
+          ),
+
+          Expanded(flex: 16, child: InkWell(
             onTap: () {
               TextEditingController ctrl = TextEditingController(text: tx.managerMemo);
               showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text("수납 메모", style: TextStyle(fontWeight: FontWeight.bold)), content: TextField(controller: ctrl, maxLines: 3, decoration: const InputDecoration(hintText: "특이사항 입력", border: OutlineInputBorder())), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("취소")), ElevatedButton(onPressed: () { String newText = ctrl.text.trim(); if (newText.isNotEmpty && newText != tx.managerMemo) { final now = DateTime.now(); newText = "[${now.month}/${now.day} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}] $newText"; } setState(() => tx.managerMemo = newText); Navigator.pop(ctx); }, child: const Text("저장"))]));
@@ -2769,6 +3251,7 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
     );
   }
 
+  // 🌟 [수정] 모든 검색창에 '한 번에 지우기(X)' 버튼을 장착합니다.
   Widget _searchHeaderCell(String title, int flex, TextEditingController ctrl, Function(String) onChanged) {
     return Expanded(
       flex: flex,
@@ -2776,8 +3259,35 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
         children: [
           Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
           Container(
-            margin: const EdgeInsets.only(top: 4, left: 6, right: 6), height: 28,
-            child: TextField(controller: ctrl, onChanged: onChanged, style: const TextStyle(fontSize: 11), decoration: InputDecoration(hintText: "검색", prefixIcon: const Icon(Icons.search, size: 12), contentPadding: EdgeInsets.zero, border: OutlineInputBorder(borderRadius: BorderRadius.circular(4)), fillColor: Colors.white, filled: true)),
+            margin: const EdgeInsets.only(top: 4, left: 6, right: 6),
+            height: 28,
+            child: TextField(
+              controller: ctrl,
+              onChanged: onChanged,
+              style: const TextStyle(fontSize: 11),
+              decoration: InputDecoration(
+                hintText: "검색",
+                prefixIcon: const Icon(Icons.search, size: 12),
+
+                // 🎯 [핵심] 글자가 있을 때만 오른쪽에 X 버튼을 띄웁니다.
+                suffixIcon: ctrl.text.isNotEmpty
+                    ? IconButton(
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  icon: const Icon(Icons.cancel, size: 14, color: Colors.grey),
+                  onPressed: () {
+                    ctrl.clear(); // 1. 입력창 글자 지우기
+                    onChanged(""); // 2. 검색어 변수 초기화 및 화면 새로고침
+                  },
+                )
+                    : null,
+
+                contentPadding: EdgeInsets.zero,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(4)),
+                fillColor: Colors.white,
+                filled: true,
+              ),
+            ),
           ),
         ],
       ),
@@ -2811,21 +3321,18 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
 
   // 🗂️ [가상계좌 식별기]
   bool _isVirtualAccountTx(BankTx tx) {
+    if (tx.txType == '수동가상') return true;
+    // 🌟 일반/미확인으로 수동 이동된 데이터는 가상계좌에서 즉시 방출!
+    if (tx.txType == '수동PG' || tx.txType == '수동일반' || tx.txType == '수동미확인') return false;
+
     String desc = tx.description.toLowerCase().replaceAll(RegExp(r'\s+'), '');
     String type = tx.txType.toLowerCase().replaceAll(RegExp(r'\s+'), '');
     String cms = tx.cmsCode.replaceAll(RegExp(r'[^0-9]'), '');
 
-    // 1. 거래구분 또는 내용에 '제휴' 나 '가상'이 있으면 무조건 가상계좌!
     if (type.contains('가상') || type.contains('제휴')) return true;
     if (desc.contains('가상') || desc.contains('제휴')) return true;
-
-    // 2. 아파트아이 전용
     if (desc.contains('아파트아이')) return true;
-
-    // 3. '거래일0225' 등 숫자만 붙은 오류 방어막
     if (RegExp(r'(거래|거래일|거래일자)[:\s]*\d{1,4}[-./]?\d{1,4}').hasMatch(desc)) return true;
-
-    // 4. [대표님 추가요청] CMS코드란에 연속된 숫자 9자리 이상이 있으면 무조건 가상계좌!
     if (cms.length >= 9) return true;
 
     return false;
@@ -2833,6 +3340,10 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
 
   // 🗂️ [자동이체 식별기] (스마트 분리망 적용)
   bool _isAutoPaymentTx(BankTx tx) {
+    if (tx.txType == '수동PG') return true;
+    // 🌟 일반/미확인으로 수동 이동된 데이터는 PG에서 즉시 방출!
+    if (tx.txType == '수동가상' || tx.txType == '수동일반' || tx.txType == '수동미확인') return false;
+
     if (_isVirtualAccountTx(tx)) return false;
 
     String normalizedDesc = "";
@@ -2845,51 +3356,42 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
     String cleanDesc = normalizedDesc.toLowerCase().replaceAll(RegExp(r'\s+'), '');
 
     // 0️⃣ [핀테크 수동송금 예외처리] - 최우선 방어막
-    // 입주민이 수동으로 보낸 카카오페이, 토스 등은 PG사 탭으로 빠지지 않게 무조건 보호합니다.
     if (cleanDesc.contains('카카오페이') || cleanDesc.contains('토스') || cleanDesc.contains('toss') || cleanDesc.contains('네이버페이')) {
       return false;
     }
 
-    // 1️⃣ [확실한 대행사 키워드] - 이지스엔터프라이즈 등 복구!
+    // 1️⃣ [확실한 대행사 키워드]
     List<String> strongPgKeywords = [
       '이지스', '엔터프라이즈', 'pg', '나이스', 'nice', 'kcp', '다날', 'danal',
-      '모빌리언스', '펌뱅킹', '전자금융', '센터일괄', '한강아이린관리', '세틀뱅크', '효성fms',
-      '아파트관리비',
+      '모빌리언스', '펌뱅킹', '센터일괄', '한강아이린관리', '세틀뱅크', '효성fms',
+      '아파트관리비', '자동이체', '월분관리비'
     ];
     for (String k in strongPgKeywords) {
       if (cleanDesc.contains(k)) return true;
     }
 
-    // 2️⃣ [카드결제 특수 패턴] - "카드3-6" 등 아파트 대행사 고유 포맷 완벽 흡수
+    // 2️⃣ [카드결제 특수 패턴]
     if (RegExp(r'카드\d+-\d+').hasMatch(cleanDesc)) {
       return true;
     }
 
-    // 3️⃣ [조건부 키워드] - 대행사도 쓰고 주민도 쓰는 단어
+    // 3️⃣ [조건부 키워드]
     if (cleanDesc.contains('자동') || cleanDesc.contains('결제') || cleanDesc.contains('카드')) {
-      // 텍스트 안에 숫자가 단 하나도 없다면, 대행사 대량 정산금으로 간주 (예: 우리카드결제)
       if (!RegExp(r'\d').hasMatch(cleanDesc)) return true;
     }
 
     // 4️⃣ [관리비 전용 텍스트 필터 + 🌟 송금자명(상대은행) 핀셋 방어 로직]
     if (cleanDesc.contains('아파트관리') || cleanDesc.contains('관리비')) {
       if (!RegExp(r'\d').hasMatch(cleanDesc)) { // 숫자가 없는 경우 (대행사 의심)
-
-        // 🌟 [핵심 수술] 상대은행(보낸분) 텍스트를 소문자로 변환하여 싹 스캔합니다.
         String bankNameLower = tx.bankName.toLowerCase().replaceAll(RegExp(r'\s+'), '');
 
-        // 1. 상대은행에 법인/대행사 냄새가 나는 단어가 있으면 얄짤없이 대행사(true)로 보냄
         if (RegExp(r'주식회사|\(주\)|\(유\)|\(사\)|페이|pay|정산|엔터프라이즈|관리|센터|이체|kcp|nice|나이스|다날|danal|모빌리언스|세틀뱅크|효성|fms|pg|결제').hasMatch(bankNameLower)) {
           return true;
         }
 
-        // 2. 👇 [제한 해제!] 보낸 사람 이름이 한글 또는 영어 알파벳으로 이루어져 있다면 길이에 상관없이 사람으로 인정!
-        // -> 한국인(홍길동), 한글 긴 이름(알렉산드르), 외국인 영어 이름(johndoe) 모두 통과!
         if (RegExp(r'^[가-힣a-z]+$').hasMatch(bankNameLower)) {
-          return false; // 🟢 대행사 탭으로 가지 않고 '일반 매칭 엔진'으로 무사히 넘어갑니다!
+          return false; // 🟢 사람으로 인정!
         }
-
-        // 그 외의 경우는 기존대로 대행사 대량 입금으로 간주
         return true;
       }
     }

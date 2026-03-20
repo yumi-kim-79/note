@@ -753,7 +753,7 @@ class _SalesInquiryListPageState extends State<SalesInquiryListPage> {
 
             // 👇 🌟 [수술 3-2] 모바일에서도 가독성을 위해 접수일과 접수인을 별도 라인으로 분리하고, 직책/이름을 줄바꿈 처리했습니다.
             _buildMobileInfoRow(Icons.calendar_today, "접수일", dateStr),
-            _buildMobileInfoRow(Icons.assignment_ind, "접수인", (data['authorName'] ?? '담당자 미정').replaceFirst(' ', '\n')),
+            _buildMobileInfoRow(Icons.assignment_ind, "접수인", data['authorName'] ?? '담당자 미정'),
             _buildMobileInfoRow(Icons.location_on, "주소", data['address'] ?? ''),
             _buildMobileInfoRow(Icons.person, "문의자", "${data['callerName'] ?? ''}$rankStr  |  ${data['callerPhone'] ?? ''}"),
             if (memo.isNotEmpty) _buildMobileInfoRow(Icons.edit_note, "메모", memo.replaceAll('\n', ' '), maxLines: 2),
