@@ -1602,14 +1602,29 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
             else if (pureBankName.length == 2 && cleanName.length == 3 && (cleanName.endsWith('동') || cleanName.endsWith('호')) && cleanName.startsWith(pureBankName)) {
               isExact = true;
             }
-            // 👇 🌟 [핵심 수술 완료] 대표님 아이디어 적용: 무조건 이름 덩어리의 '맨 앞 3글자(Prefix)'만 핀셋 매칭!
-            // (eng 같은 꼬리 글자 우연 일치로 인한 과오납 완벽 차단)
-            else if (RegExp(r'[a-z]').hasMatch(cleanName) && cleanName.length >= 3) {
-              String prefix = cleanName.substring(0, 3); // 앞에서 딱 3글자만 자릅니다!
-
-              // 은행 거래내용이나 상대은행 텍스트에 그 앞 3글자가 있으면 즉시 검거!
-              if (descNoSpace.contains(prefix) || bankNameSpace.contains(prefix)) {
+            // 👇 🌟 [초정밀 타격] 외국인 이름 충돌 방어 및 '잘린 이름 + 오타' 구출 로직 최종판!
+            else if (RegExp(r'[a-z]').hasMatch(cleanName)) {
+              // 1. 풀네임 완벽 일치 검사 (적요 또는 상대은행)
+              if (descNoSpace.contains(cleanName) || bankNameSpace.contains(cleanName)) {
                 isExact = true;
+              }
+              else if (cleanName.length >= 4) {
+                // 2. 이름이 뒤에서 '잘려서' 들어온 경우 완벽 방어
+                if (pureBankName.length >= 4 && (cleanName.startsWith(pureBankName) || pureBankName.startsWith(cleanName))) {
+                  isExact = true;
+                }
+                else if (bankNameSpace.length >= 4 && (cleanName.startsWith(bankNameSpace) || bankNameSpace.startsWith(cleanName))) {
+                  isExact = true;
+                }
+                // 3. 🌟 [대표님 지시] 중간에 '오타'가 난 경우 방어 (앞 4글자가 같고, 전체 유사도가 75% 이상이면 만점 인정!)
+                else {
+                  if (pureBankName.length >= 4 && cleanName.substring(0, 4) == pureBankName.substring(0, 4)) {
+                    if (_calculateSimilarity(cleanName, pureBankName) >= 0.75) isExact = true;
+                  }
+                  if (bankNameSpace.length >= 4 && cleanName.substring(0, 4) == bankNameSpace.substring(0, 4)) {
+                    if (_calculateSimilarity(cleanName, bankNameSpace) >= 0.75) isExact = true;
+                  }
+                }
               }
             }
             else if (RegExp(r'[a-z]').hasMatch(cleanName) && RegExp(r'[a-z]').hasMatch(pureBankName)) {
@@ -1649,7 +1664,93 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
         else if (partialNameHit) { currentScore += 40; hitReasons.add(matchedNameType); }
         else if (typoNameHit) { currentScore += 30; hitReasons.add(matchedNameType); }
 
+        // (기존 코드) 정보 없는 세대 감점 처리
         if (currentScore > 0 && isEmptyRecord) { currentScore -= 10; hitReasons.add("정보없음(-10)"); }
+
+        // ====================================================================
+        // 👇 🌟 [핀셋 고도화 2탄] 외국인 공백/오타 파괴 특수 수색대! (최종 진화)
+        // ====================================================================
+        String superCleanBankText = (tx.description + tx.bankName).replaceAll(RegExp(r'\s+'), '').toLowerCase();
+
+        // 🌟 순수 영어만 추출 (적요와 상대은행을 분리해서 검사하여 NH농협 등 오염 방지)
+        String descEngOnly = tx.description.replaceAll(RegExp(r'[^a-zA-Z]'), '').toLowerCase();
+        String bankNameEngOnly = tx.bankName.replaceAll(RegExp(r'[^a-zA-Z]'), '').toLowerCase();
+
+        // 1. [영문 공백 파괴 레이더] 비고, 입주자, 소유자 전수 검사
+        List<String> targetNames = [row.resident, row.owner, row.remark];
+        for (String name in targetNames) {
+          if (name.trim().isEmpty || name == "-") continue;
+
+          String superCleanName = name.replaceAll(RegExp(r'\s+'), '').toLowerCase();
+          String dbEngOnly = superCleanName.replaceAll(RegExp(r'[^a-z]'), ''); // 🌟 장부에서 순수 영어만 쏙 빼냄!
+
+          // 1단계: (기존) W U H A I Y A 완벽 포함 검사
+          if (RegExp(r'[a-z]').hasMatch(superCleanName) && superCleanName.length >= 3) {
+            if (superCleanBankText.contains(superCleanName)) {
+              if (currentScore < 50) {
+                currentScore += 55;
+                hitReasons.add("영문압축일치(+55)");
+                if (currentMatchedNameStr.isEmpty) currentMatchedNameStr = name;
+                exactNameHit = true; // 🌟 [추가 1] 문지기 통과용 VIP 프리패스 티켓 발급!
+              }
+              break;
+            }
+          }
+
+          // 2단계: 🌟 [최종 구출] 순수 영어 오타/잘림 검사 (장설화(ZHANGXUEHUA) 완벽 방어)
+          if (dbEngOnly.length >= 4) {
+            bool isRescued = false;
+            String dbPrefix = dbEngOnly.substring(0, 4); // 한글 다 떼고 무조건 영문 첫 4글자!
+
+            // [주머니 1] 적요 검사 (앞부분 일치 -> 포함 여부로 범위 확대)
+            if (descEngOnly.length >= 4 && descEngOnly.contains(dbPrefix)) {
+              if (_calculateSimilarity(dbEngOnly, descEngOnly) >= 0.75) isRescued = true;
+            }
+            // [주머니 2] 상대은행 검사 (NH농협 등 영어 찌꺼기 혼합 방어)
+            else if (bankNameEngOnly.length >= 4 && bankNameEngOnly.contains(dbPrefix)) {
+              if (_calculateSimilarity(dbEngOnly, bankNameEngOnly) >= 0.75) isRescued = true;
+            }
+
+            if (isRescued) {
+              if (currentScore < 50) {
+                currentScore += 55;
+                hitReasons.add("영문오타구출(+55)");
+                if (currentMatchedNameStr.isEmpty) currentMatchedNameStr = name;
+                exactNameHit = true; // 🌟 [추가 2] 문지기 통과용 VIP 프리패스 티켓 발급!
+              }
+              break;
+            }
+          }
+        }
+
+        // 2. [동/호수 붙여쓰기 레이더] "1011508" 형태 구출 작전
+        String squashedDongHo = "${targetDongNum.toLowerCase().trim()}${targetHoNum.toLowerCase().trim()}";
+        if (squashedDongHo.length >= 3 && superCleanBankText.contains(squashedDongHo)) {
+          currentScore += 65;
+          hitReasons.add("동호수붙여쓰기(+65)");
+          isSuperExactHo = true;
+          isHoMatch = true;
+        }
+
+        // ====================================================================
+        // 👇 🌟 [마지막 1% 고도화] -45점 감점 로직 (타세대 번호 기재 시 멱살 잡기)
+        // ====================================================================
+        if (currentScore >= 20 && rawNumbers.isNotEmpty) {
+          bool isNumberMatchAny = false;
+          for (String numStr in rawNumbers) {
+            // 입금자가 적은 숫자 중에 현재 검사하는 집의 동/호수가 있는지 확인
+            if (numStr == targetHoNum.toLowerCase().trim() || numStr == targetDongNum.toLowerCase().trim()) {
+              isNumberMatchAny = true;
+              break;
+            }
+          }
+
+          // 숫자를 적었는데 이 집 번호가 아니다? -> 이름 점수 받았어도 -45점 폭탄!
+          if (!isNumberMatchAny && !isHoMatch && !isSuperExactHo && !isDongHoMatch) {
+            currentScore -= 45;
+            hitReasons.add("타세대번호기재감점(-45)");
+          }
+        }
 
         // 3. [최종 판정 로직]
         if (currentScore > highestScore) {
@@ -2559,7 +2660,6 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
             child: InlineEditableText(
               text: value,
               hintText: hint,
-              // 🚨 여기서 화면 새로고침 지시!
               onChanged: (v) {
                 setState(() {
                   onChanged(v);
@@ -2570,6 +2670,37 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
           )
       );
     }
+
+    // =======================================================
+    // 🌟 [최종 고도화] 소유자 자동 스캔 레이더 (다주택자 완벽 지원!)
+    // =======================================================
+    bool isOwnerRegistered = false;
+    String matchedOwnerInfo = "";
+    String cleanBankText = (tx.description + tx.bankName).replaceAll(RegExp(r'\s+'), '');
+
+    List<String> ownedUnits = []; // 🌟 소유한 모든 호수를 담을 바구니
+
+    for (var r in _residentList) {
+      if (r.owner.trim().isEmpty || r.owner == "-") continue;
+      String cleanOwner = r.owner.replaceAll(RegExp(r'\s+'), '');
+
+      // 이름이 2글자 이상이고, 은행 내역에 소유자 이름이 포함되어 있다면?
+      if (cleanOwner.length >= 2 && cleanBankText.contains(cleanOwner)) {
+        ownedUnits.add("${r.dong}동 ${r.ho}호"); // 찾을 때마다 바구니에 담습니다!
+      }
+    }
+
+    // 바구니에 담긴 데이터가 있다면 뱃지 생성!
+    if (ownedUnits.isNotEmpty) {
+      isOwnerRegistered = true;
+      if (ownedUnits.length == 1) {
+        matchedOwnerInfo = ownedUnits.first; // 1채면 그냥 보여줌
+      } else {
+        // 🌟 여러 채를 가지고 있다면 "ㅇㅇ동 ㅇㅇ호 외 N세대" 형태로 깔끔하게 축약!
+        matchedOwnerInfo = "${ownedUnits.first} 외 ${ownedUnits.length - 1}세대";
+      }
+    }
+    // =======================================================
 
     return Container(
       decoration: BoxDecoration(
@@ -2612,6 +2743,7 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
             ),
           ),
 
+          // 👇 🌟 [UI 변경] 소유자 뱃지가 달리는 핵심 영역
           Expanded(
             flex: 20,
             child: Padding(
@@ -2626,6 +2758,23 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                     style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 11),
                     overflow: TextOverflow.ellipsis,
                   ),
+
+                  // 🎯 [여기입니다!] 소유자가 맞다면 예쁜 파란색 뱃지를 달아줍니다.
+                  if (isOwnerRegistered)
+                    Container(
+                      margin: const EdgeInsets.only(top: 3),
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                          color: Colors.blue[50],
+                          border: Border.all(color: Colors.blue[200]!),
+                          borderRadius: BorderRadius.circular(4)
+                      ),
+                      child: Text(
+                        "💡 (소유자 등록 : $matchedOwnerInfo)",
+                        style: TextStyle(fontSize: 10, color: Colors.blue[800], fontWeight: FontWeight.bold),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    )
                 ],
               ),
             ),
@@ -2769,6 +2918,7 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
     );
   }
 
+  // 🌟 [수정] 모든 검색창에 '한 번에 지우기(X)' 버튼을 장착합니다.
   Widget _searchHeaderCell(String title, int flex, TextEditingController ctrl, Function(String) onChanged) {
     return Expanded(
       flex: flex,
@@ -2776,8 +2926,35 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
         children: [
           Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
           Container(
-            margin: const EdgeInsets.only(top: 4, left: 6, right: 6), height: 28,
-            child: TextField(controller: ctrl, onChanged: onChanged, style: const TextStyle(fontSize: 11), decoration: InputDecoration(hintText: "검색", prefixIcon: const Icon(Icons.search, size: 12), contentPadding: EdgeInsets.zero, border: OutlineInputBorder(borderRadius: BorderRadius.circular(4)), fillColor: Colors.white, filled: true)),
+            margin: const EdgeInsets.only(top: 4, left: 6, right: 6),
+            height: 28,
+            child: TextField(
+              controller: ctrl,
+              onChanged: onChanged,
+              style: const TextStyle(fontSize: 11),
+              decoration: InputDecoration(
+                hintText: "검색",
+                prefixIcon: const Icon(Icons.search, size: 12),
+
+                // 🎯 [핵심] 글자가 있을 때만 오른쪽에 X 버튼을 띄웁니다.
+                suffixIcon: ctrl.text.isNotEmpty
+                    ? IconButton(
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  icon: const Icon(Icons.cancel, size: 14, color: Colors.grey),
+                  onPressed: () {
+                    ctrl.clear(); // 1. 입력창 글자 지우기
+                    onChanged(""); // 2. 검색어 변수 초기화 및 화면 새로고침
+                  },
+                )
+                    : null,
+
+                contentPadding: EdgeInsets.zero,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(4)),
+                fillColor: Colors.white,
+                filled: true,
+              ),
+            ),
           ),
         ],
       ),
@@ -2853,8 +3030,8 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
     // 1️⃣ [확실한 대행사 키워드] - 이지스엔터프라이즈 등 복구!
     List<String> strongPgKeywords = [
       '이지스', '엔터프라이즈', 'pg', '나이스', 'nice', 'kcp', '다날', 'danal',
-      '모빌리언스', '펌뱅킹', '전자금융', '센터일괄', '한강아이린관리', '세틀뱅크', '효성fms',
-      '아파트관리비',
+      '모빌리언스', '펌뱅킹', '센터일괄', '한강아이린관리', '세틀뱅크', '효성fms',
+      '아파트관리비', '자동이체', '월분관리비'
     ];
     for (String k in strongPgKeywords) {
       if (cleanDesc.contains(k)) return true;
