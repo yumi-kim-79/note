@@ -35,7 +35,7 @@ class ResidentRow {
   String managerMemo;
 
   bool isMerged;
-  // 🌟 [개별 취소 고도화] 흡수한 데이터를 기억하기 위한 비밀 주머니
+  bool isMultiGroupExcluded; // 🌟 [신규] 다중호실 그룹에서 개별 제외된 행
   ResidentRow? originalMain;
   ResidentRow? originalSub;
 
@@ -46,6 +46,7 @@ class ResidentRow {
     this.matchedField = "", this.matchedAmount = 0, this.matchedBankName = "",
     this.matchedDate = "", this.matchedMemo = "", this.matchedName = "", this.matchedTx, this.managerMemo = "",
     this.isMerged = false,
+    this.isMultiGroupExcluded = false, // 🌟 신규
   });
 
   ResidentRow copy() {
@@ -61,6 +62,7 @@ class ResidentRow {
     );
     r.originalMain = originalMain;
     r.originalSub = originalSub;
+    r.isMultiGroupExcluded = isMultiGroupExcluded;
     return r;
   }
 }
@@ -167,6 +169,8 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
     List<ResidentRow> matchedList = _residentList.where((r) {
       if (!r.isMatched || r.isCheckRequired) return false;
       if (r.matchedTx != null && (_isAutoPaymentTx(r.matchedTx!) || _isVirtualAccountTx(r.matchedTx!))) return false;
+      // 🌟 [수정] 대표님 기획: 숨기지 않고 팝업창에서 전부 다 보여줍니다!
+      // if (r.matchedField.contains("🔗") || r.matchedField.contains("[일괄수납 포함]")) return false;
       return true;
     }).toList();
 
@@ -385,7 +389,15 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                             final now = DateTime.now();
                             newText = "[${now.month}/${now.day} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}] $newText";
                           }
-                          setDialogState(() => rowOrTx.managerMemo = newText);
+                          setDialogState(() {
+                            // 👇 🌟 [핵심] 일괄수납 대표 행에 메모를 적으면, 숨어있는 종속 행들까지 싹 다 동기화!
+                            if (rowOrTx is ResidentRow && rowOrTx.matchedField.contains("일괄수납")) {
+                              List<ResidentRow> group = _getMultiGroup(rowOrTx);
+                              for(var r in group) r.managerMemo = newText;
+                            } else {
+                              rowOrTx.managerMemo = newText;
+                            }
+                          });
                           setState(() {});
                           Navigator.pop(ctx);
                         }, child: const Text("저장"))
@@ -489,8 +501,25 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                                         itemBuilder: (context, index) {
                                           var row = displayList[index];
                                           String matchedName = row.matchedName;
-                                          bool isActive = _activeReceiptRow == row;
+
+                                          // 👇 🌟 1. 팝업창 내부 그룹 판별 로직 (초록 박스용)
+                                          bool isGroup = false; bool isTop = false; bool isBottom = false;
+                                          if (row.matchedField.contains("일괄수납") && row.matchedTx != null) {
+                                            bool sameAsPrev = index > 0 && displayList[index - 1].matchedTx == row.matchedTx;
+                                            bool sameAsNext = index < displayList.length - 1 && displayList[index + 1].matchedTx == row.matchedTx;
+                                            isGroup = sameAsPrev || sameAsNext;
+                                            isTop = isGroup && !sameAsPrev;
+                                            isBottom = isGroup && !sameAsNext;
+                                          }
+
+                                          // 👇 🌟 2. 그룹 전체의 활성/처리 상태 동기화 (운명 공동체)
+                                          List<ResidentRow> targetGroup = isGroup
+                                              ? displayList.where((r) => r.matchedTx == row.matchedTx).toList()
+                                              : [row];
+
+                                          bool isActive = _activeReceiptRow != null && targetGroup.contains(_activeReceiptRow);
                                           bool isProcessed = _processedReceipts.contains(row) && !isActive;
+
                                           Color bgColor = isActive ? Colors.blue.withOpacity(0.15) : (isProcessed ? Colors.grey[100]! : (index % 2 == 0 ? Colors.white : Colors.grey[50]!));
 
                                           TextStyle _rowStyle(Color baseColor, {bool isBold = false, double size = 12}) {
@@ -502,24 +531,55 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                                             return Expanded(flex: flex, child: Container(alignment: Alignment.center, padding: const EdgeInsets.symmetric(horizontal: 4), child: FittedBox(fit: BoxFit.scaleDown, child: Text(text, style: style))));
                                           }
 
+                                          // 🌟 팝업창 안에서의 초록색 묶음 테두리 설정
+                                          BorderSide greenBorder = BorderSide(color: Colors.green.shade600, width: 2.0);
+                                          BorderSide defaultBorder = BorderSide(color: Colors.grey[200]!);
+
                                           return InkWell(
                                               onTap: () {
                                                 setDialogState(() {
-                                                  if (_activeReceiptRow == row) { _processedReceipts.add(row); _activeReceiptRow = null; }
-                                                  else { if (_activeReceiptRow != null) _processedReceipts.add(_activeReceiptRow!); _activeReceiptRow = row; _processedReceipts.remove(row); }
+                                                  // 🌟 팝업 클릭 시 세트메뉴 전체 동시 삭선 그어짐!
+                                                  if (isActive) {
+                                                    _processedReceipts.addAll(targetGroup);
+                                                    _activeReceiptRow = null;
+                                                  } else {
+                                                    if (_activeReceiptRow != null) {
+                                                      List<ResidentRow> prevGroup = _activeReceiptRow!.matchedField.contains("일괄수납")
+                                                          ? displayList.where((r) => r.matchedTx == _activeReceiptRow!.matchedTx).toList()
+                                                          : [_activeReceiptRow!];
+                                                      _processedReceipts.addAll(prevGroup);
+                                                    }
+                                                    _activeReceiptRow = row;
+                                                    targetGroup.forEach((r) => _processedReceipts.remove(r));
+                                                  }
                                                 });
                                               },
                                               child: Container(
-                                                  decoration: BoxDecoration(color: bgColor, border: Border(bottom: BorderSide(color: Colors.grey[200]!))),
-                                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                                  decoration: BoxDecoration(
+                                                      color: bgColor,
+                                                      border: Border(
+                                                        top: isTop ? greenBorder : (isGroup ? BorderSide.none : defaultBorder),
+                                                        bottom: isBottom ? greenBorder : defaultBorder,
+                                                        left: isGroup ? greenBorder : BorderSide.none,
+                                                        right: isGroup ? greenBorder : BorderSide.none,
+                                                      )
+                                                  ),
+                                                  padding: EdgeInsets.only(top: isTop || !isGroup ? 12 : 6, bottom: isBottom || !isGroup ? 12 : 6),
                                                   child: Row(children: [
                                                     Expanded(flex: 3, child: Stack(alignment: Alignment.center, children: [
-                                                      if (isProcessed) Positioned(left: 2, child: InkWell(onTap: () { setDialogState(() { _processedReceipts.remove(row); }); }, child: Container(padding: const EdgeInsets.all(2), decoration: BoxDecoration(color: Colors.red.withOpacity(0.1), borderRadius: BorderRadius.circular(4), border: Border.all(color: Colors.red.withOpacity(0.3))), child: const Icon(Icons.close, size: 12, color: Colors.red)))),
+                                                      if (isProcessed) Positioned(left: 2, child: InkWell(onTap: () {
+                                                        setDialogState(() { targetGroup.forEach((r) => _processedReceipts.remove(r)); });
+                                                      }, child: Container(padding: const EdgeInsets.all(2), decoration: BoxDecoration(color: Colors.red.withOpacity(0.1), borderRadius: BorderRadius.circular(4), border: Border.all(color: Colors.red.withOpacity(0.3))), child: const Icon(Icons.close, size: 12, color: Colors.red)))),
                                                       Container(padding: const EdgeInsets.symmetric(horizontal: 4), alignment: Alignment.center, child: FittedBox(fit: BoxFit.scaleDown, child: Text(row.matchedDate.split(' ')[0], style: _rowStyle(Colors.black87)))),
                                                     ])),
-                                                    _safeText("${_formatCurrency(row.matchedAmount)}원", _rowStyle(Colors.blue[800]!, isBold: true, size: 13), 3),
+
+                                                    // 👇 🌟 금액 중복 뻥튀기 방지: 대가리(대표)에만 적고 꼬리(포함)들은 ↪ 포함으로 표시!
+                                                    (row.matchedField.contains("🔗") || row.matchedField.contains("[일괄수납 포함]"))
+                                                        ? _safeText("↪ 그룹포함", _rowStyle(Colors.grey, size: 12), 3)
+                                                        : _safeText("${_formatCurrency(row.matchedAmount)}원", _rowStyle(Colors.blue[800]!, isBold: true, size: 13), 3),
+
                                                     _safeText(row.dong, _rowStyle(Colors.black87, isBold: true), 2),
-                                                    _safeText(row.ho, _rowStyle(Colors.black87, isBold: true), 2),
+                                                    _safeText(row.ho, _rowStyle(Colors.black87, isBold: true), 2), // 🌟 호수 정상 표시 복구
                                                     _safeText(matchedName, _rowStyle(Colors.teal[700]!, isBold: true), 3),
                                                     _safeText(row.matchedBankText, _rowStyle(Colors.black87), 5),
                                                     _safeText(row.matchedBankName, _rowStyle(Colors.grey), 3),
@@ -1200,8 +1260,6 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
     for (var tx in _bankList) {
       if (tx.isUsed || tx.amount <= 0) continue;
 
-      // 🚨 [수정] 자동이체 스킵 로직 삭제! 이제 "카드1-202"도 AI가 읽습니다.
-
       String originalDesc = tx.description;
       String normalizedDesc = "";
       for (int k = 0; k < originalDesc.length; k++) {
@@ -1211,84 +1269,109 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
         else { normalizedDesc += String.fromCharCode(code); }
       }
 
-      // 🌟 기존 띄어쓰기(\s) 제거 기능 100% 유지 + 은행 특수 투명 공백 및 괄호 파쇄 기능 추가
       String descNoSpace = normalizedDesc.toLowerCase()
           .replaceAll(RegExp(r'[\s\u200B-\u200D\uFEFF\u00A0\u3000]'), '')
           .replaceAll(RegExp(r'[()\[\]<>{}_*?!]'), '');
 
-      // 👇 🌟 [핀셋 수술 1-1] 한글 발음 동(Dong) 번역기 (에이3 -> 1-3)
-      descNoSpace = descNoSpace.replaceAllMapped(RegExp(r'(에이|비|씨|디|이|에프)(\d+)'), (match) {
-        Map<String, String> pMap = {'에이': '1', '비': '2', '씨': '3', '디': '4', '이': '5', '에프': '6'};
+      // 👇 🌟 [스마트 문맥 센서 1] 에이~지 + 숫자 (스카이702, 가우디702 완벽 보호)
+      descNoSpace = descNoSpace.replaceAllMapped(RegExp(r'(?<![가-힣])(에이|비|씨|디|이|에프|지)(\d+)'), (match) {
+        Map<String, String> pMap = {'에이': '1', '비': '2', '씨': '3', '디': '4', '이': '5', '에프': '6', '지': '7'};
         return '${pMap[match.group(1)!]}-${match.group(2)}';
       });
 
-      // 👇 🌟 [핀셋 수술 1-2] 한글 발음 동(Dong) 번역기 (에이동 -> 1동)
-      descNoSpace = descNoSpace.replaceAllMapped(RegExp(r'(에이|비|씨|디|이|에프)동'), (match) {
-        Map<String, String> pMap = {'에이': '1', '비': '2', '씨': '3', '디': '4', '이': '5', '에프': '6'};
+      // 👇 🌟 [스마트 문맥 센서 2] 에이~지 + 동 (이동환, 단비동 완벽 보호)
+      descNoSpace = descNoSpace.replaceAllMapped(RegExp(r'(?<![가-힣])(에이|비|씨|디|이|에프|지)동(?![가-힣])'), (match) {
+        Map<String, String> pMap = {'에이': '1', '비': '2', '씨': '3', '디': '4', '이': '5', '에프': '6', '지': '7'};
         return '${pMap[match.group(1)!]}동';
       });
 
-      // 🌟 [지하 고도화 1] 다양한 지하 표기 b로 통일
-      // 숫자+지하 역순 표기 (111지하 → b111)
-      descNoSpace = descNoSpace.replaceAllMapped(
-        RegExp(r'(\d+)지하'),
-            (match) => 'b${match.group(1)}',
-      );
-      // 남은 지하 표기 제거 (지하111 → b111)
+      descNoSpace = descNoSpace.replaceAllMapped(RegExp(r'(\d+)지하'), (match) => 'b${match.group(1)}');
       descNoSpace = descNoSpace.replaceAll('지하', 'b');
 
-      // =======================================================
-      // 🛡️ [수술 1] 1~100동 무한 번역기 (Safety Lock 최종 고도화)
-      // 🌟 [수정] 한 글자(A~Z)일 때만 동으로 번역하고, CM/SK 등 건물명 약자는 보호합니다!
-      // =======================================================
       descNoSpace = descNoSpace.replaceAllMapped(
-          RegExp(r'(^|[가-힣])([a-z])(동|단지|-|/|,|\.)'), // 🌟 [핵심] ([a-z]+)를 ([a-z])로 변경!
+          RegExp(r'(^|[가-힣])([a-z])(동|단지|-|/|,|\.)'),
               (match) {
             String prefix = match.group(1) ?? '';
             String alpha = match.group(2) ?? '';
             String suffix = match.group(3) ?? '';
-
-            // 이제 한 글자(a~z)만 들어오므로 1~26동까지만 번역됩니다.
             int num = alpha.codeUnitAt(0) - 96;
-
-            if (num > 0 && num <= 26) {
-              return '$prefix$num$suffix';
-            }
+            if (num > 0 && num <= 26) { return '$prefix$num$suffix'; }
             return match.group(0)!;
           }
       );
 
-      // 👇 🌟 [방해 단어 분쇄기 초고도화] 은행명, 이체 방식 등 찌꺼기를 완벽하게 날립니다.
       String stopWordsPattern = r'(pg|자동|카드|결제|체크|페이|pay|토스|toss|나이스|nice|kcp|다날|danal|모빌리언스|카카오|kakao|네이버|비대면|펌뱅킹|입금|송금|cd|atm|이체|대체|스마트|인터넷|올원|뱅크|은행|nh|농협|국민|신한|우리|기업|하나|새마을|수협|신협|우체국|타행|창구|mb|pc|폰|e-|센터일괄|cm|관리비)';
       String cleanDescNoSpace = descNoSpace.replaceAll(RegExp(stopWordsPattern), '');
 
       cleanDescNoSpace = cleanDescNoSpace.replaceAll(RegExp(r'(거래|거래일|거래일자)[:\s]*\d{1,4}[-./]?\d{1,4}'), '');
       cleanDescNoSpace = cleanDescNoSpace.replaceAll(RegExp(r'\d+차'), '');
-
       cleanDescNoSpace = cleanDescNoSpace
           .replaceAll(RegExp(r'\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2}'), '')
           .replaceAll(RegExp(r'010[.\-]?\d{3,4}[.\-]?\d{4}'), '')
           .replaceAll(RegExp(r'\d{9,11}'), '');
+      cleanDescNoSpace = cleanDescNoSpace.replaceAll(RegExp(r'\d{1,2}월'), '').replaceAll(RegExp(r'\d분기'), '');
 
-      // 🌟 [신규] 월/분기 숫자 찌꺼기 원천 차단
-      cleanDescNoSpace = cleanDescNoSpace
-          .replaceAll(RegExp(r'\d{1,2}월'), '')
-          .replaceAll(RegExp(r'\d분기'), '');
+      // 👇 🌟 [양방향 투명 쐐기] 영어이름+숫자 (MIAYESU802) 또는 숫자+영어이름 (802MIAYESU) 완벽 분리!
+      descNoSpace = descNoSpace.replaceAllMapped(RegExp(r'([a-z]{2,})(\d+)'), (m) => '${m.group(1)}_${m.group(2)}');
+      cleanDescNoSpace = cleanDescNoSpace.replaceAllMapped(RegExp(r'([a-z]{2,})(\d+)'), (m) => '${m.group(1)}_${m.group(2)}');
+      descNoSpace = descNoSpace.replaceAllMapped(RegExp(r'(\d+)([a-z]{2,})'), (m) => '${m.group(1)}_${m.group(2)}');
+      cleanDescNoSpace = cleanDescNoSpace.replaceAllMapped(RegExp(r'(\d+)([a-z]{2,})'), (m) => '${m.group(1)}_${m.group(2)}');
 
       // =======================================================
-      // 🛡️ [수술 2] 영문+숫자 복합 추출기 (cm 오탐지 방지 및 하이픈 보존)
+      // 🌟 [하이브리드 판독기] 범위(201-206) vs 동호수(1-1701) vs 분할호수(1-1101-1) 방어
       // =======================================================
+      bool isRangeForced = false;
+      String rangeOriginalText = "";
+
+      var hybridMatch = RegExp(r'(\d{1,4})[-~,](\d{1,4})').firstMatch(cleanDescNoSpace);
+      if (hybridMatch != null) {
+        String fullStr = hybridMatch.group(0)!;
+        int sIdx = cleanDescNoSpace.indexOf(fullStr);
+        int eIdx = sIdx + fullStr.length;
+
+        bool hasPrev = sIdx > 0 && ['-', '~', ','].contains(cleanDescNoSpace[sIdx - 1]);
+        bool hasNext = eIdx < cleanDescNoSpace.length && ['-', '~', ','].contains(cleanDescNoSpace[eIdx]);
+
+        if (!hasPrev && !hasNext) {
+          String num1Str = hybridMatch.group(1)!;
+          String num2Str = hybridMatch.group(2)!;
+          int n1 = int.tryParse(num1Str) ?? 0;
+          int n2 = int.tryParse(num2Str) ?? 0;
+
+          bool isObviousDongHo = (num1Str.length <= 3 && num2Str.length >= 3 && n2 > n1 && (n2 - n1) > 100);
+
+          if (!isObviousDongHo) {
+            // 🌟 [수술 1] 101-1108이 101-110으로 잘렸을 때, '범위(Range)'로 오해해서 삭제하는 대참사 방지!
+            bool existsDirect = _residentList.any((r) {
+              String cleanDbD = r.dong.replaceAll(RegExp(r'[^0-9]'),'');
+              String cleanDbH = r.ho.replaceAll(RegExp(r'[^0-9]'),'');
+              return (cleanDbD.isEmpty || cleanDbD == num1Str) && cleanDbH.startsWith(num2Str);
+            });
+
+            bool existsSwapped = _residentList.any((r) {
+              String cleanDbD = r.dong.replaceAll(RegExp(r'[^0-9]'),'');
+              String cleanDbH = r.ho.replaceAll(RegExp(r'[^0-9]'),'');
+              return (cleanDbD.isEmpty || cleanDbD == num2Str) && cleanDbH.startsWith(num1Str);
+            });
+
+            if (!existsDirect && !existsSwapped) {
+              isRangeForced = true;
+              rangeOriginalText = "$num1Str-$num2Str";
+              cleanDescNoSpace = cleanDescNoSpace.replaceFirst(fullStr, num1Str);
+              descNoSpace = descNoSpace.replaceFirst(fullStr, num1Str);
+            }
+          }
+        }
+      }
+
       String exDong = ""; String exHo = "";
       bool hasExplicitPattern = false; bool hasExplicitHoOnly = false; bool isSwappedPossible = false;
 
       var cardForceMatch = RegExp(r'카드(\d+)-(\d+)').firstMatch(descNoSpace);
       if (cardForceMatch != null) {
-        exDong = cardForceMatch.group(1)!;
-        exHo = cardForceMatch.group(2)!;
-        hasExplicitPattern = true;
+        exDong = cardForceMatch.group(1)!; exHo = cardForceMatch.group(2)!; hasExplicitPattern = true;
       }
 
-      // 👇 🌟 [cm 오탐지 방어] 정규식에 숫자(\d)를 필수로 넣어 순수 영문(cm)을 동/호수로 착각하지 못하게 막습니다.
       if (!hasExplicitPattern) {
         var m1 = RegExp(r'([a-z0-9\-]*\d[a-z0-9\-]*)동\s*([a-z0-9\-]*\d[a-z0-9\-]*)호?').firstMatch(cleanDescNoSpace);
         if (m1 != null) { exDong = m1.group(1)!; exHo = m1.group(2)!; hasExplicitPattern = true; }
@@ -1311,14 +1394,11 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
         }
       }
 
-      // 숫자가 무조건 1개 이상 포함된 덩어리만 정확하게 추출
       List<String> rawNumbers = RegExp(r'[a-z0-9\-]*\d[a-z0-9\-]*').allMatches(cleanDescNoSpace).map((m) => m.group(0)!).toList();
-
       if (!hasExplicitPattern && !hasExplicitHoOnly) {
         if (rawNumbers.length >= 2) {
           exDong = rawNumbers[0]; exHo = rawNumbers[1];
-          hasExplicitPattern = true;
-          isSwappedPossible = true;
+          hasExplicitPattern = true; isSwappedPossible = true;
         }
       }
 
@@ -1328,19 +1408,14 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
       bool bestNeedsCheck = false;
       String bestMatchedNameStr = "";
 
-      // 🌟 [특급 수술 1] 동(Dong) 판독기: 단방향 일방통행 및 영문 이름 흡수 방어!
       bool isSmartDongMatch(String dbDongStr, String bankDongStr, {bool allowMath = true}) {
-        String cleanDb = dbDongStr.toLowerCase().trim();
-        String cleanBank = bankDongStr.toLowerCase().trim();
-
+        String cleanDb = dbDongStr.toLowerCase().trim(); String cleanBank = bankDongStr.toLowerCase().trim();
         if (RegExp(r'^0+\d+$').hasMatch(cleanBank)) cleanBank = int.parse(cleanBank).toString();
         if (RegExp(r'^0+\d+$').hasMatch(cleanDb)) cleanDb = int.parse(cleanDb).toString();
-
         if (cleanDb.isEmpty || cleanDb == cleanBank) return true;
 
         if (allowMath) {
-          int? dbN = int.tryParse(cleanDb);
-          int? bkN = int.tryParse(cleanBank);
+          int? dbN = int.tryParse(cleanDb); int? bkN = int.tryParse(cleanBank);
           if (dbN != null && bkN != null) {
             if (dbN == bkN) return true;
             if (bkN > 0 && bkN < 100 && dbN >= 100 && (dbN % 100) == bkN) return true;
@@ -1348,26 +1423,6 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
             return false;
           }
         }
-
-        String dbAlphaOnly = cleanDb.replaceAll(RegExp(r'[^a-z]'), '');
-        if (dbAlphaOnly.isNotEmpty && RegExp(r'^\d+$').hasMatch(cleanBank)) {
-          int dbNum = 0;
-          for (int i = 0; i < dbAlphaOnly.length; i++) {
-            dbNum = dbNum * 26 + (dbAlphaOnly.codeUnitAt(i) - 96);
-          }
-          if (dbNum.toString() == cleanBank) return true;
-        }
-
-        String bankAlphaOnly = cleanBank.replaceAll(RegExp(r'[^a-z]'), '');
-        if (bankAlphaOnly.isNotEmpty && RegExp(r'^\d+$').hasMatch(cleanDb)) {
-          int bankNum = 0;
-          for (int i = 0; i < bankAlphaOnly.length; i++) {
-            bankNum = bankNum * 26 + (bankAlphaOnly.codeUnitAt(i) - 96);
-          }
-          if (bankNum.toString() == cleanDb) return true;
-        }
-
-        // 👇 🌟 [초정밀 안전 수술] 영문 이름 흡수 방어 (ex: 104yangyingzi -> 104)
         if (cleanBank.startsWith(cleanDb)) {
           String leftover = cleanBank.substring(cleanDb.length);
           if (RegExp(r'^[a-z]+$').hasMatch(leftover)) return true;
@@ -1376,110 +1431,76 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
           String leftover = cleanBank.substring(0, cleanBank.length - cleanDb.length);
           if (RegExp(r'^[a-z]+$').hasMatch(leftover)) return true;
         }
-
         return cleanDb.contains(cleanBank);
       }
 
-      // 🌟 [특급 수술 2] 호수(Ho) 판독기: 엄격한 일치 및 영문 이름 흡수 방어!
       bool isSmartHoMatch(String dbHoStr, String bankHoStr, String fullRawDesc) {
         if (dbHoStr.isEmpty || bankHoStr.isEmpty) return false;
-
-        String cleanBankHo = bankHoStr.toLowerCase().trim();
-        String cleanDbHo = dbHoStr.toLowerCase().trim();
-
+        String cleanBankHo = bankHoStr.toLowerCase().trim(); String cleanDbHo = dbHoStr.toLowerCase().trim();
         if (cleanDbHo == cleanBankHo) return true;
 
         bool isBankNumeric = RegExp(r'^\d+$').hasMatch(cleanBankHo);
         bool isDbNumeric = RegExp(r'^\d+$').hasMatch(cleanDbHo);
 
         if (isBankNumeric && isDbNumeric) {
-          int bN = int.tryParse(cleanBankHo) ?? 0;
-          int dN = int.tryParse(cleanDbHo) ?? 0;
+          int bN = int.tryParse(cleanBankHo) ?? 0; int dN = int.tryParse(cleanDbHo) ?? 0;
           if (bN == dN) return true;
-
         } else {
           if (cleanBankHo.startsWith("$cleanDbHo-")) return true;
           if (cleanDbHo.startsWith("$cleanBankHo-")) return true;
         }
-
         if (cleanBankHo.startsWith(cleanDbHo)) {
           String leftover = cleanBankHo.substring(cleanDbHo.length);
           int? monthVal = int.tryParse(leftover);
           if (monthVal != null && monthVal >= 1 && monthVal <= 12) {
-            if (fullRawDesc.contains("${bankHoStr}월") || fullRawDesc.contains("${bankHoStr}분")) {
-              return true;
-            }
+            if (fullRawDesc.contains("${bankHoStr}월") || fullRawDesc.contains("${bankHoStr}분")) return true;
           }
-          // 👇 🌟 [핀셋 수술 2-1] 영문 이름 흡수 방어하되, 남은 알파벳이 딱 'b'면 지하이므로 절대 버리지 않음!
           if (leftover != 'b' && RegExp(r'^[a-z]+$').hasMatch(leftover)) return true;
         }
-
-        // 👇 🌟 영문 이름이 호수 앞에 붙은 경우 방어 (ex: yangyingzi301 -> 301)
         if (cleanBankHo.endsWith(cleanDbHo)) {
           String leftover = cleanBankHo.substring(0, cleanBankHo.length - cleanDbHo.length);
-          // 👇 🌟 [핀셋 수술 2-2] 남은 알파벳이 딱 'b'면 지하이므로 절대 버리지 않음!
           if (leftover != 'b' && RegExp(r'^[a-z]+$').hasMatch(leftover)) return true;
         }
-
-        // 🌟 [지하 고도화 2] b(지하) 포함 시 하이픈 제거 후 비교
-        // B1111 → b1111 → 하이픈 제거 → b1111
-        // DB b111-1 → 하이픈 제거 → b1111
-        // → 일치! ✅
         if (cleanDbHo.contains('b') || cleanBankHo.contains('b')) {
-          String bankNoHyphen = cleanBankHo
-              .replaceAll(RegExp(r'[^a-z0-9]'), '');
-          String dbNoHyphen = cleanDbHo
-              .replaceAll(RegExp(r'[^a-z0-9]'), '');
+          String bankNoHyphen = cleanBankHo.replaceAll(RegExp(r'[^a-z0-9]'), '');
+          String dbNoHyphen = cleanDbHo.replaceAll(RegExp(r'[^a-z0-9]'), '');
           if (bankNoHyphen == dbNoHyphen) return true;
         }
-
+        if (!cleanDbHo.contains('b') && !cleanBankHo.contains('b') && cleanDbHo.contains('-')) {
+          String dbNoHyphen = cleanDbHo.replaceAll(RegExp(r'[^0-9]'), '');
+          String bankNoHyphen = cleanBankHo.replaceAll(RegExp(r'[^0-9]'), '');
+          if (dbNoHyphen.isNotEmpty && bankNoHyphen.isNotEmpty && dbNoHyphen == bankNoHyphen) return true;
+        }
         return false;
       }
 
-      // =======================================================
-      // 🛡️ [수술 3] DB 세척기 고도화 (.0 악성 찌꺼기 및 하이픈 파괴 방지)
-      // =======================================================
+      // 👇 🌟 [절대 보호법] 명부에 존재하는 찐 호수(원본 숫자)들을 스캔!
+      Set<String> exactDbHos = _residentList.map((r) => r.ho.replaceAll(RegExp(r'[^0-9]'), '')).where((s) => s.isNotEmpty).toSet();
+
       for (var row in _residentList) {
-        // 👇 🌟 [핀셋 수술 3] 명부 호수에 적힌 한글 '지하'를 소문자 'b'로 은밀히 치환하여 메모리에 올립니다!
         String cleanHo = row.ho.trim().toLowerCase().replaceAll(RegExp(r'\.0+$'), '').replaceAll('지하', 'b').replaceAll(RegExp(r'[^a-z0-9\-]'), '');
         String cleanDong = row.dong.trim().toLowerCase().replaceAll(RegExp(r'\.0+$'), '').replaceAll(RegExp(r'[^a-z0-9\-]'), '');
         if (cleanHo.isEmpty) continue;
 
-        int currentScore = 0;
-        List<String> hitReasons = [];
+        int currentScore = 0; List<String> hitReasons = [];
         bool isEmptyRecord = row.owner.trim().isEmpty && row.resident.trim().isEmpty && row.others.every((e) => e.trim() == "-" || e.trim().isEmpty) && row.remark.trim().isEmpty;
-
         String targetHoNum = int.tryParse(cleanHo)?.toString() ?? cleanHo;
         String targetDongNum = int.tryParse(cleanDong)?.toString() ?? cleanDong;
 
-        bool isDongHoMatch = false;
-        bool isHoMatch = false;
-        bool isJoinedMatch = false;
-        bool isStrongJoinedMatch = false;
+        bool isDongHoMatch = false; bool isHoMatch = false; bool isJoinedMatch = false; bool isStrongJoinedMatch = false;
+        bool isPerfectHo = false; bool isSuperExactHo = false;
 
-        // 👇 🌟 [새치기 방어용] 글자가 토씨 하나 안 틀리고 완벽히 똑같은지 확인하는 변수 추가!
-        bool isPerfectHo = false;
-        bool isSuperExactHo = false;
-
-        // 1. [동·호수 판단 로직]
         if (hasExplicitPattern) {
           bool dongMatches = isSmartDongMatch(targetDongNum, exDong);
           bool hoMatches = isSmartHoMatch(targetHoNum, exHo, descNoSpace);
-
           if (dongMatches && hoMatches) {
             isDongHoMatch = true;
-            // 🌟 은행 호수와 DB 호수가 100% 일치하면 가산점 예약!
             if (targetHoNum == exHo.toLowerCase().trim()) isPerfectHo = true;
-          }
-          // 알파벳 엇갈림 교차 합체 검사 (1b+111-1 == 1+b111-1)
-          else if (exDong.isNotEmpty && exHo.isNotEmpty) {
+          } else if (exDong.isNotEmpty && exHo.isNotEmpty) {
             String joinedBank = (exDong + exHo).replaceAll(RegExp(r'[^a-z0-9]'), '');
             String joinedDb = (cleanDong + cleanHo).replaceAll(RegExp(r'[^a-z0-9]'), '');
-            if (joinedBank == joinedDb && RegExp(r'[a-z]').hasMatch(joinedBank)) {
-              isDongHoMatch = true;
-            }
-          }
-          else if (isSwappedPossible) {
+            if (joinedBank == joinedDb && RegExp(r'[a-z]').hasMatch(joinedBank)) isDongHoMatch = true;
+          } else if (isSwappedPossible) {
             bool swappedDongMatches = isSmartDongMatch(targetDongNum, exHo, allowMath: false);
             bool swappedHoMatches = isSmartHoMatch(targetHoNum, exDong, descNoSpace);
             if (swappedDongMatches && swappedHoMatches) {
@@ -1490,10 +1511,7 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
         } else if (hasExplicitHoOnly) {
           if (isSmartHoMatch(targetHoNum, exHo, descNoSpace)) {
             isHoMatch = true;
-            if (targetHoNum == exHo.toLowerCase().trim()) {
-              isPerfectHo = true;
-              isSuperExactHo = true; // 🌟 1103호 명시적 입력 시 최고 등급 부여!
-            }
+            if (targetHoNum == exHo.toLowerCase().trim()) { isPerfectHo = true; isSuperExactHo = true; }
           }
         } else {
           if (rawNumbers.length == 1) {
@@ -1501,150 +1519,97 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
             String joinedTarget = cleanDong + cleanHo;
             String joinedTargetReverse = cleanHo + cleanDong;
 
-            // 👇 🌟 [우선순위 0] 절대 불변의 100% 호수 단독 일치 (1202 == 1202호)
             if (numStr == targetHoNum.toLowerCase().trim()) {
               isSuperExactHo = true;
             }
-            // 👇 🌟 [우선순위 1] 찰흙 합체 매칭 (1동 202호 -> 1202)
             else if (joinedTarget.isNotEmpty && numStr == joinedTarget) {
-              isDongHoMatch = true;
-              // 🚨 도둑질 방지 수술: 문자열 전체에서 1을 다 빼는게 아니라, 딱 '앞에 붙은 동'만 정확히 잘라냅니다!
-              if (numStr.startsWith(cleanDong) && targetHoNum == numStr.substring(cleanDong.length).toLowerCase().trim()) isPerfectHo = true;
+              // 🚨 [도둑질 방어 1] 102호가 1102호를 가져가려 할 때 차단!
+              if (numStr != targetHoNum && exactDbHos.contains(numStr)) {
+                // Do nothing (패스)
+              } else {
+                isDongHoMatch = true;
+                if (numStr.startsWith(cleanDong) && targetHoNum == numStr.substring(cleanDong.length).toLowerCase().trim()) isPerfectHo = true;
+              }
             } else if (joinedTargetReverse.isNotEmpty && numStr == joinedTargetReverse) {
-              isDongHoMatch = true;
-              // 뒤에 붙은 동을 정확히 잘라냄
-              if (numStr.endsWith(cleanDong) && targetHoNum == numStr.substring(0, numStr.length - cleanDong.length).toLowerCase().trim()) isPerfectHo = true;
-            }
-            // 👇 🌟 [우선순위 2] 지하세대 단독 호수 완벽 방어 (b105 == b105)
-            else if (isSmartHoMatch(targetHoNum, numStr, descNoSpace)) {
+              if (numStr != targetHoNum && exactDbHos.contains(numStr)) {
+                // Do nothing
+              } else {
+                isDongHoMatch = true;
+                if (numStr.endsWith(cleanDong) && targetHoNum == numStr.substring(0, numStr.length - cleanDong.length).toLowerCase().trim()) isPerfectHo = true;
+              }
+            } else if (isSmartHoMatch(targetHoNum, numStr, descNoSpace)) {
               isHoMatch = true;
               if (targetHoNum == numStr.toLowerCase().trim()) isPerfectHo = true;
-            }
-            // 👇 🌟 [우선순위 3] 알파벳 융합 번역기 (b3 -> B동 3호 -> 2동 3호)
-            else {
+            } else {
               var alphaMatch = RegExp(r'^([a-z])(\d+)$').firstMatch(numStr);
               if (alphaMatch != null) {
-                int alphaDong = alphaMatch.group(1)!.codeUnitAt(0) - 96; // a=1, b=2...
+                int alphaDong = alphaMatch.group(1)!.codeUnitAt(0) - 96;
                 String hoNum = alphaMatch.group(2)!;
-                if (targetDongNum == alphaDong.toString() && targetHoNum == hoNum) {
-                  isDongHoMatch = true;
-                  isPerfectHo = true;
+                if (targetDongNum == alphaDong.toString() && targetHoNum == hoNum) { isDongHoMatch = true; isPerfectHo = true; }
+              }
+            }
+            if (!isSuperExactHo && !isDongHoMatch && !isHoMatch) {
+              if (joinedTarget.length >= 3 && numStr == joinedTarget) {
+                if (!(numStr != targetHoNum && exactDbHos.contains(numStr))) {
+                  isJoinedMatch = true; if (joinedTarget.length >= 5) isStrongJoinedMatch = true;
+                }
+              } else if (joinedTargetReverse.length >= 3 && numStr == joinedTargetReverse) {
+                if (!(numStr != targetHoNum && exactDbHos.contains(numStr))) {
+                  isJoinedMatch = true; if (joinedTargetReverse.length >= 5) isStrongJoinedMatch = true;
                 }
               }
             }
-
-            // 👇 🌟 [우선순위 4] 동/호 단순 유추 (찌꺼기 처리 유지)
-            if (!isSuperExactHo && !isDongHoMatch && !isHoMatch) {
-              if (joinedTarget.length >= 3 && numStr == joinedTarget) {
-                isJoinedMatch = true;
-                if (joinedTarget.length >= 5) isStrongJoinedMatch = true;
-              } else if (joinedTargetReverse.length >= 3 && numStr == joinedTargetReverse) {
-                isJoinedMatch = true;
-                if (joinedTargetReverse.length >= 5) isStrongJoinedMatch = true;
-              }
-            }
           }
         }
 
-        // [동·호수 점수 부여]
-        // 👇 🌟 아래 점수 부여 블록을 이렇게 덮어씌워 주십시오!
-        if (isSuperExactHo) {
-          currentScore += 85; // 🌟 75->85점 상향! 찰흙합체 만점(80점)을 완벽하게 압살하는 절대 권력!
-          hitReasons.add("호수(완벽일치)");
-        }
-        else if (isDongHoMatch) {
-          currentScore += 60;
-          if (isPerfectHo) {
-            currentScore += 20; // 총 80점
-            hitReasons.add("동호(완벽일치)");
-          } else {
-            hitReasons.add("동-호");
-          }
-        }
-        else if (isHoMatch) {
-          currentScore += 50;
-          if (isPerfectHo) currentScore += 2;
-          hitReasons.add("호수");
-        }
-        else if (isJoinedMatch) {
-          if (isStrongJoinedMatch) { currentScore += 40; hitReasons.add("동호완벽유추"); }
-          else { currentScore += 20; hitReasons.add("동호단순유추"); }
-        }
+        if (isSuperExactHo) { currentScore += 85; hitReasons.add("호수(완벽일치)"); }
+        else if (isDongHoMatch) { currentScore += 60; if (isPerfectHo) { currentScore += 20; hitReasons.add("동호(완벽일치)"); } else hitReasons.add("동-호"); }
+        else if (isHoMatch) { currentScore += 50; if (isPerfectHo) currentScore += 2; hitReasons.add("호수"); }
+        else if (isJoinedMatch) { if (isStrongJoinedMatch) { currentScore += 40; hitReasons.add("동호완벽유추"); } else { currentScore += 20; hitReasons.add("동호단순유추"); } }
 
-        // ====================================================================
-        // 2. [이름 판단 로직] (🌟 완벽하게 통합/정리된 클린 엔진)
-        // ====================================================================
-        bool exactNameHit = false;
-        bool remarkNameHit = false;
-        bool partialNameHit = false;
-        bool typoNameHit = false;
-        String matchedNameType = "";
-
+        bool exactNameHit = false; bool remarkNameHit = false; bool partialNameHit = false; bool typoNameHit = false; String matchedNameType = "";
         String safeDesc = cleanDescNoSpace.replaceAll(RegExp(r'\d+원'), '');
         String bankNameCandidate = safeDesc.replaceAll(RegExp(r'\d+[동호]?'), '').replaceAll(RegExp(r'[^a-z가-힣]'), '');
         String currentMatchedNameStr = "";
 
-        // 스팸 필터 적용
         String pureBankName = bankNameCandidate.replaceAll(RegExp(r'타행|모바일|인터넷|스마트|이체|건별|대량|지점|자동|nh|농협|국민|신한|우리|기업|하나|새마을|수협|신협|우체국|올원|뱅크|은행|cd|atm|폰|페이|pay|mb|pc|e-|센터일괄|cm|관리비'), '');
         String bankNameSpace = tx.bankName.toLowerCase().replaceAll(RegExp(r'[^a-z가-힣]'), '');
 
-        // 🌟 [통합 이름 검사 함수]
         void checkName(String rawName, String type) {
           if (rawName.isEmpty || rawName == "-" || exactNameHit || remarkNameHit) return;
-
           bool isCorporation = RegExp(r'\(주\)|주식회사|\(유\)|\(사\)|\(재\)').hasMatch(rawName);
           String preProcessedName = rawName.replaceAll(RegExp(r'\(주\)|주식회사|\(유\)|\(사\)|\(재\)'), '');
-
           List<String> subNames = preProcessedName.split(RegExp(r'[,/.;|()\[\]]'));
           subNames.add(preProcessedName.replaceAll(RegExp(r'[()\[\]<>{}_*?!]'), ''));
 
           for (String sub in subNames) {
             String cleanName = sub.toLowerCase().replaceAll(RegExp(r'[^a-z가-힣]'), '');
             if (cleanName.isEmpty) continue;
-
             if (cleanName.length < 2) {
               if (isCorporation) { if (cleanName != pureBankName && !pureBankName.contains(cleanName)) continue; }
               else { if (cleanName != pureBankName && cleanName != bankNameCandidate) continue; }
             }
-
             bool isExact = false;
-
-            // [내국인/기본 공통 검사]
-            if (cleanName == bankNameCandidate || cleanName == pureBankName ||
-                descNoSpace.contains(cleanName) || bankNameSpace.contains(cleanName)) {
-              isExact = true;
-            }
+            if (cleanName == bankNameCandidate || cleanName == pureBankName || descNoSpace.contains(cleanName) || bankNameSpace.contains(cleanName)) isExact = true;
             else if (pureBankName.length >= 2 && pureBankName.contains(cleanName)) isExact = true;
             else if (bankNameSpace.length >= 2 && bankNameSpace.contains(cleanName)) isExact = true;
             else if (pureBankName.length >= 3 && cleanName.contains(pureBankName)) isExact = true;
             else if (bankNameSpace.length >= 3 && cleanName.contains(bankNameSpace)) isExact = true;
-            else if (pureBankName.length == 2 && cleanName.length == 3 && (cleanName.endsWith('동') || cleanName.endsWith('호')) && cleanName.startsWith(pureBankName)) {
-              isExact = true;
-            }
+            else if (pureBankName.length == 2 && cleanName.length == 3 && (cleanName.endsWith('동') || cleanName.endsWith('호')) && cleanName.startsWith(pureBankName)) isExact = true;
 
-            // [외국인 전용 초정밀 검사 (잘림 & 오타 방어)]
             if (!isExact && RegExp(r'[a-z]').hasMatch(cleanName) && cleanName.length >= 4) {
-              String dbPrefix = cleanName.substring(0, 4); // 무조건 첫 4글자 추출
-              if (pureBankName.length >= 4 && pureBankName.contains(dbPrefix)) {
-                if (_calculateSimilarity(cleanName, pureBankName) >= 0.75) isExact = true;
-              }
-              else if (bankNameSpace.length >= 4 && bankNameSpace.contains(dbPrefix)) {
-                if (_calculateSimilarity(cleanName, bankNameSpace) >= 0.75) isExact = true;
-              }
+              String dbPrefix = cleanName.substring(0, 4);
+              if (pureBankName.length >= 4 && pureBankName.contains(dbPrefix)) { if (_calculateSimilarity(cleanName, pureBankName) >= 0.75) isExact = true; }
+              else if (bankNameSpace.length >= 4 && bankNameSpace.contains(dbPrefix)) { if (_calculateSimilarity(cleanName, bankNameSpace) >= 0.75) isExact = true; }
             }
 
-            // 🎯 완벽 일치 판정 시 즉시 VIP 티켓 발급
             if (isExact) {
               if (type == "비고") remarkNameHit = true; else exactNameHit = true;
-              matchedNameType = type;
-              currentMatchedNameStr = rawName;
-              return;
+              matchedNameType = type; currentMatchedNameStr = rawName; return;
             }
 
-            // [오타 및 부분 일치 검사]
             if (!exactNameHit && !remarkNameHit && (isDongHoMatch || isHoMatch || isJoinedMatch) && pureBankName.isNotEmpty) {
               double sim = _calculateSimilarity(cleanName, pureBankName);
-              // 🚨 VIP 티켓 미발급 (부분 점수만)
               if (sim >= 0.8) { partialNameHit = true; matchedNameType = "$type(오타-신뢰고)"; currentMatchedNameStr = rawName; }
               else if (sim >= 0.6) { typoNameHit = true; matchedNameType = "$type(오타-신뢰저)"; currentMatchedNameStr = rawName; }
               else if (!partialNameHit && pureBankName.length >= 2 && cleanName.contains(pureBankName)) {
@@ -1654,286 +1619,248 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
           }
         }
 
-        // 🚀 순차적 이름 검사 실행
+        // 🚨 [소유자 배제] 입주자, 기타인원, 비고만 검사
         if (!exactNameHit) checkName(row.resident, "입주자");
-        // 🌟 [신규] 공동명의 콤보 보너스
-        // 소유자 + 입주자/기타인원 이름이 둘 다 발견되면 +20점!
         if (exactNameHit || partialNameHit) {
-          List<String> allNames = [
-            row.owner, row.resident, ...row.others
-          ].where((n) => n.trim().isNotEmpty && n != "-").toList();
-
+          List<String> allNames = [row.resident, ...row.others].where((n) => n.trim().isNotEmpty && n != "-").toList();
           int matchedNameCount = 0;
           for (String name in allNames) {
-            String cleanName = name.toLowerCase()
-                .replaceAll(RegExp(r'\s+'), '')
-                .replaceAll(RegExp(r'[^a-z가-힣]'), '');
+            String cleanName = name.toLowerCase().replaceAll(RegExp(r'\s+'), '').replaceAll(RegExp(r'[^a-z가-힣]'), '');
             if (cleanName.length < 2) continue;
-
-            String superClean = (tx.description + tx.bankName)
-                .toLowerCase()
-                .replaceAll(RegExp(r'\s+'), '');
-
-            if (superClean.contains(cleanName)) {
-              matchedNameCount++;
-            }
+            String superClean = (tx.description + tx.bankName).toLowerCase().replaceAll(RegExp(r'\s+'), '');
+            if (superClean.contains(cleanName)) matchedNameCount++;
           }
-
-          // 2명 이상 이름이 발견되면 콤보 보너스!
-          if (matchedNameCount >= 2) {
-            currentScore += 20;
-            hitReasons.add("공동명의콤보(+20)");
-          }
+          if (matchedNameCount >= 2) { currentScore += 20; hitReasons.add("가족/기타인원콤보(+20)"); }
         }
         if (!exactNameHit) { for (String other in row.others) checkName(other, "기타인원"); }
         if (!exactNameHit && !remarkNameHit) checkName(row.remark, "비고");
 
-        // 🌟 [최후의 보루] 띄어쓰기가 파괴된 외국인 이름 (W U H A I Y A) 및 혼합 찌꺼기 구출
         if (!exactNameHit && !remarkNameHit) {
           String superCleanBankText = (tx.description + tx.bankName).replaceAll(RegExp(r'\s+'), '').toLowerCase();
           String descEngOnly = tx.description.replaceAll(RegExp(r'[^a-zA-Z]'), '').toLowerCase();
           String bankNameEngOnly = tx.bankName.replaceAll(RegExp(r'[^a-zA-Z]'), '').toLowerCase();
 
-          for (String name in [row.resident, row.owner, row.remark]) {
+          for (String name in [row.resident, row.remark]) {
             if (name.trim().isEmpty || name == "-") continue;
             String superCleanName = name.replaceAll(RegExp(r'\s+'), '').toLowerCase();
             String dbEngOnly = superCleanName.replaceAll(RegExp(r'[^a-z]'), '');
-
             bool isRescued = false;
-
-            // 1단계: 완벽 포함 (W U H A I Y A)
-            if (RegExp(r'[a-z]').hasMatch(superCleanName) && superCleanName.length >= 3 && superCleanBankText.contains(superCleanName)) {
-              isRescued = true;
-            }
-            // 2단계: 순수 영문 오타/잘림 방어 (장설화(ZHANGXUEHUA) 같은 오염 데이터 구출)
+            if (RegExp(r'[a-z]').hasMatch(superCleanName) && superCleanName.length >= 3 && superCleanBankText.contains(superCleanName)) { isRescued = true; }
             else if (dbEngOnly.length >= 4) {
               String dbPrefix = dbEngOnly.substring(0, 4);
               if (descEngOnly.length >= 4 && descEngOnly.contains(dbPrefix) && _calculateSimilarity(dbEngOnly, descEngOnly) >= 0.75) isRescued = true;
               else if (bankNameEngOnly.length >= 4 && bankNameEngOnly.contains(dbPrefix) && _calculateSimilarity(dbEngOnly, bankNameEngOnly) >= 0.75) isRescued = true;
             }
-
-            if (isRescued) {
-              exactNameHit = true; // 🌟 VIP 티켓 발급!
-              matchedNameType = "영문특수구출";
-              currentMatchedNameStr = name;
-              break;
-            }
+            if (isRescued) { exactNameHit = true; matchedNameType = "영문특수구출"; currentMatchedNameStr = name; break; }
           }
         }
 
-        // ====================================================================
-        // 💰 점수 결산 및 타세대 기재 감점 폭탄
-        // ====================================================================
         if (exactNameHit || remarkNameHit) { currentScore += 55; hitReasons.add(matchedNameType); }
         else if (partialNameHit) { currentScore += 40; hitReasons.add(matchedNameType); }
         else if (typoNameHit) { currentScore += 30; hitReasons.add(matchedNameType); }
 
         if (currentScore > 0 && isEmptyRecord) { currentScore -= 10; hitReasons.add("정보없음(-10)"); }
 
-        // 👇 🌟 [중복 채점 폭탄 제거] 동호수 붙여쓰기 레이더 (1011508)
         if (!isSuperExactHo && !isDongHoMatch && !isHoMatch) {
           String superCleanBankTextForHo = (tx.description + tx.bankName).replaceAll(RegExp(r'\s+'), '').toLowerCase();
           String squashedDongHo = "${targetDongNum.toLowerCase().trim()}${targetHoNum.toLowerCase().trim()}";
 
           if (squashedDongHo.length >= 3 && superCleanBankTextForHo.contains(squashedDongHo)) {
-            // 🚨 오탐지 방어: 102204(2동 204호) 안에 2204(22동 4호)가 있다고 우기는 현상 방지!
-            int idx = superCleanBankTextForHo.indexOf(squashedDongHo);
-            bool isPartialNumber = false;
+            // 🚨 [도둑질 방어 2] 102호가 1102호를 우기려 할 때 완벽 차단!
+            if (squashedDongHo != targetHoNum && exactDbHos.contains(squashedDongHo)) {
+              // 방어 성공! 패스!
+            } else {
+              int idx = superCleanBankTextForHo.indexOf(squashedDongHo);
+              bool isPartialNumber = false;
+              if (idx > 0 && RegExp(r'\d').hasMatch(superCleanBankTextForHo[idx - 1])) isPartialNumber = true;
 
-            if (idx > 0 && RegExp(r'\d').hasMatch(superCleanBankTextForHo[idx - 1])) isPartialNumber = true;
-            if (idx + squashedDongHo.length < superCleanBankTextForHo.length && RegExp(r'\d').hasMatch(superCleanBankTextForHo[idx + squashedDongHo.length])) isPartialNumber = true;
-
-            if (!isPartialNumber) {
-              currentScore += 64; // 🌟 65->64점으로 하향! 진짜 1103호 단독(75점)에게 무조건 꿇어라!
-              hitReasons.add("동호수붙여쓰기(+64)");
-              isSuperExactHo = true;
-              isHoMatch = true;
+              if (idx + squashedDongHo.length < superCleanBankTextForHo.length) {
+                String nextChar = superCleanBankTextForHo[idx + squashedDongHo.length];
+                if (RegExp(r'\d').hasMatch(nextChar) || nextChar == '호') {
+                  isPartialNumber = true;
+                }
+              }
+              if (!isPartialNumber) { currentScore += 64; hitReasons.add("동호수붙여쓰기(+64)"); isSuperExactHo = true; isHoMatch = true; }
             }
           }
         }
 
-        // [타세대 오기재 감점 폭탄]
-        if (currentScore >= 20 && rawNumbers.isNotEmpty) {
+        // 🌟 [수술 2] '101-110' 덩어리뿐만 아니라, 쪼개진 동(101)과 호(110)를 각각 검사해서 1108호 감점 철벽 방어!
+        if (currentScore >= 20 && (rawNumbers.isNotEmpty || exDong.isNotEmpty || exHo.isNotEmpty)) {
           bool isNumberMatchAny = false;
-          for (String numStr in rawNumbers) {
-            if (numStr == targetHoNum.toLowerCase().trim() || numStr == targetDongNum.toLowerCase().trim()) {
-              isNumberMatchAny = true;
-              break;
-            }
+          bool isTruncatedNumber = false;
+
+          List<String> numsToCheck = [...rawNumbers];
+          if (exDong.isNotEmpty) numsToCheck.add(exDong);
+          if (exHo.isNotEmpty) numsToCheck.add(exHo);
+
+          for (String numStr in numsToCheck) {
+            if (numStr.isEmpty) continue;
+            String cleanTargetHo = targetHoNum.toLowerCase().trim();
+            String cleanTargetDong = targetDongNum.toLowerCase().trim();
+            if (numStr == cleanTargetHo || numStr == cleanTargetDong) { isNumberMatchAny = true; break; }
+            if (cleanTargetHo.startsWith(numStr) || cleanTargetDong.startsWith(numStr)) { isTruncatedNumber = true; }
           }
           if (!isNumberMatchAny && !isHoMatch && !isSuperExactHo && !isDongHoMatch) {
-            currentScore -= 45;
-            hitReasons.add("타세대번호기재감점(-45)");
+            if (isTruncatedNumber && (exactNameHit || remarkNameHit)) {
+              hitReasons.add("번호잘림의심(감점면제)");
+            } else {
+              currentScore -= 45; hitReasons.add("타세대번호기재감점(-45)");
+            }
           }
         }
 
-        // ====================================================================
-        // 3. [최종 판정 로직] 문지기 (Gatekeeper)
-        // ====================================================================
         if (currentScore > highestScore) {
           highestScore = currentScore;
           bestMatchRow = row;
-          bestMatchedNameStr = currentMatchedNameStr.isNotEmpty ? currentMatchedNameStr : (row.owner.isNotEmpty ? row.owner : row.resident);
+          // 🚨 [소유자 배제] 이름 대타(Fallback)에서 소유자 삭제
+          bestMatchedNameStr = currentMatchedNameStr.isNotEmpty ? currentMatchedNameStr : row.resident;
 
           if (currentScore >= 40) {
-            bool hasDongHoMatch = isSuperExactHo || isDongHoMatch ||
-                isHoMatch || isStrongJoinedMatch;
+            bool hasDongHoMatch = isSuperExactHo || isDongHoMatch || isHoMatch || isStrongJoinedMatch;
             bool hasNameMatch = exactNameHit || remarkNameHit;
             bool hasDongHoInfo = hasExplicitPattern || hasExplicitHoOnly;
-
-            // 동호수 정보가 있었는데 불일치한 경우
             bool isDongHoWrong = hasDongHoInfo && !hasDongHoMatch;
-
-            if (isDongHoWrong && hasNameMatch) {
-              // 이름은 맞지만 동호수 틀림 → 확인필요
-              bestNeedsCheck = true;
-              bestMatchReason = "확인필요(동호수불일치+${hitReasons.join("+")})";
-            } else if (hasDongHoMatch || hasNameMatch) {
-              // 동호수 OR 이름 중 하나라도 일치 → 매칭완료
-              bestNeedsCheck = false;
-              bestMatchReason = hitReasons.join("+");
-            } else {
-              // 나머지 → 확인필요
-              bestNeedsCheck = true;
-              bestMatchReason = "확인필요(${hitReasons.join("+")})";
-            }
-          } else {
-            bestNeedsCheck = true;
-            bestMatchReason = "확인필요(${hitReasons.join("+")})";
-          }
+            if (isDongHoWrong && hasNameMatch) { bestNeedsCheck = true; bestMatchReason = "확인필요(동호수불일치+${hitReasons.join("+")})"; }
+            else if (hasDongHoMatch || hasNameMatch) { bestNeedsCheck = false; bestMatchReason = hitReasons.join("+"); }
+            else { bestNeedsCheck = true; bestMatchReason = "확인필요(${hitReasons.join("+")})"; }
+          } else { bestNeedsCheck = true; bestMatchReason = "확인필요(${hitReasons.join("+")})"; }
         }
-      } // 👈 🌟 여기가 for(_residentList) 반복문이 닫히는 핵심 괄호입니다!
+      }
 
-      // 🌟 [신규] 동 없는 호수 단독 입금 안전망
-      if (hasExplicitHoOnly && bestMatchRow != null) {
+      // 👇 🌟 [201호 스마트 검사] 동(Dong)과 이름 없이 호수(201)만 맞췄을 때의 다중동 안전망 (옵션 B)
+      if (bestMatchRow != null &&
+          (bestMatchReason.contains("호수") || hasExplicitHoOnly) &&
+          !bestMatchReason.contains("동-호") &&
+          !bestMatchReason.contains("동호") &&
+          !bestMatchReason.contains("동호수붙여쓰기")) {
+
+        String cleanMatchedHo = bestMatchRow!.ho.trim().toLowerCase().replaceAll(RegExp(r'\.0+$'), '').replaceAll('지하', 'b').replaceAll(RegExp(r'[^a-z0-9\-]'), '');
+
         int sameHoCount = _residentList.where((r) {
-          String cleanR = r.ho.trim().toLowerCase()
-              .replaceAll(RegExp(r'\.0+$'), '')
-              .replaceAll('지하', 'b')
-              .replaceAll(RegExp(r'[^a-z0-9\-]'), '');
-          return cleanR == exHo.toLowerCase().trim();
+          String cleanR = r.ho.trim().toLowerCase().replaceAll(RegExp(r'\.0+$'), '').replaceAll('지하', 'b').replaceAll(RegExp(r'[^a-z0-9\-]'), '');
+          return cleanR == cleanMatchedHo;
         }).length;
 
         if (sameHoCount >= 2) {
-          bool hasNameMatch =
-              bestMatchReason.contains("소유자") ||
-                  bestMatchReason.contains("입주자") ||
-                  bestMatchReason.contains("기타인원") ||
-                  bestMatchReason.contains("비고") ||
-                  bestMatchReason.contains("영문특수구출");
-
+          bool hasNameMatch = bestMatchReason.contains("입주자") || bestMatchReason.contains("기타인원") || bestMatchReason.contains("비고") || bestMatchReason.contains("영문특수구출") || bestMatchReason.contains("가족");
           if (!hasNameMatch) {
             bestNeedsCheck = true;
-            bestMatchReason =
-            "확인필요(동미확인-${sameHoCount}개동에 ${exHo}호 존재)";
+            bestMatchReason = "확인필요(동미확인-${sameHoCount}개동에 ${bestMatchRow!.ho} 존재)";
           }
-        }
-      }
-
-      // 🌟 [신규] 비슷한 이름으로 매칭됐는데 완벽이름 세대가 따로 있으면 교체
-      if (bestMatchRow != null && bestMatchReason.contains("오타")) {
-        String bankNameForCheck = tx.description.toLowerCase()
-            .replaceAll(RegExp(r'\s+'), '')
-            .replaceAll(RegExp(r'[^a-z가-힣]'), '');
-
-        ResidentRow? exactNameCandidate;
-
-        for (var r in _residentList) {
-          if (r == bestMatchRow) continue;
-          List<String> namesToCheck = [r.owner, r.resident, r.remark, ...r.others];
-
-          for (String name in namesToCheck) {
-            if (name.trim().isEmpty || name == "-") continue;
-            String cleanName = name.toLowerCase()
-                .replaceAll(RegExp(r'\s+'), '')
-                .replaceAll(RegExp(r'[^a-z가-힣]'), '');
-            if (cleanName.length < 2) continue;
-
-            bool isExact = cleanName == bankNameForCheck ||
-                bankNameForCheck.contains(cleanName) ||
-                (cleanName.length >= 4 && cleanName.contains(bankNameForCheck));
-
-            if (isExact) {
-              exactNameCandidate = r;
-              break;
-            }
-          }
-          if (exactNameCandidate != null) break;
-        }
-
-        if (exactNameCandidate != null) {
-          bestMatchRow = exactNameCandidate;
-          highestScore = highestScore + 30;
-          bestNeedsCheck = false;
-          bestMatchReason = "완벽이름우선(${bestMatchReason})";
-          bestMatchedNameStr = exactNameCandidate.resident.isNotEmpty
-              ? exactNameCandidate.resident
-              : exactNameCandidate.owner;
         }
       }
 
       // ======================================================
-      // 🌟 [신규] 완벽한 동명이인 레이더
-      // 동호수 단서 없이 이름만으로 매칭됐는데
-      // 같은 이름을 가진 세대가 2명 이상이면 → 확인필요 강제!
+      // 🌟 [최종 판정소] 단독 매칭 & 완벽이름 탈환 & 동명이인
       // ======================================================
       if (bestMatchRow != null) {
-        bool noDongHoInfo = !hasExplicitPattern && !hasExplicitHoOnly;
-        bool nameOnlyMatch =
-            (bestMatchReason.contains("소유자") ||
-                bestMatchReason.contains("입주자") ||
-                bestMatchReason.contains("기타인원") ||
-                bestMatchReason.contains("비고") ||
-                bestMatchReason.contains("영문특수구출")) &&
-                !bestMatchReason.contains("동-호") &&
-                !bestMatchReason.contains("호수") &&
-                !bestMatchReason.contains("동호");
+        bool isDongHoDictator = bestMatchReason.contains("동호(완벽일치)") ||
+            bestMatchReason.contains("동-호") ||
+            bestMatchReason.contains("호수(완벽일치)") ||
+            bestMatchReason.contains("동호수붙여쓰기");
 
-        if (noDongHoInfo && nameOnlyMatch) {
-          String matchedName = bestMatchedNameStr.toLowerCase()
-              .replaceAll(RegExp(r'\s+'), '')
-              .replaceAll(RegExp(r'[^a-z가-힣]'), '');
+        if (isDongHoDictator) {
+          bestNeedsCheck = false;
+          if (isRangeForced) {
+            bestNeedsCheck = true;
+            bestMatchReason = "확인필요(범위입금:$rangeOriginalText➔$bestMatchReason)";
+          }
+        } else {
+          String descForCheck = tx.description.toLowerCase().replaceAll(RegExp(r'\s+'), '').replaceAll(RegExp(r'[^a-z가-힣]'), '');
+          String pureDesc = descForCheck.replaceAll(RegExp(r'타행|모바일|인터넷|스마트|이체|건별|대량|지점|자동|nh|농협|국민|신한|우리|기업|하나|새마을|수협|신협|우체국|올원|뱅크|은행|cd|atm|폰|페이|pay|mb|pc|e-|센터일괄|cm|관리비'), '');
 
-          if (matchedName.length >= 2) {
-            int sameNameCount = _residentList.where((r) {
-              List<String> names = [r.owner, r.resident, ...r.others, r.remark];
-              return names.any((name) {
-                String cleanName = name.toLowerCase()
-                    .replaceAll(RegExp(r'\s+'), '')
-                    .replaceAll(RegExp(r'[^a-z가-힣]'), '');
-                return cleanName == matchedName;
-              });
-            }).length;
+          String bankForCheck = tx.bankName.toLowerCase().replaceAll(RegExp(r'\s+'), '').replaceAll(RegExp(r'[^a-z가-힣]'), '');
+          String pureBank = bankForCheck.replaceAll(RegExp(r'주식회사|\(주\)|\(유\)|\(사\)|타행|모바일|인터넷|스마트|이체|건별|대량|지점|자동|nh|농협|국민|신한|우리|기업|하나|새마을|수협|신협|우체국|올원|뱅크|은행|cd|atm|폰|페이|pay|mb|pc|e-|센터일괄|cm|관리비'), '');
 
-            if (sameNameCount >= 2) {
-              bestNeedsCheck = true;
-              bestMatchReason =
-              "확인필요(동명이인${sameNameCount}명-${bestMatchReason})";
+          String current1stName = bestMatchedNameStr.toLowerCase().replaceAll(RegExp(r'\s+'), '').replaceAll(RegExp(r'[^a-z가-힣]'), '');
+
+          bool isCurrentPerfect = false;
+          if (current1stName.isNotEmpty) {
+            if (current1stName == descForCheck || current1stName == pureDesc ||
+                (bankForCheck.isNotEmpty && current1stName == bankForCheck) ||
+                (pureBank.isNotEmpty && current1stName == pureBank)) {
+              isCurrentPerfect = true;
             }
           }
+
+          if (!isCurrentPerfect) {
+            ResidentRow? perfectNameCandidate;
+            String perfectName = "";
+
+            for (var r in _residentList) {
+              if (r == bestMatchRow) continue;
+              // 🚨 [소유자 배제]
+              List<String> namesToCheck = [r.resident, r.remark, ...r.others];
+
+              for (String name in namesToCheck) {
+                if (name.trim().isEmpty || name == "-") continue;
+                String cleanName = name.toLowerCase().replaceAll(RegExp(r'\s+'), '').replaceAll(RegExp(r'[^a-z가-힣]'), '');
+                if (cleanName.length < 2) continue;
+
+                if (cleanName == descForCheck || cleanName == pureDesc ||
+                    (cleanName.isNotEmpty && (cleanName == bankForCheck || cleanName == pureBank))) {
+                  perfectNameCandidate = r;
+                  perfectName = name;
+                  break;
+                }
+              }
+              if (perfectNameCandidate != null) break;
+            }
+
+            if (perfectNameCandidate != null) {
+              bestMatchRow = perfectNameCandidate;
+              highestScore = highestScore + 30;
+              bestNeedsCheck = false;
+              bestMatchReason = "완벽이름우선탈환(${bestMatchReason})";
+              bestMatchedNameStr = perfectName;
+            }
+          }
+
+          if (bestMatchRow != null) {
+            String cleanBestName = bestMatchedNameStr.toLowerCase().replaceAll(RegExp(r'\s+'), '').replaceAll(RegExp(r'[^a-z가-힣]'), '');
+            if (cleanBestName.length >= 2) {
+              int exactNameCount = _residentList.where((r) {
+                // 🚨 [소유자 배제]
+                List<String> names = [r.resident, ...r.others, r.remark];
+                return names.any((name) {
+                  String cn = name.toLowerCase().replaceAll(RegExp(r'\s+'), '').replaceAll(RegExp(r'[^a-z가-힣]'), '');
+                  return cn == cleanBestName;
+                });
+              }).length;
+
+              if (exactNameCount >= 2) {
+                bestNeedsCheck = true;
+                bestMatchReason = "확인필요(동명이인${exactNameCount}명-$bestMatchReason)";
+              }
+            }
+          }
+        }
+      }
+
+      if (bestMatchRow != null && bestMatchReason.contains("번호잘림의심")) {
+        bestNeedsCheck = true;
+        if (!bestMatchReason.contains("확인필요")) {
+          bestMatchReason = "확인필요($bestMatchReason)";
         }
       }
 
       if (highestScore >= 30 && bestMatchRow != null) {
         ResidentRow targetRow = bestMatchRow;
         if (targetRow.isMatched) {
-          // 🌟 [신규] 중복 입금 의심 - 자동이체/가상계좌는 제외!
-          bool isSpecialTx = targetRow.matchedTx != null &&
-              (_isAutoPaymentTx(targetRow.matchedTx!) ||
-                  _isVirtualAccountTx(targetRow.matchedTx!));
-
+          bool isSpecialTx = targetRow.matchedTx != null && (_isAutoPaymentTx(targetRow.matchedTx!) || _isVirtualAccountTx(targetRow.matchedTx!));
           if (!isSpecialTx && !targetRow.matchedField.contains("⚠️중복입금")) {
             targetRow.matchedField = "⚠️중복입금의심 / ${targetRow.matchedField}";
             targetRow.isCheckRequired = true;
           }
-
-          ResidentRow cloneRow = ResidentRow(dong: targetRow.dong, ho: targetRow.ho, owner: targetRow.owner, resident: targetRow.resident, others: List.from(targetRow.others), type: targetRow.type, remark: targetRow.remark);
+          ResidentRow cloneRow = targetRow.copy();
           cloneRow.managerMemo = targetRow.managerMemo;
           int insertIdx = _residentList.indexOf(targetRow) + 1;
           while (insertIdx < _residentList.length && _residentList[insertIdx].dong == targetRow.dong && _residentList[insertIdx].ho == targetRow.ho) { insertIdx++; }
           _residentList.insert(insertIdx, cloneRow);
           targetRow = cloneRow;
         }
+
         targetRow.isMatched = true;
         targetRow.isCheckRequired = bestNeedsCheck;
         targetRow.matchedBankText = tx.description;
@@ -1943,20 +1870,10 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
         targetRow.matchedMemo = tx.memo;
         targetRow.matchedName = bestMatchedNameStr;
 
-        // 🌟 자동이체/가상계좌 여부 먼저 확인
-        bool isSpecialMatch = tx.txType == '수동PG' ||
-            tx.txType == '수동가상' ||
-            _isAutoPaymentTx(tx) ||
-            _isVirtualAccountTx(tx);
-
+        bool isSpecialMatch = tx.txType == '수동PG' || tx.txType == '수동가상' || _isAutoPaymentTx(tx) || _isVirtualAccountTx(tx);
         bool isDuplicate = !isSpecialMatch && (
             bestMatchReason.contains("⚠️중복입금") ||
-                _residentList.where((r) =>
-                r.dong == targetRow.dong &&
-                    r.ho == targetRow.ho &&
-                    r.isMatched &&
-                    r != targetRow
-                ).isNotEmpty);
+                _residentList.where((r) => r.dong == targetRow.dong && r.ho == targetRow.ho && r.isMatched && r != targetRow).isNotEmpty);
 
         if (isDuplicate) {
           targetRow.matchedField = "⚠️중복입금의심 / $bestMatchReason(${highestScore}점)";
@@ -1973,38 +1890,92 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
     _showSnackBar("AI 스코어링 엔진 매칭 완료!");
   }
 
-  // 🌟 [추가] 실무자 수동 개입 (Manual Override) 로직
+  // 🌟 [신규] 다중호실 그룹 탐색 도우미 (운명 공동체 찾기)
+  List<ResidentRow> _getMultiGroup(ResidentRow row) {
+    String multiName = "";
+    if (row.matchedField.contains("다중호실") || row.matchedField.contains("일괄수납")) {
+      multiName = row.matchedName.toLowerCase().replaceAll(RegExp(r'\s+'), '').replaceAll(RegExp(r'[^a-z가-힣]'), '');
+    } else {
+      for (var r in _residentList) {
+        if (r.matchedField.contains("다중호실") || r.matchedField.contains("일괄수납")) {
+          String mn = r.matchedName.toLowerCase().replaceAll(RegExp(r'\s+'), '').replaceAll(RegExp(r'[^a-z가-힣]'), '');
+          List<String> names = [row.owner, row.resident, ...row.others, row.remark];
+          if (names.any((n) {
+            String cn = n.toLowerCase().replaceAll(RegExp(r'\s+'), '').replaceAll(RegExp(r'[^a-z가-힣]'), '');
+            if (cn.length < 2) return false;
+            return cn == mn || cn.contains(mn) || (mn.contains(cn) && cn.length >= 3) ||
+                (cn.length >= 4 && mn.length >= 4 && _calculateSimilarity(cn, mn) >= 0.72);
+          })) {
+            multiName = mn;
+            break;
+          }
+        }
+      }
+    }
+
+    if (multiName.isEmpty || multiName.length < 2) return [row];
+
+    List<ResidentRow> group = [];
+    for (var r in _residentList) {
+      if (r.isMultiGroupExcluded) continue;
+      List<String> names = [r.owner, r.resident, ...r.others, r.remark];
+      bool match = names.any((n) {
+        String cn = n.toLowerCase().replaceAll(RegExp(r'\s+'), '').replaceAll(RegExp(r'[^a-z가-힣]'), '');
+        if (cn.length < 2) return false;
+        return cn == multiName || cn.contains(multiName) || (multiName.contains(cn) && cn.length >= 3) ||
+            (cn.length >= 4 && multiName.length >= 4 && _calculateSimilarity(cn, multiName) >= 0.72);
+      });
+      if (match) group.add(r);
+    }
+
+    group.sort((a, b) {
+      if (a.matchedTx != null && b.matchedTx == null) return -1;
+      if (a.matchedTx == null && b.matchedTx != null) return 1;
+      int dCmp = a.dong.compareTo(b.dong);
+      if (dCmp != 0) return dCmp;
+      return a.ho.compareTo(b.ho);
+    });
+
+    return group;
+  }
+
+  // 🌟 [업데이트] 실무자 수동 개입 (다중 묶음 폐지, 철저한 1:1 단독 제어 + 중복입금 클론 삭제)
   void _changeStatus(ResidentRow row, String newStatus) {
     setState(() {
-      if (newStatus == "매칭완료") {
+      if (newStatus == "매칭완료" || newStatus == "확인필요") {
         row.isMatched = true;
-        row.isCheckRequired = false;
-        if (!row.matchedField.contains("[수동확정]")) {
+        row.isCheckRequired = (newStatus == "확인필요");
+        if (row.matchedTx != null && (row.matchedTx!.txType == '수동PG' || row.matchedTx!.txType == '수동가상')) {
+          row.matchedTx!.txType = "";
+        }
+        if (!row.matchedField.contains("[수동확정]") && newStatus == "매칭완료") {
           row.matchedField = "${row.matchedField} [수동확정]";
         }
-        if (row.matchedTx != null && (row.matchedTx!.txType == '수동PG' || row.matchedTx!.txType == '수동가상')) row.matchedTx!.txType = "";
-      } else if (newStatus == "확인필요") {
-        row.isMatched = true;
-        row.isCheckRequired = true;
-        if (row.matchedTx != null && (row.matchedTx!.txType == '수동PG' || row.matchedTx!.txType == '수동가상')) row.matchedTx!.txType = "";
+        _showSnackBar(newStatus == "매칭완료" ? "${row.dong}동 ${row.ho}호 매칭완료 처리되었습니다." : "${row.dong}동 ${row.ho}호 확인필요 처리되었습니다.");
       } else if (newStatus == "수동PG" || newStatus == "수동가상") {
-        // 👇 🌟 [신규] 담당자가 자동/가상으로 강제 이동시킨 경우
         row.isMatched = true;
         row.isCheckRequired = false;
         row.matchedField = "[수동이동] 대행사 수납";
         if (row.matchedTx != null) row.matchedTx!.txType = newStatus;
         _showSnackBar(newStatus == "수동PG" ? "자동이체(PG) 탭으로 이동되었습니다." : "가상계좌 탭으로 이동되었습니다.");
       } else if (newStatus == "매칭대기") {
-        if (row.matchedTx != null) { row.matchedTx!.isUsed = false; row.matchedTx = null; }
-        int cloneCount = _residentList.where((r) => r.dong == row.dong && r.ho == row.ho).length;
-        if (cloneCount > 1) {
+        if (row.matchedTx != null) row.matchedTx!.isUsed = false; // 🌟 돈을 미확인으로 반환!
+        row.matchedTx = null;
+        row.isMatched = false;
+        row.isCheckRequired = false;
+        row.matchedAmount = 0;
+        row.matchedBankText = "";
+        row.matchedBankName = "";
+        row.matchedDate = "";
+        row.matchedMemo = "";
+        row.matchedField = "";
+
+        // 🌟 중복입금 때문에 복제되었던 껍데기(클론) 행이었다면 아예 삭제해 버림!
+        int sameDongHoCount = _residentList.where((r) => r.dong == row.dong && r.ho == row.ho).length;
+        if (sameDongHoCount > 1) {
           _residentList.remove(row);
-        } else {
-          row.isMatched = false; row.isCheckRequired = false;
-          row.matchedBankText = ""; row.matchedAmount = 0;
-          row.matchedBankName = ""; row.matchedDate = "";
-          row.matchedMemo = ""; row.matchedField = "";
         }
+        _showSnackBar("매칭이 취소되어 미확인 입금 탭으로 이동되었습니다.", isError: true);
       }
     });
   }
@@ -2345,16 +2316,36 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
     }
 
     setState(() {
-      ResidentRow newRow = ResidentRow(
-        dong: tx.inputDong.trim(),
-        ho: tx.inputHo.trim(),
-        owner: tx.inputOwner.trim(),
-        resident: tx.inputResident.trim(),
-        others: [tx.inputOthers.trim(), "-", "-", "-"],
-        type: tx.inputType.trim(),
-        remark: tx.inputRemark.trim(),
-      );
+      String targetDong = tx.inputDong.trim();
+      String targetHo = tx.inputHo.trim();
 
+      // 👇 🌟 기존 명부(DB)에서 동/호수를 찾아 기존 데이터를 완벽 보존합니다!
+      ResidentRow? existingRow;
+      try { existingRow = _residentList.firstWhere((r) => r.dong == targetDong && r.ho == targetHo); } catch (e) {}
+
+      ResidentRow newRow;
+      if (existingRow != null) {
+        // 기존 데이터에 수동 입력값만 덧씌우기 (병합)
+        newRow = existingRow;
+        if (tx.inputOwner.trim().isNotEmpty) newRow.owner = tx.inputOwner.trim();
+        if (tx.inputResident.trim().isNotEmpty) newRow.resident = tx.inputResident.trim();
+        if (tx.inputOthers.trim().isNotEmpty) newRow.others[0] = tx.inputOthers.trim();
+        if (tx.inputType.trim().isNotEmpty) newRow.type = tx.inputType.trim();
+        if (tx.inputRemark.trim().isNotEmpty) newRow.remark = tx.inputRemark.trim();
+      } else {
+        // 아예 명부에 없던 세대면 새로 생성
+        newRow = ResidentRow(
+          dong: targetDong, ho: targetHo, owner: tx.inputOwner.trim(), resident: tx.inputResident.trim(),
+          others: [tx.inputOthers.trim().isEmpty ? "-" : tx.inputOthers.trim(), "-", "-", "-"], type: tx.inputType.trim(), remark: tx.inputRemark.trim(),
+        );
+        int insertIdx = _residentList.length;
+        for (int j = 0; j < _residentList.length; j++) {
+          if (_residentList[j].dong == newRow.dong) { insertIdx = j; break; }
+        }
+        _residentList.insert(insertIdx, newRow);
+      }
+
+      // 👇 🌟 1:1 전용으로 깔끔하게 데이터 확정!
       newRow.isMatched = true;
       newRow.isCheckRequired = isCheckRequired;
       newRow.matchedBankText = tx.description;
@@ -2362,24 +2353,16 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
       newRow.matchedBankName = tx.bankName;
       newRow.matchedDate = tx.date;
       newRow.matchedMemo = tx.memo;
-      newRow.matchedField = isCheckRequired ? "수동등록 (미확인➔확인필요)" : "수동등록 (미확인➔매칭완료)";
       newRow.matchedTx = tx;
       newRow.managerMemo = tx.managerMemo;
+      newRow.isMultiGroupExcluded = false;
 
-      int insertIdx = _residentList.length;
-      for (int i = 0; i < _residentList.length; i++) {
-        if (_residentList[i].dong == newRow.dong && _residentList[i].ho == newRow.ho) {
-          insertIdx = i + 1;
-          while (insertIdx < _residentList.length && _residentList[insertIdx].dong == newRow.dong && _residentList[insertIdx].ho == newRow.ho) {
-            insertIdx++;
-          }
-          break;
-        }
-      }
-      _residentList.insert(insertIdx, newRow);
+      newRow.matchedField = isCheckRequired ? "수동등록 (미확인➔확인필요)" : "수동등록 (미확인➔매칭완료)";
+
       tx.isUsed = true;
     });
-    _showSnackBar("${tx.inputDong}동 ${tx.inputHo}호 이동이 완료되었습니다.");
+
+    _showSnackBar("${tx.inputDong}동 ${tx.inputHo}호 이동 및 명부 매칭이 완료되었습니다.");
   }
 
   // =======================================================
@@ -2484,6 +2467,85 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
       });
     }
 
+    // ==============================================================
+    // 🌟 [최종 고도화] 다중호실 시각화 정렬 (생존자 뭉치기 + 제외자 하단 강등)
+    // ==============================================================
+    List<dynamic> clusteredList = [];
+    Set<dynamic> processedItems = {};
+
+    // 1. 전체 리스트에서 다중호실 그룹 이름(키워드)들을 전부 수집
+    Set<String> allMultiNames = {};
+    for (var r in _residentList) {
+      if (r.matchedField.contains("다중호실") || r.matchedField.contains("일괄수납")) {
+        allMultiNames.add(r.matchedName.toLowerCase().replaceAll(RegExp(r'\s+'), '').replaceAll(RegExp(r'[^a-z가-힣]'), ''));
+      }
+    }
+
+    for (var item in displayList) {
+      if (processedItems.contains(item)) continue;
+
+      if (item is ResidentRow && allMultiNames.isNotEmpty) {
+        String myName = "";
+        List<String> names = [item.owner, item.resident, ...item.others, item.remark];
+        for (String name in names) {
+          String cn = name.toLowerCase().replaceAll(RegExp(r'\s+'), '').replaceAll(RegExp(r'[^a-z가-힣]'), '');
+          if (cn.length < 2) continue;
+          for (String mn in allMultiNames) {
+            if (cn == mn || cn.contains(mn) || (mn.contains(cn) && cn.length >= 3) ||
+                (cn.length >= 4 && mn.length >= 4 && _calculateSimilarity(cn, mn) >= 0.72)) {
+              myName = mn; break;
+            }
+          }
+          if (myName.isNotEmpty) break;
+        }
+
+        // 가족(그룹)을 찾았다면, 화면에 있는 내 가족들을 다 불러모읍니다!
+        if (myName.isNotEmpty) {
+          List<ResidentRow> family = [];
+          for (var other in displayList) {
+            if (other is ResidentRow && !processedItems.contains(other)) {
+              List<String> oNames = [other.owner, other.resident, ...other.others, other.remark];
+              bool isFamily = oNames.any((n) {
+                String cn = n.toLowerCase().replaceAll(RegExp(r'\s+'), '').replaceAll(RegExp(r'[^a-z가-힣]'), '');
+                if (cn.length < 2) return false;
+                return cn == myName || cn.contains(myName) || (myName.contains(cn) && cn.length >= 3) ||
+                    (cn.length >= 4 && myName.length >= 4 && _calculateSimilarity(cn, myName) >= 0.72);
+              });
+
+              // 🌟 제외되어 이름이 지워졌더라도, 숨겨둔 돈(TX) 끈으로 가족 확인!
+              if (!isFamily && item.matchedTx != null && other.matchedTx == item.matchedTx) isFamily = true;
+
+              if (isFamily) family.add(other);
+            }
+          }
+
+          if (family.length > 1) {
+            // 🌟 정렬 1순위: 생존자(false) 위로, 제외자(true) 아래로
+            // 🌟 정렬 2순위: 동/호수 오름차순 (복귀 시 제자리 찾기)
+            family.sort((a, b) {
+              if (a.isMultiGroupExcluded != b.isMultiGroupExcluded) {
+                return a.isMultiGroupExcluded ? 1 : -1;
+              }
+              int dongA = int.tryParse(a.dong.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+              int dongB = int.tryParse(b.dong.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+              if (dongA != dongB) return dongA.compareTo(dongB);
+
+              int hoA = int.tryParse(a.ho.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+              int hoB = int.tryParse(b.ho.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+              return hoA.compareTo(hoB);
+            });
+
+            clusteredList.addAll(family);
+            processedItems.addAll(family);
+            continue;
+          }
+        }
+      }
+      clusteredList.add(item);
+      processedItems.add(item);
+    }
+    displayList = clusteredList; // 🌟 완벽하게 재배치된 리스트로 덮어쓰기!
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: AppTheme.borderColor), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)]),
@@ -2571,9 +2633,74 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                 }
                 bool isTop = false, isBottom = false, isGroup = false;
                 if (item is ResidentRow) {
-                  bool sameAsPrev = index > 0 && displayList[index - 1] is ResidentRow && (displayList[index - 1] as ResidentRow).dong == item.dong && (displayList[index - 1] as ResidentRow).ho == item.ho;
-                  bool sameAsNext = index < displayList.length - 1 && displayList[index + 1] is ResidentRow && (displayList[index + 1] as ResidentRow).dong == item.dong && (displayList[index + 1] as ResidentRow).ho == item.ho;
-                  isGroup = sameAsPrev || sameAsNext; isTop = isGroup && !sameAsPrev; isBottom = isGroup && !sameAsNext;
+                  // 🌟 기존: 동+호 같은 행 그룹
+                  bool sameAsPrev = index > 0 &&
+                      displayList[index - 1] is ResidentRow &&
+                      (displayList[index - 1] as ResidentRow).dong == item.dong &&
+                      (displayList[index - 1] as ResidentRow).ho == item.ho;
+                  bool sameAsNext = index < displayList.length - 1 &&
+                      displayList[index + 1] is ResidentRow &&
+                      (displayList[index + 1] as ResidentRow).dong == item.dong &&
+                      (displayList[index + 1] as ResidentRow).ho == item.ho;
+                  isGroup = sameAsPrev || sameAsNext;
+                  isTop = isGroup && !sameAsPrev;
+                  isBottom = isGroup && !sameAsNext;
+
+                  // 🌟 [신규] 다중호실일괄입금 그룹
+                  // 같은 이름이 다중호실 매칭된 TX와 연결된 경우 모두 묶음 (복수 입금자 완벽 지원)
+                  if (!isGroup) {
+                    // 🚨 수정: 다중호실 감지된 모든 이름을 Set에 담아 복수 입금자를 지원합니다!
+                    Set<String> multiNames = {};
+                    for (var r in _residentList) {
+                      // 👇 🌟 [핵심] 매칭완료 후 부여되는 "일괄수납" 글자도 같이 찾아야 그룹이 안 풀립니다!
+                      if (r.matchedField.contains("다중호실") || r.matchedField.contains("일괄수납")) {
+                        multiNames.add(r.matchedName.toLowerCase()
+                            .replaceAll(RegExp(r'\s+'), '')
+                            .replaceAll(RegExp(r'[^a-z가-힣]'), ''));
+                      }
+                    }
+
+                    bool isMultiRoomRow = false;
+                    String matchedMultiName = "";
+                    if (multiNames.isNotEmpty) {
+                      List<String> names = [item.owner, item.resident, ...item.others, item.remark];
+                      for (String name in names) {
+                        String cn = name.toLowerCase().replaceAll(RegExp(r'\s+'), '').replaceAll(RegExp(r'[^a-z가-힣]'), '');
+                        if (cn.length < 2) continue;
+
+                        for (String mName in multiNames) {
+                          if (cn == mName || cn.contains(mName) || (mName.contains(cn) && cn.length >= 3) ||
+                              (cn.length >= 4 && mName.length >= 4 && _calculateSimilarity(cn, mName) >= 0.72)) {
+                            isMultiRoomRow = true;
+                            matchedMultiName = mName; // 어떤 다중 그룹에 속하는지 기억
+                            break;
+                          }
+                        }
+                        if (isMultiRoomRow) break;
+                      }
+                    }
+
+                    // 🌟 제외된 행이면 그룹 참여 안함!
+                    if (isMultiRoomRow && !item.isMultiGroupExcluded) {
+                      bool checkSameGroup(ResidentRow targetRow) {
+                        if (targetRow.isMultiGroupExcluded) return false;
+                        List<String> tNames = [targetRow.owner, targetRow.resident, ...targetRow.others, targetRow.remark];
+                        return tNames.any((name) {
+                          String cn = name.toLowerCase().replaceAll(RegExp(r'\s+'), '').replaceAll(RegExp(r'[^a-z가-힣]'), '');
+                          if (cn.length < 2) return false;
+                          return cn == matchedMultiName || cn.contains(matchedMultiName) || (matchedMultiName.contains(cn) && cn.length >= 3) ||
+                              (cn.length >= 4 && matchedMultiName.length >= 4 && _calculateSimilarity(cn, matchedMultiName) >= 0.72);
+                        });
+                      }
+
+                      bool multiSameAsPrev = index > 0 && displayList[index - 1] is ResidentRow && checkSameGroup(displayList[index - 1] as ResidentRow);
+                      bool multiSameAsNext = index < displayList.length - 1 && displayList[index + 1] is ResidentRow && checkSameGroup(displayList[index + 1] as ResidentRow);
+
+                      isGroup = multiSameAsPrev || multiSameAsNext;
+                      isTop = isGroup && !multiSameAsPrev;
+                      isBottom = isGroup && !multiSameAsNext;
+                    }
+                  }
                 }
                 return _buildResidentRow(item as ResidentRow, isGroup: isGroup, isTop: isTop, isBottom: isBottom);
               },
@@ -2598,7 +2725,38 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
   }
 
   Widget _buildResidentRow(ResidentRow row, {bool isGroup = false, bool isTop = false, bool isBottom = false}) {
-    BorderSide thickGreen = BorderSide(color: Colors.green.shade800, width: 2.5);
+    // 🌟 [신규] 같은 이름이 다중호실 그룹에 속하는지 확인 (복수 입금자 지원)
+    Set<String> multiGroupNames = {};
+    for (var r in _residentList) {
+      // 👇 🌟 [핵심] 여기도 "일괄수납"을 추가해야 초록 테두리가 유지됩니다!
+      if (r.matchedField.contains("다중호실") || r.matchedField.contains("일괄수납")) {
+        multiGroupNames.add(r.matchedName.toLowerCase()
+            .replaceAll(RegExp(r'\s+'), '')
+            .replaceAll(RegExp(r'[^a-z가-힣]'), ''));
+      }
+    }
+
+    bool isMultiRoom = false;
+    if (multiGroupNames.isNotEmpty) {
+      List<String> myNames = [row.owner, row.resident, ...row.others, row.remark];
+      for (String name in myNames) {
+        String cn = name.toLowerCase().replaceAll(RegExp(r'\s+'), '').replaceAll(RegExp(r'[^a-z가-힣]'), '');
+        if (cn.length < 2) continue;
+        for (String mName in multiGroupNames) {
+          if (cn == mName || cn.contains(mName) || (mName.contains(cn) && cn.length >= 3) ||
+              (cn.length >= 4 && mName.length >= 4 && _calculateSimilarity(cn, mName) >= 0.72)) {
+            isMultiRoom = true;
+            break;
+          }
+        }
+        if (isMultiRoom) break;
+      }
+    }
+
+    // 👇 🌟 [신규] 매칭 전엔 주황색 선, 매칭 완료 후엔 초록색 선으로 묶음!
+    BorderSide thickGreen = (isMultiRoom && !row.isMatched)
+        ? BorderSide(color: Colors.orange.shade700, width: 2.5)
+        : BorderSide(color: Colors.green.shade800, width: 2.5);
     BorderSide thinGrey = BorderSide(color: Colors.grey.shade200);
 
     // 🌟 [핵심 수정 1] 텍스트 입력 후 UI를 즉시 갱신하도록 setState 추가
@@ -2611,12 +2769,7 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
             margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 6), height: 28,
             child: InlineEditableText(
               text: value,
-              // 🚨 여기서 화면 새로고침 지시!
-              onChanged: (v) {
-                setState(() {
-                  onChanged(v);
-                });
-              },
+              onChanged: (v) { setState(() { onChanged(v); }); },
               isHighlight: highlight,
               isType: isType,
               borderColor: borderColor,
@@ -2639,7 +2792,6 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                   margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 6), height: 28,
                   child: InlineEditableText(
                     text: initVal,
-                    // 🚨 여기서 화면 새로고침 지시!
                     onChanged: (v) {
                       setState(() {
                         if (row.others.isEmpty) row.others = [v, "-", "-", "-"];
@@ -2662,7 +2814,13 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
 
     return Container(
       decoration: BoxDecoration(
-        color: row.isCheckRequired ? Colors.orange.withOpacity(0.12) : (row.isMatched ? Colors.green.withOpacity(0.08) : Colors.transparent),
+        color: row.isMultiGroupExcluded
+            ? Colors.grey.withOpacity(0.08)
+            : (isMultiRoom
+            ? (row.isCheckRequired ? Colors.yellow.withOpacity(0.15) : Colors.green.withOpacity(0.08)) // 👇 🌟 매칭완료 시 초록색 연하게 변경!
+            : (row.isCheckRequired
+            ? Colors.orange.withOpacity(0.12)
+            : (row.isMatched ? Colors.green.withOpacity(0.08) : Colors.transparent))),
         border: Border(
           top: isTop ? thickGreen : BorderSide.none,
           bottom: isGroup ? (isBottom ? thickGreen : thinGrey) : thinGrey,
@@ -2733,10 +2891,19 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
           _editableCell("type", row.type, (v) => row.type = v, 6, isType: true),
           _editableCell("remark", row.remark, (v) => row.remark = v, 10),
 
-        Expanded(
+          Expanded(
             flex: 11,
-            child: (row.isMatched || row.isCheckRequired) ? Builder(
+            // 🌟 [신규] 다중호실 그룹 행이면 매칭여부 상관없이 dropdown 표시!
+            child: (row.isMatched || row.isCheckRequired || isMultiRoom) ? Builder(
                 builder: (context) {
+                  // 🌟 [다이어트] 매칭대기면 글씨만 보여줌
+                  if (!row.isMatched && !row.isCheckRequired) {
+                    return Container(
+                        alignment: Alignment.center,
+                        child: const Text("매칭 대기중", style: TextStyle(color: Colors.grey, fontSize: 11, fontWeight: FontWeight.bold))
+                    );
+                  }
+
                   // 🌟 자동이체/가상계좌 여부 확인
                   bool isAuto = row.matchedTx != null && _isAutoPaymentTx(row.matchedTx!);
                   bool isVBank = row.matchedTx != null && _isVirtualAccountTx(row.matchedTx!);
@@ -2873,12 +3040,55 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                           Text(
                             row.matchedField,
                             style: TextStyle(
-                                color: row.matchedField.contains("수동") ? Colors.blue[800] : Colors.grey,
+                                color: row.matchedField.contains("다중호실")
+                                    ? Colors.orange[800]
+                                    : (row.matchedField.contains("수동")
+                                    ? Colors.blue[800]
+                                    : Colors.grey),
                                 fontSize: 9,
-                                fontWeight: row.matchedField.contains("수동") ? FontWeight.bold : FontWeight.normal
+                                fontWeight: (row.matchedField.contains("수동") ||
+                                    row.matchedField.contains("다중호실"))
+                                    ? FontWeight.bold
+                                    : FontWeight.normal
                             ),
                             overflow: TextOverflow.ellipsis,
+                          ),
+
+                        // 🌟 [신규] 일괄수납 및 다중호실 직관적 UI 뱃지
+                        if (row.matchedField.contains("[일괄수납 대표]"))
+                          Container(
+                            margin: const EdgeInsets.only(top: 3),
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(color: Colors.blue[50], border: Border.all(color: Colors.blue[300]!), borderRadius: BorderRadius.circular(4)),
+                            child: Text("👑 일괄수납 묶음완료", style: TextStyle(fontSize: 10, color: Colors.blue[900], fontWeight: FontWeight.bold)),
                           )
+                        else if (row.matchedField.contains("🔗"))
+                          Container(
+                            margin: const EdgeInsets.only(top: 3),
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(color: Colors.grey[100], border: Border.all(color: Colors.grey[300]!), borderRadius: BorderRadius.circular(4)),
+                            child: Text("🔗 일괄수납 포함", style: TextStyle(fontSize: 10, color: Colors.grey[700], fontWeight: FontWeight.bold)),
+                          )
+                        else if (row.matchedField.contains("다중호실일괄입금"))
+                            Builder(
+                                builder: (context) {
+                                  // 🌟 긴 텍스트에서 우리가 만든 '1동 103호, 104호' 부분만 쏙 빼서 예쁘게 출력!
+                                  String roomsInfo = "다중호실 일괄입금 확인필요";
+                                  var match = RegExp(r'다중호실일괄입금-([^\/]+)').firstMatch(row.matchedField);
+                                  if (match != null) {
+                                    roomsInfo = "${match.group(1)} 다중입금 감지";
+                                  }
+                                  return Container(
+                                    margin: const EdgeInsets.only(top: 2),
+                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                    decoration: BoxDecoration(color: Colors.orange[50], border: Border.all(color: Colors.orange[300]!), borderRadius: BorderRadius.circular(3)),
+                                    child: Text(
+                                      "⚠️ $roomsInfo",
+                                      style: TextStyle(fontSize: 9, color: Colors.orange[900], fontWeight: FontWeight.bold),
+                                    ),
+                                  );
+                                }
+                            ),
                       ],
                     ),
                   ),
@@ -2971,140 +3181,156 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
         color: Colors.red.withOpacity(0.05),
         border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
       ),
-      child: Row(
+      // 👇 🌟 [핵심] 여러 줄의 타세대를 입력할 수 있도록 Column으로 감쌉니다!
+      child: Column(
         children: [
-          _inputCell("동", tx.inputDong, (v) => tx.inputDong = v, 5),
-          _inputCell("호", tx.inputHo, (v) => tx.inputHo = v, 6),
-          _inputCell("소유자", tx.inputOwner, (v) => tx.inputOwner = v, 10),
-          _inputCell("입주자", tx.inputResident, (v) => tx.inputResident = v, 10),
-          _inputCell("기타", tx.inputOthers, (v) => tx.inputOthers = v, 10),
-          _inputCell("구분", tx.inputType, (v) => tx.inputType = v, 6),
-          _inputCell("비고", tx.inputRemark, (v) => tx.inputRemark = v, 10),
+          Row(
+            children: [
+              _inputCell("동", tx.inputDong, (v) => tx.inputDong = v, 5),
+              _inputCell("호", tx.inputHo, (v) => tx.inputHo = v, 6),
+              _inputCell("소유자", tx.inputOwner, (v) => tx.inputOwner = v, 10),
+              _inputCell("입주자", tx.inputResident, (v) => tx.inputResident = v, 10),
+              _inputCell("기타", tx.inputOthers, (v) => tx.inputOthers = v, 10),
+              _inputCell("구분", tx.inputType, (v) => tx.inputType = v, 6),
+              _inputCell("비고", tx.inputRemark, (v) => tx.inputRemark = v, 10),
 
-          Expanded(
-            flex: 11,
-            child: Container(
-              height: 26, margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              decoration: BoxDecoration(color: Colors.white, border: Border.all(color: Colors.red[300]!), borderRadius: BorderRadius.circular(4)),
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<String>(
-                  value: "미확인",
-                  icon: const Icon(Icons.arrow_drop_down, size: 16),
-                  isExpanded: true,
-                  style: const TextStyle(fontSize: 11, color: Colors.black87, fontWeight: FontWeight.bold),
-                  items: const [
-                    DropdownMenuItem(value: "미확인", child: Text("미확인", style: TextStyle(color: Colors.red))),
-                    DropdownMenuItem(value: "확인필요", child: Text("확인필요(보내기)", style: TextStyle(color: Colors.orange))),
-                    DropdownMenuItem(value: "매칭완료", child: Text("매칭완료(보내기)", style: TextStyle(color: Colors.green))),
-                    DropdownMenuItem(value: "수동PG", child: Text("자동이체(PG)로", style: TextStyle(color: Colors.indigo))),
-                    DropdownMenuItem(value: "수동가상", child: Text("가상계좌로", style: TextStyle(color: Colors.teal))),
-                  ],
-                  onChanged: (val) {
-                    if (val == "매칭완료") _manualMatchFromBank(tx, isCheckRequired: false);
-                    else if (val == "확인필요") _manualMatchFromBank(tx, isCheckRequired: true);
-                    else if (val == "수동PG" || val == "수동가상") {
-                      setState(() {
-                        tx.txType = val!; // 무적 패스 태그 부착
-                        if (tx.inputDong.trim().isNotEmpty && tx.inputHo.trim().isNotEmpty) {
-                          _manualMatchFromBank(tx, isCheckRequired: false);
+              Expanded(
+                flex: 11,
+                child: Container(
+                  height: 26, margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  decoration: BoxDecoration(color: Colors.white, border: Border.all(color: Colors.red[300]!), borderRadius: BorderRadius.circular(4)),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: "미확인", icon: const Icon(Icons.arrow_drop_down, size: 16), isExpanded: true,
+                      style: const TextStyle(fontSize: 11, color: Colors.black87, fontWeight: FontWeight.bold),
+                      items: const [
+                        DropdownMenuItem(value: "미확인", child: Text("미확인", style: TextStyle(color: Colors.red))),
+                        DropdownMenuItem(value: "확인필요", child: Text("확인필요(보내기)", style: TextStyle(color: Colors.orange))),
+                        DropdownMenuItem(value: "매칭완료", child: Text("매칭완료(보내기)", style: TextStyle(color: Colors.green))),
+                        DropdownMenuItem(value: "수동PG", child: Text("자동이체(PG)로", style: TextStyle(color: Colors.indigo))),
+                        DropdownMenuItem(value: "수동가상", child: Text("가상계좌로", style: TextStyle(color: Colors.teal))),
+                      ],
+                      onChanged: (val) {
+                        if (val == "매칭완료") _manualMatchFromBank(tx, isCheckRequired: false);
+                        else if (val == "확인필요") _manualMatchFromBank(tx, isCheckRequired: true);
+                        else if (val == "수동PG" || val == "수동가상") {
+                          setState(() {
+                            tx.txType = val!;
+                            if (tx.inputDong.trim().isNotEmpty && tx.inputHo.trim().isNotEmpty) _manualMatchFromBank(tx, isCheckRequired: false);
+                          });
+                          _showSnackBar(val == "수동PG" ? "자동이체(PG) 탭으로 이동되었습니다." : "가상계좌 탭으로 이동되었습니다.");
                         }
-                      });
-                      _showSnackBar(val == "수동PG" ? "자동이체(PG) 탭으로 이동되었습니다." : "가상계좌 탭으로 이동되었습니다.");
-                    }
-                  },
+                      },
+                    ),
+                  ),
                 ),
               ),
-            ),
-          ),
 
-          // 👇 🌟 [UI 변경] 소유자 뱃지가 달리는 핵심 영역
-          Expanded(
-            flex: 20,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(tx.date, style: const TextStyle(fontSize: 9, color: Colors.grey)),
-                  Text(
-                    "❌ ${tx.description} / ${_formatCurrency(tx.amount)}원",
-                    style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 11),
-                    overflow: TextOverflow.ellipsis,
+              Expanded(
+                flex: 20,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(tx.date, style: const TextStyle(fontSize: 9, color: Colors.grey)),
+                      Text("❌ ${tx.description} / ${_formatCurrency(tx.amount)}원", style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 11), overflow: TextOverflow.ellipsis),
+                      if (isOwnerRegistered)
+                        Container(margin: const EdgeInsets.only(top: 3), padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: Colors.blue[50], border: Border.all(color: Colors.blue[200]!), borderRadius: BorderRadius.circular(4)), child: Text("💡 (소유자 등록 : $matchedOwnerInfo)", style: TextStyle(fontSize: 10, color: Colors.blue[800], fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis))
+                    ],
                   ),
-
-                  // 🎯 [여기입니다!] 소유자가 맞다면 예쁜 파란색 뱃지를 달아줍니다.
-                  if (isOwnerRegistered)
-                    Container(
-                      margin: const EdgeInsets.only(top: 3),
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                          color: Colors.blue[50],
-                          border: Border.all(color: Colors.blue[200]!),
-                          borderRadius: BorderRadius.circular(4)
-                      ),
-                      child: Text(
-                        "💡 (소유자 등록 : $matchedOwnerInfo)",
-                        style: TextStyle(fontSize: 10, color: Colors.blue[800], fontWeight: FontWeight.bold),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    )
-                ],
+                ),
               ),
-            ),
-          ),
 
-          Expanded(
-              flex: 12,
-              child: InkWell(
-                  onTap: () {
-                    TextEditingController ctrl = TextEditingController(text: tx.managerMemo);
-                    showDialog(
-                        context: context,
-                        builder: (ctx) => AlertDialog(
-                            title: const Text("미확인 입금 메모", style: TextStyle(fontWeight: FontWeight.bold)),
-                            content: TextField(controller: ctrl, maxLines: 3, decoration: const InputDecoration(hintText: "특이사항을 입력하세요", border: OutlineInputBorder())),
-                            actions: [
-                              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("취소")),
-                              ElevatedButton(
-                                  onPressed: () {
-                                    String newText = ctrl.text.trim();
-                                    if (newText.isNotEmpty && newText != tx.managerMemo) {
-                                      final now = DateTime.now();
-                                      String timestamp = "[${now.month}/${now.day} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}]";
-                                      if (!newText.startsWith('[')) {
-                                        newText = "$timestamp $newText";
-                                      }
-                                    }
-                                    setState(() => tx.managerMemo = newText);
-                                    Navigator.pop(ctx);
-                                  },
-                                  child: const Text("저장")
-                              )
-                            ]
-                        )
-                    );
-                  },
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-                    padding: const EdgeInsets.all(4),
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                        color: tx.managerMemo.isEmpty ? Colors.white : Colors.yellow[100],
-                        border: Border.all(color: tx.managerMemo.isEmpty ? Colors.grey[300]! : Colors.yellow[400]!),
-                        borderRadius: BorderRadius.circular(4)
-                    ),
-                    child: Text(
-                      tx.managerMemo.isEmpty ? "+ 메모입력" : tx.managerMemo,
-                      style: TextStyle(fontSize: 10, color: tx.managerMemo.isEmpty ? Colors.grey : Colors.black87),
-                      maxLines: 2, overflow: TextOverflow.ellipsis,
-                    ),
-                  )
-              )
+              Expanded(flex: 12, child: const SizedBox()) // 메모 부분 생략(공간 유지)
+            ],
           ),
         ],
       ),
+    );
+  }
+
+  // 🌟 [신규] 전체 세대 탭 전용: 타세대 수동 묶기 엔진
+  void _showAddMultiRoomPopup(ResidentRow repRow) {
+    TextEditingController dongCtrl = TextEditingController();
+    TextEditingController hoCtrl = TextEditingController();
+
+    showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+            title: const Text("타세대 수동 묶기 (일괄수납)", style: TextStyle(fontWeight: FontWeight.bold)),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text("현재 대표 호실: ${repRow.dong}동 ${repRow.ho}호\n여기에 추가로 묶을 동/호수를 입력하세요.", style: const TextStyle(fontSize: 13)),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(child: TextField(controller: dongCtrl, decoration: const InputDecoration(labelText: "동", border: OutlineInputBorder()))),
+                    const SizedBox(width: 8),
+                    Expanded(child: TextField(controller: hoCtrl, decoration: const InputDecoration(labelText: "호", border: OutlineInputBorder()))),
+                  ],
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("취소")),
+              ElevatedButton(
+                  onPressed: () {
+                    String addDong = dongCtrl.text.trim();
+                    String addHo = hoCtrl.text.trim();
+                    if (addDong.isEmpty || addHo.isEmpty) { _showSnackBar("동/호수를 모두 입력하세요.", isError: true); return; }
+
+                    setState(() {
+                      // 1. 묶일 대상 행 찾기 (명부 보존)
+                      ResidentRow? targetRow;
+                      try { targetRow = _residentList.firstWhere((r) => r.dong == addDong && r.ho == addHo); } catch(e) {}
+
+                      if (targetRow == null) {
+                        targetRow = ResidentRow(dong: addDong, ho: addHo, others: ["-","-","-","-"]);
+                        int insertIdx = _residentList.length;
+                        for (int j = 0; j < _residentList.length; j++) {
+                          if (_residentList[j].dong == addDong) { insertIdx = j; break; }
+                        }
+                        _residentList.insert(insertIdx, targetRow);
+                      }
+
+                      // 2. 가족으로 영입
+                      List<ResidentRow> group = _getMultiGroup(repRow);
+                      if (!group.contains(repRow)) group.insert(0, repRow);
+                      if (!group.contains(targetRow)) group.add(targetRow);
+
+                      // 3. 상태 및 텍스트 동기화
+                      String baseLabel = "${group.first.dong}동 ${group.first.ho}호 외 ${group.length - 1}세대";
+
+                      for (var r in group) {
+                        r.isMatched = true;
+                        r.isCheckRequired = repRow.isCheckRequired;
+                        r.matchedTx = repRow.matchedTx;
+                        r.matchedDate = repRow.matchedDate;
+                        r.matchedBankName = repRow.matchedBankName;
+                        r.matchedBankText = repRow.matchedBankText;
+                        r.matchedName = repRow.matchedName;
+                        r.isMultiGroupExcluded = false; // 꼬리표 소각
+
+                        if (r == group.first) {
+                          r.matchedAmount = repRow.matchedTx?.amount ?? 0;
+                          r.matchedField = r.isCheckRequired ? "확인필요(수동일괄-$baseLabel)" : "[일괄수납 대표] $baseLabel";
+                        } else {
+                          r.matchedAmount = 0;
+                          r.matchedField = r.isCheckRequired ? "🔗 확인필요(수동일괄 포함)" : "🔗 [일괄수납 포함]";
+                        }
+                      }
+                    });
+                    Navigator.pop(ctx);
+                    _showSnackBar("$addDong동 $addHo호가 수동으로 묶였습니다.");
+                  },
+                  child: const Text("묶기")
+              )
+            ]
+        )
     );
   }
 
@@ -3356,8 +3582,19 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
     String cleanDesc = normalizedDesc.toLowerCase().replaceAll(RegExp(r'\s+'), '');
 
     // 0️⃣ [핀테크 수동송금 예외처리] - 최우선 방어막
-    if (cleanDesc.contains('카카오페이') || cleanDesc.contains('토스') || cleanDesc.contains('toss') || cleanDesc.contains('네이버페이')) {
-      return false;
+    // 🌟 단, pg/자동이체/결제 키워드가 같이 있으면 대행사이므로 통과!
+    bool hasPgKeyword = cleanDesc.contains('pg') ||
+        cleanDesc.contains('자동이체') ||
+        cleanDesc.contains('펌뱅킹') ||
+        cleanDesc.contains('센터일괄');
+
+    if (!hasPgKeyword) {
+      if (cleanDesc.contains('카카오페이') ||
+          cleanDesc.contains('토스') ||
+          cleanDesc.contains('toss') ||
+          cleanDesc.contains('네이버페이')) {
+        return false;
+      }
     }
 
     // 1️⃣ [확실한 대행사 키워드]
