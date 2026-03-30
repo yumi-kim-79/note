@@ -162,15 +162,13 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
   }
 
   // =======================================================
-  // 🌟 [고도화] 담당자 전용 '수납 팝업창' (전체화면 + 메모 + 총계 + 엑셀 + 체크박스 계산기)
+  // 🌟 [고도화] 담당자 전용 '수납 팝업창' (4단 탭: 일반, 대행사, 확인필요, 미확인 통합 대시보드)
   // =======================================================
   void _showReceiptPopup() {
     // 1. 일반 매칭완료 데이터 준비
     List<ResidentRow> matchedList = _residentList.where((r) {
       if (!r.isMatched || r.isCheckRequired) return false;
       if (r.matchedTx != null && (_isAutoPaymentTx(r.matchedTx!) || _isVirtualAccountTx(r.matchedTx!))) return false;
-      // 🌟 [수정] 대표님 기획: 숨기지 않고 팝업창에서 전부 다 보여줍니다!
-      // if (r.matchedField.contains("🔗") || r.matchedField.contains("[일괄수납 포함]")) return false;
       return true;
     }).toList();
 
@@ -178,7 +176,15 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
     List<BankTx> autoList = _bankList.where((tx) => tx.amount > 0 && _isAutoPaymentTx(tx)).toList();
     List<BankTx> vBankList = _bankList.where((tx) => tx.amount > 0 && _isVirtualAccountTx(tx)).toList();
 
-    if (matchedList.isEmpty && autoList.isEmpty && vBankList.isEmpty) {
+    // 3. 확인필요 및 미확인 데이터 준비 (신규 탭용)
+    List<ResidentRow> checkList = _residentList.where((r) {
+      if (!r.isMatched || !r.isCheckRequired) return false;
+      if (r.matchedTx != null && (_isAutoPaymentTx(r.matchedTx!) || _isVirtualAccountTx(r.matchedTx!))) return false;
+      return true;
+    }).toList();
+    List<BankTx> unconfirmedList = _bankList.where((tx) => !tx.isUsed && tx.amount > 0 && !_isAutoPaymentTx(tx) && !_isVirtualAccountTx(tx)).toList();
+
+    if (matchedList.isEmpty && autoList.isEmpty && vBankList.isEmpty && checkList.isEmpty && unconfirmedList.isEmpty) {
       _showSnackBar("표시할 수납 데이터가 없습니다.");
       return;
     }
@@ -188,7 +194,6 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
     int sortMode = 0;
     String selectedDong = "전체";
 
-    // 👇 🌟 [요구사항 반영] 체크된 항목들을 담아둘 마법의 바구니 생성!
     Set<BankTx> checkedBankTxs = {};
 
     List<String> availableDongs = matchedList.map((r) => r.dong).where((d) => d.isNotEmpty).toSet().toList();
@@ -222,22 +227,24 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
 
                 List<BankTx> displayBankList = popupSubTab == 0 ? autoList : vBankList;
                 int bankTotalAmt = displayBankList.fold(0, (sum, tx) => sum + tx.amount);
-                // 👇 🌟 [요구사항 계산] 체크된 항목들의 합계
                 int checkedTotalAmt = checkedBankTxs.fold(0, (sum, tx) => sum + tx.amount);
 
-                // 👇 🌟 [초고도화 엑셀 다운로드] 탭과 상관없이 3개의 시트(일반, 자동이체, 가상계좌)를 하나로 묶어 한 번에 뽑아줍니다!
+                // 👇 🌟 [초고도화 엑셀 다운로드] 순수 숫자로 뽑아내고 엑셀 전용 '콤마(,)' 서식을 입혀 합계 계산을 완벽 지원합니다!
                 void downloadReceiptExcel() {
                   var excel = Excel.createExcel();
                   String defaultSheet = excel.getDefaultSheet() ?? "Sheet1";
                   excel.rename(defaultSheet, "일반수납");
 
+                  // 🌟 [핵심] 돈에 콤마를 찍어주는 엑셀 전용 마법의 옷 (숫자는 숫자로 유지하되 눈에만 콤마가 보임)
+                  CellStyle moneyStyle = CellStyle(numberFormat: NumFormat.standard_3); // #,##0 포맷
+                  CellStyle boldMoneyStyle = CellStyle(numberFormat: NumFormat.standard_3, bold: true);
+
                   // ==========================================
                   // 1️⃣ 일반 수납 내역 시트
                   // ==========================================
                   var sheet1 = excel["일반수납"];
-                  sheet1.appendRow([TextCellValue("거래일"), TextCellValue("입금액"), TextCellValue("동"), TextCellValue("호"), TextCellValue("매칭이름"), TextCellValue("내용 및 거래내용"), TextCellValue("상대은행"), TextCellValue("담당자 메모"), TextCellValue("수납상태")]);
+                  sheet1.appendRow([TextCellValue("거래일"), TextCellValue("입금액"), TextCellValue("단위"), TextCellValue("동"), TextCellValue("호"), TextCellValue("매칭이름"), TextCellValue("내용 및 거래내용"), TextCellValue("상대은행"), TextCellValue("담당자 메모"), TextCellValue("수납상태")]);
 
-                  // 필터 무시하고 '하나도 빠짐없이' 전체 명단을 정렬만 맞춰서 가져옵니다.
                   List<ResidentRow> exportMatched = List.from(matchedList);
                   if (sortMode == 1) exportMatched.sort((a, b) => a.matchedDate.compareTo(b.matchedDate));
                   else if (sortMode == 2) exportMatched.sort((a, b) => b.matchedDate.compareTo(a.matchedDate));
@@ -252,23 +259,30 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                     else { unRcvAmt1 += row.matchedAmount; unRcvCnt1++; }
 
                     sheet1.appendRow([
-                      TextCellValue(row.matchedDate.split(' ')[0]), TextCellValue(_formatCurrency(row.matchedAmount)), TextCellValue(row.dong), TextCellValue(row.ho), TextCellValue(row.matchedName), TextCellValue(row.matchedBankText), TextCellValue(row.matchedBankName), TextCellValue(row.managerMemo), TextCellValue(isProcessed ? "수납완료" : "미수납")
+                      TextCellValue(row.matchedDate.split(' ')[0]), IntCellValue(row.matchedAmount), TextCellValue("원"), TextCellValue(row.dong), TextCellValue(row.ho), TextCellValue(row.matchedName), TextCellValue(row.matchedBankText), TextCellValue(row.matchedBankName), TextCellValue(row.managerMemo), TextCellValue(isProcessed ? "수납완료" : "미수납")
                     ]);
                     int rIdx = sheet1.maxRows - 1;
-                    sheet1.cell(CellIndex.indexByColumnRow(columnIndex: 7, rowIndex: rIdx)).cellStyle = CellStyle(backgroundColorHex: ExcelColor.fromHexString('#FFFFF9C4')); // 메모 노란색
-                    sheet1.cell(CellIndex.indexByColumnRow(columnIndex: 8, rowIndex: rIdx)).cellStyle = CellStyle(fontColorHex: isProcessed ? ExcelColor.fromHexString('#FF4CAF50') : ExcelColor.fromHexString('#FFF44336'), bold: true);
+                    sheet1.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: rIdx)).cellStyle = moneyStyle; // 🌟 콤마 옷 입히기!
+                    sheet1.cell(CellIndex.indexByColumnRow(columnIndex: 8, rowIndex: rIdx)).cellStyle = CellStyle(backgroundColorHex: ExcelColor.fromHexString('#FFFFF9C4')); // 메모 노란색
+                    sheet1.cell(CellIndex.indexByColumnRow(columnIndex: 9, rowIndex: rIdx)).cellStyle = CellStyle(fontColorHex: isProcessed ? ExcelColor.fromHexString('#FF4CAF50') : ExcelColor.fromHexString('#FFF44336'), bold: true);
                   }
                   sheet1.appendRow([TextCellValue("")]);
-                  sheet1.appendRow([TextCellValue("요약"), TextCellValue("건수"), TextCellValue("금액")]);
-                  sheet1.appendRow([TextCellValue("입금액 총액"), TextCellValue("${exportMatched.length}건"), TextCellValue("${_formatCurrency(totalAmt1)}원")]);
-                  sheet1.appendRow([TextCellValue("수납액 총액"), TextCellValue("${rcvCnt1}건"), TextCellValue("${_formatCurrency(rcvAmt1)}원")]);
-                  sheet1.appendRow([TextCellValue("미수납액 총액"), TextCellValue("${unRcvCnt1}건"), TextCellValue("${_formatCurrency(unRcvAmt1)}원")]);
+                  sheet1.appendRow([TextCellValue("요약"), TextCellValue("건수"), TextCellValue("금액"), TextCellValue("단위")]);
+
+                  sheet1.appendRow([TextCellValue("입금액 총액"), TextCellValue("${exportMatched.length}건"), IntCellValue(totalAmt1), TextCellValue("원")]);
+                  sheet1.cell(CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: sheet1.maxRows - 1)).cellStyle = boldMoneyStyle;
+
+                  sheet1.appendRow([TextCellValue("수납액 총액"), TextCellValue("${rcvCnt1}건"), IntCellValue(rcvAmt1), TextCellValue("원")]);
+                  sheet1.cell(CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: sheet1.maxRows - 1)).cellStyle = boldMoneyStyle;
+
+                  sheet1.appendRow([TextCellValue("미수납액 총액"), TextCellValue("${unRcvCnt1}건"), IntCellValue(unRcvAmt1), TextCellValue("원")]);
+                  sheet1.cell(CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: sheet1.maxRows - 1)).cellStyle = boldMoneyStyle;
 
                   // ==========================================
                   // 2️⃣ 자동이체 (PG/카드) 시트
                   // ==========================================
                   var sheet2 = excel["자동이체(PG_카드)"];
-                  sheet2.appendRow([TextCellValue("동"), TextCellValue("호"), TextCellValue("거래일시"), TextCellValue("구분"), TextCellValue("적요(내용)"), TextCellValue("입금액"), TextCellValue("상대은행"), TextCellValue("담당자 메모")]);
+                  sheet2.appendRow([TextCellValue("동"), TextCellValue("호"), TextCellValue("거래일시"), TextCellValue("구분"), TextCellValue("적요(내용)"), TextCellValue("입금액"), TextCellValue("단위"), TextCellValue("상대은행"), TextCellValue("담당자 메모")]);
 
                   int totalAmt2 = 0;
                   for (var tx in autoList) {
@@ -277,19 +291,23 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                     if (tx.isUsed) { try { var mr = _residentList.firstWhere((r) => r.matchedTx == tx); dong = mr.dong; ho = mr.ho; } catch (e) {} }
 
                     sheet2.appendRow([
-                      TextCellValue(dong), TextCellValue(ho), TextCellValue(tx.date), TextCellValue("자동납부(PG)"), TextCellValue(tx.description), TextCellValue(_formatCurrency(tx.amount)), TextCellValue(tx.bankName), TextCellValue(tx.managerMemo)
+                      TextCellValue(dong), TextCellValue(ho), TextCellValue(tx.date), TextCellValue("자동납부(PG)"), TextCellValue(tx.description), IntCellValue(tx.amount), TextCellValue("원"), TextCellValue(tx.bankName), TextCellValue(tx.managerMemo)
                     ]);
-                    sheet2.cell(CellIndex.indexByColumnRow(columnIndex: 7, rowIndex: sheet2.maxRows - 1)).cellStyle = CellStyle(backgroundColorHex: ExcelColor.fromHexString('#FFFFF9C4')); // 메모 노란색
+                    int rIdx = sheet2.maxRows - 1;
+                    sheet2.cell(CellIndex.indexByColumnRow(columnIndex: 5, rowIndex: rIdx)).cellStyle = moneyStyle; // 🌟 콤마 옷 입히기!
+                    sheet2.cell(CellIndex.indexByColumnRow(columnIndex: 8, rowIndex: rIdx)).cellStyle = CellStyle(backgroundColorHex: ExcelColor.fromHexString('#FFFFF9C4'));
                   }
                   sheet2.appendRow([TextCellValue("")]);
-                  sheet2.appendRow([TextCellValue("요약"), TextCellValue("건수"), TextCellValue("금액")]);
-                  sheet2.appendRow([TextCellValue("총 수납액"), TextCellValue("${autoList.length}건"), TextCellValue("${_formatCurrency(totalAmt2)}원")]);
+                  sheet2.appendRow([TextCellValue("요약"), TextCellValue("건수"), TextCellValue("금액"), TextCellValue("단위")]);
+
+                  sheet2.appendRow([TextCellValue("총 수납액"), TextCellValue("${autoList.length}건"), IntCellValue(totalAmt2), TextCellValue("원")]);
+                  sheet2.cell(CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: sheet2.maxRows - 1)).cellStyle = boldMoneyStyle;
 
                   // ==========================================
                   // 3️⃣ 가상계좌 (제휴/아파트아이) 시트
                   // ==========================================
                   var sheet3 = excel["가상계좌(제휴_아파트아이)"];
-                  sheet3.appendRow([TextCellValue("동"), TextCellValue("호"), TextCellValue("거래일시"), TextCellValue("구분"), TextCellValue("적요(내용)"), TextCellValue("입금액"), TextCellValue("상대은행"), TextCellValue("담당자 메모")]);
+                  sheet3.appendRow([TextCellValue("동"), TextCellValue("호"), TextCellValue("거래일시"), TextCellValue("구분"), TextCellValue("적요(내용)"), TextCellValue("입금액"), TextCellValue("단위"), TextCellValue("상대은행"), TextCellValue("담당자 메모")]);
 
                   int totalAmt3 = 0;
                   for (var tx in vBankList) {
@@ -298,65 +316,67 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                     if (tx.isUsed) { try { var mr = _residentList.firstWhere((r) => r.matchedTx == tx); dong = mr.dong; ho = mr.ho; } catch (e) {} }
 
                     sheet3.appendRow([
-                      TextCellValue(dong), TextCellValue(ho), TextCellValue(tx.date), TextCellValue("가상계좌/제휴"), TextCellValue(tx.description), TextCellValue(_formatCurrency(tx.amount)), TextCellValue(tx.bankName), TextCellValue(tx.managerMemo)
+                      TextCellValue(dong), TextCellValue(ho), TextCellValue(tx.date), TextCellValue("가상계좌/제휴"), TextCellValue(tx.description), IntCellValue(tx.amount), TextCellValue("원"), TextCellValue(tx.bankName), TextCellValue(tx.managerMemo)
                     ]);
-                    sheet3.cell(CellIndex.indexByColumnRow(columnIndex: 7, rowIndex: sheet3.maxRows - 1)).cellStyle = CellStyle(backgroundColorHex: ExcelColor.fromHexString('#FFFFF9C4')); // 메모 노란색
+                    int rIdx = sheet3.maxRows - 1;
+                    sheet3.cell(CellIndex.indexByColumnRow(columnIndex: 5, rowIndex: rIdx)).cellStyle = moneyStyle; // 🌟 콤마 옷 입히기!
+                    sheet3.cell(CellIndex.indexByColumnRow(columnIndex: 8, rowIndex: rIdx)).cellStyle = CellStyle(backgroundColorHex: ExcelColor.fromHexString('#FFFFF9C4'));
                   }
                   sheet3.appendRow([TextCellValue("")]);
-                  sheet3.appendRow([TextCellValue("요약"), TextCellValue("건수"), TextCellValue("금액")]);
-                  sheet3.appendRow([TextCellValue("총 수납액"), TextCellValue("${vBankList.length}건"), TextCellValue("${_formatCurrency(totalAmt3)}원")]);
+                  sheet3.appendRow([TextCellValue("요약"), TextCellValue("건수"), TextCellValue("금액"), TextCellValue("단위")]);
+
+                  sheet3.appendRow([TextCellValue("총 수납액"), TextCellValue("${vBankList.length}건"), IntCellValue(totalAmt3), TextCellValue("원")]);
+                  sheet3.cell(CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: sheet3.maxRows - 1)).cellStyle = boldMoneyStyle;
 
                   // ==========================================
-                  // 4️⃣ 확인필요 내역 시트 (추가)
+                  // 4️⃣ 확인필요 내역 시트
                   // ==========================================
                   var sheet4 = excel["확인필요"];
-                  sheet4.appendRow([TextCellValue("동"), TextCellValue("호"), TextCellValue("소유자"), TextCellValue("입주자"), TextCellValue("입금일자"), TextCellValue("입금액"), TextCellValue("상대은행"), TextCellValue("은행적요(내용)"), TextCellValue("매칭사유(AI판단)"), TextCellValue("담당자 메모")]);
+                  sheet4.appendRow([TextCellValue("동"), TextCellValue("호"), TextCellValue("소유자"), TextCellValue("입주자"), TextCellValue("입금일자"), TextCellValue("입금액"), TextCellValue("단위"), TextCellValue("상대은행"), TextCellValue("은행적요(내용)"), TextCellValue("매칭사유(AI판단)"), TextCellValue("담당자 메모")]);
 
                   int totalCheckAmt = 0;
-                  var checkList = _residentList.where((r) {
-                    if (!r.isMatched || !r.isCheckRequired) return false;
-                    if (r.matchedTx != null && (_isAutoPaymentTx(r.matchedTx!) || _isVirtualAccountTx(r.matchedTx!))) return false;
-                    return true;
-                  }).toList();
-
                   for (var r in checkList) {
                     totalCheckAmt += r.matchedAmount;
                     sheet4.appendRow([
-                      TextCellValue(r.dong), TextCellValue(r.ho), TextCellValue(r.owner), TextCellValue(r.resident), TextCellValue(r.matchedDate.split(' ')[0]), TextCellValue(_formatCurrency(r.matchedAmount)), TextCellValue(r.matchedBankName), TextCellValue(r.matchedBankText), TextCellValue(r.matchedField), TextCellValue(r.managerMemo)
+                      TextCellValue(r.dong), TextCellValue(r.ho), TextCellValue(r.owner), TextCellValue(r.resident), TextCellValue(r.matchedDate.split(' ')[0]), IntCellValue(r.matchedAmount), TextCellValue("원"), TextCellValue(r.matchedBankName), TextCellValue(r.matchedBankText), TextCellValue(r.matchedField), TextCellValue(r.managerMemo)
                     ]);
-                    sheet4.cell(CellIndex.indexByColumnRow(columnIndex: 9, rowIndex: sheet4.maxRows - 1)).cellStyle = CellStyle(backgroundColorHex: ExcelColor.fromHexString('#FFFFF9C4')); // 메모 노란색
+                    int rIdx = sheet4.maxRows - 1;
+                    sheet4.cell(CellIndex.indexByColumnRow(columnIndex: 5, rowIndex: rIdx)).cellStyle = moneyStyle; // 🌟 콤마 옷 입히기!
+                    sheet4.cell(CellIndex.indexByColumnRow(columnIndex: 10, rowIndex: rIdx)).cellStyle = CellStyle(backgroundColorHex: ExcelColor.fromHexString('#FFFFF9C4'));
                   }
                   sheet4.appendRow([TextCellValue("")]);
-                  sheet4.appendRow([TextCellValue("요약"), TextCellValue("건수"), TextCellValue("금액")]);
-                  sheet4.appendRow([TextCellValue("확인필요 총액"), TextCellValue("${checkList.length}건"), TextCellValue("${_formatCurrency(totalCheckAmt)}원")]);
+                  sheet4.appendRow([TextCellValue("요약"), TextCellValue("건수"), TextCellValue("금액"), TextCellValue("단위")]);
 
-                  // 요약 부분 볼드 강조 및 오렌지색 글씨
+                  sheet4.appendRow([TextCellValue("확인필요 총액"), TextCellValue("${checkList.length}건"), IntCellValue(totalCheckAmt), TextCellValue("원")]);
+                  sheet4.cell(CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: sheet4.maxRows - 1)).cellStyle = boldMoneyStyle;
+
                   int s4Max = sheet4.maxRows - 1;
                   sheet4.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: s4Max)).cellStyle = CellStyle(bold: true);
                   sheet4.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: s4Max)).cellStyle = CellStyle(bold: true);
                   sheet4.cell(CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: s4Max)).cellStyle = CellStyle(bold: true, fontColorHex: ExcelColor.fromHexString('#FFFF9800'));
 
                   // ==========================================
-                  // 5️⃣ 미확인 입금 내역 시트 (추가)
+                  // 5️⃣ 미확인 입금 내역 시트
                   // ==========================================
                   var sheet5 = excel["미확인입금"];
-                  sheet5.appendRow([TextCellValue("거래일시"), TextCellValue("입금액"), TextCellValue("적요(내용)"), TextCellValue("상대은행"), TextCellValue("담당자 메모")]);
+                  sheet5.appendRow([TextCellValue("거래일시"), TextCellValue("입금액"), TextCellValue("단위"), TextCellValue("적요(내용)"), TextCellValue("상대은행"), TextCellValue("담당자 메모")]);
 
                   int totalUnconfirmedAmt = 0;
-                  var unconfirmedList = _bankList.where((tx) => !tx.isUsed && tx.amount > 0 && !_isAutoPaymentTx(tx) && !_isVirtualAccountTx(tx)).toList();
-
                   for (var tx in unconfirmedList) {
                     totalUnconfirmedAmt += tx.amount;
                     sheet5.appendRow([
-                      TextCellValue(tx.date), TextCellValue(_formatCurrency(tx.amount)), TextCellValue(tx.description), TextCellValue(tx.bankName), TextCellValue(tx.managerMemo)
+                      TextCellValue(tx.date), IntCellValue(tx.amount), TextCellValue("원"), TextCellValue(tx.description), TextCellValue(tx.bankName), TextCellValue(tx.managerMemo)
                     ]);
-                    sheet5.cell(CellIndex.indexByColumnRow(columnIndex: 4, rowIndex: sheet5.maxRows - 1)).cellStyle = CellStyle(backgroundColorHex: ExcelColor.fromHexString('#FFFFF9C4')); // 메모 노란색
+                    int rIdx = sheet5.maxRows - 1;
+                    sheet5.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: rIdx)).cellStyle = moneyStyle; // 🌟 콤마 옷 입히기!
+                    sheet5.cell(CellIndex.indexByColumnRow(columnIndex: 5, rowIndex: rIdx)).cellStyle = CellStyle(backgroundColorHex: ExcelColor.fromHexString('#FFFFF9C4'));
                   }
                   sheet5.appendRow([TextCellValue("")]);
-                  sheet5.appendRow([TextCellValue("요약"), TextCellValue("건수"), TextCellValue("금액")]);
-                  sheet5.appendRow([TextCellValue("미확인입금 총액"), TextCellValue("${unconfirmedList.length}건"), TextCellValue("${_formatCurrency(totalUnconfirmedAmt)}원")]);
+                  sheet5.appendRow([TextCellValue("요약"), TextCellValue("건수"), TextCellValue("금액"), TextCellValue("단위")]);
 
-                  // 요약 부분 볼드 강조 및 빨간색 글씨
+                  sheet5.appendRow([TextCellValue("미확인입금 총액"), TextCellValue("${unconfirmedList.length}건"), IntCellValue(totalUnconfirmedAmt), TextCellValue("원")]);
+                  sheet5.cell(CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: sheet5.maxRows - 1)).cellStyle = boldMoneyStyle;
+
                   int s5Max = sheet5.maxRows - 1;
                   sheet5.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: s5Max)).cellStyle = CellStyle(bold: true);
                   sheet5.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: s5Max)).cellStyle = CellStyle(bold: true);
@@ -375,34 +395,25 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                   }
                 }
 
-                void editMemoInDialog(dynamic rowOrTx) {
-                  TextEditingController ctrl = TextEditingController(text: rowOrTx.managerMemo);
-                  String title = rowOrTx is ResidentRow ? "${rowOrTx.dong}동 ${rowOrTx.ho}호 메모" : "수납 메모";
-                  showDialog(context: context, builder: (ctx) => AlertDialog(
-                      title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-                      content: TextField(controller: ctrl, maxLines: 3, decoration: const InputDecoration(border: OutlineInputBorder())),
-                      actions: [
-                        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("취소")),
-                        ElevatedButton(onPressed: () {
-                          String newText = ctrl.text.trim();
-                          if (newText.isNotEmpty && newText != rowOrTx.managerMemo) {
-                            final now = DateTime.now();
-                            newText = "[${now.month}/${now.day} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}] $newText";
-                          }
-                          setDialogState(() {
-                            // 👇 🌟 [핵심] 일괄수납 대표 행에 메모를 적으면, 숨어있는 종속 행들까지 싹 다 동기화!
-                            if (rowOrTx is ResidentRow && rowOrTx.matchedField.contains("일괄수납")) {
-                              List<ResidentRow> group = _getMultiGroup(rowOrTx);
-                              for(var r in group) r.managerMemo = newText;
-                            } else {
-                              rowOrTx.managerMemo = newText;
-                            }
-                          });
-                          setState(() {});
-                          Navigator.pop(ctx);
-                        }, child: const Text("저장"))
-                      ]
-                  ));
+                // 👇 🌟 [신규] 이중 팝업창 없이 그 자리에서 조용히 저장하고 닫히는 인라인 메모 엔진!
+                void handleMemoSave(dynamic rowOrTx, String newText) {
+                  if (newText != rowOrTx.managerMemo) {
+                    // 시간 도장이 안 찍혀있고, 글씨를 새로 썼을 때만 타임스탬프 쾅!
+                    if (newText.isNotEmpty && !newText.startsWith('[')) {
+                      final now = DateTime.now();
+                      newText = "[${now.month}/${now.day} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}] $newText";
+                    }
+
+                    setDialogState(() {
+                      if (rowOrTx is ResidentRow && rowOrTx.matchedField.contains("일괄수납")) {
+                        List<ResidentRow> group = _getMultiGroup(rowOrTx);
+                        for(var r in group) r.managerMemo = newText;
+                      } else {
+                        rowOrTx.managerMemo = newText;
+                      }
+                    });
+                    setState(() {});
+                  }
                 }
 
                 Widget buildTabButton(String title, int tabIndex) {
@@ -410,9 +421,9 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                   return InkWell(
                     onTap: () => setDialogState(() => popupMainTab = tabIndex),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                       decoration: BoxDecoration(color: isActive ? Colors.blue[800] : Colors.grey[200], borderRadius: BorderRadius.circular(8), boxShadow: isActive ? [BoxShadow(color: Colors.blue.withOpacity(0.3), blurRadius: 4, offset: const Offset(0, 2))] : []),
-                      child: Text(title, style: TextStyle(color: isActive ? Colors.white : Colors.grey[700], fontWeight: FontWeight.bold, fontSize: 16)),
+                      child: Text(title, style: TextStyle(color: isActive ? Colors.white : Colors.grey[700], fontWeight: FontWeight.bold, fontSize: 13)),
                     ),
                   );
                 }
@@ -443,12 +454,19 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                                   Row(children: [
                                     Icon(Icons.fact_check, color: Colors.blue[700], size: 28),
                                     const SizedBox(width: 8),
-                                    Text(popupMainTab == 0 ? "수납 전산처리 (일반매칭)" : "대행사 수납 확인 (자동/가상)", style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                                    Text(
+                                        popupMainTab == 0 ? "수납 전산처리 (일반매칭)" :
+                                        popupMainTab == 1 ? "대행사 수납 확인 (자동/가상)" :
+                                        popupMainTab == 2 ? "확인필요 내역 (수동검토)" :
+                                        "미확인 입금 내역 (주인찾기)",
+                                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)
+                                    ),
                                   ]),
                                   Row(children: [
-                                    buildTabButton("일반 수납 내역", 0),
-                                    const SizedBox(width: 8),
-                                    buildTabButton("자동/가상 수납 내역", 1),
+                                    buildTabButton("일반 수납", 0), const SizedBox(width: 6),
+                                    buildTabButton("자동/가상", 1), const SizedBox(width: 6),
+                                    buildTabButton("확인필요", 2), const SizedBox(width: 6),
+                                    buildTabButton("미확인입금", 3),
                                   ]),
                                   Row(children: [
                                     ElevatedButton.icon(
@@ -502,7 +520,6 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                                           var row = displayList[index];
                                           String matchedName = row.matchedName;
 
-                                          // 👇 🌟 1. 팝업창 내부 그룹 판별 로직 (초록 박스용)
                                           bool isGroup = false; bool isTop = false; bool isBottom = false;
                                           if (row.matchedField.contains("일괄수납") && row.matchedTx != null) {
                                             bool sameAsPrev = index > 0 && displayList[index - 1].matchedTx == row.matchedTx;
@@ -512,11 +529,7 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                                             isBottom = isGroup && !sameAsNext;
                                           }
 
-                                          // 👇 🌟 2. 그룹 전체의 활성/처리 상태 동기화 (운명 공동체)
-                                          List<ResidentRow> targetGroup = isGroup
-                                              ? displayList.where((r) => r.matchedTx == row.matchedTx).toList()
-                                              : [row];
-
+                                          List<ResidentRow> targetGroup = isGroup ? displayList.where((r) => r.matchedTx == row.matchedTx).toList() : [row];
                                           bool isActive = _activeReceiptRow != null && targetGroup.contains(_activeReceiptRow);
                                           bool isProcessed = _processedReceipts.contains(row) && !isActive;
 
@@ -531,22 +544,18 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                                             return Expanded(flex: flex, child: Container(alignment: Alignment.center, padding: const EdgeInsets.symmetric(horizontal: 4), child: FittedBox(fit: BoxFit.scaleDown, child: Text(text, style: style))));
                                           }
 
-                                          // 🌟 팝업창 안에서의 초록색 묶음 테두리 설정
                                           BorderSide greenBorder = BorderSide(color: Colors.green.shade600, width: 2.0);
                                           BorderSide defaultBorder = BorderSide(color: Colors.grey[200]!);
 
                                           return InkWell(
                                               onTap: () {
                                                 setDialogState(() {
-                                                  // 🌟 팝업 클릭 시 세트메뉴 전체 동시 삭선 그어짐!
                                                   if (isActive) {
                                                     _processedReceipts.addAll(targetGroup);
                                                     _activeReceiptRow = null;
                                                   } else {
                                                     if (_activeReceiptRow != null) {
-                                                      List<ResidentRow> prevGroup = _activeReceiptRow!.matchedField.contains("일괄수납")
-                                                          ? displayList.where((r) => r.matchedTx == _activeReceiptRow!.matchedTx).toList()
-                                                          : [_activeReceiptRow!];
+                                                      List<ResidentRow> prevGroup = _activeReceiptRow!.matchedField.contains("일괄수납") ? displayList.where((r) => r.matchedTx == _activeReceiptRow!.matchedTx).toList() : [_activeReceiptRow!];
                                                       _processedReceipts.addAll(prevGroup);
                                                     }
                                                     _activeReceiptRow = row;
@@ -555,38 +564,20 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                                                 });
                                               },
                                               child: Container(
-                                                  decoration: BoxDecoration(
-                                                      color: bgColor,
-                                                      border: Border(
-                                                        top: isTop ? greenBorder : (isGroup ? BorderSide.none : defaultBorder),
-                                                        bottom: isBottom ? greenBorder : defaultBorder,
-                                                        left: isGroup ? greenBorder : BorderSide.none,
-                                                        right: isGroup ? greenBorder : BorderSide.none,
-                                                      )
-                                                  ),
+                                                  decoration: BoxDecoration(color: bgColor, border: Border(top: isTop ? greenBorder : (isGroup ? BorderSide.none : defaultBorder), bottom: isBottom ? greenBorder : defaultBorder, left: isGroup ? greenBorder : BorderSide.none, right: isGroup ? greenBorder : BorderSide.none)),
                                                   padding: EdgeInsets.only(top: isTop || !isGroup ? 12 : 6, bottom: isBottom || !isGroup ? 12 : 6),
                                                   child: Row(children: [
                                                     Expanded(flex: 3, child: Stack(alignment: Alignment.center, children: [
-                                                      if (isProcessed) Positioned(left: 2, child: InkWell(onTap: () {
-                                                        setDialogState(() { targetGroup.forEach((r) => _processedReceipts.remove(r)); });
-                                                      }, child: Container(padding: const EdgeInsets.all(2), decoration: BoxDecoration(color: Colors.red.withOpacity(0.1), borderRadius: BorderRadius.circular(4), border: Border.all(color: Colors.red.withOpacity(0.3))), child: const Icon(Icons.close, size: 12, color: Colors.red)))),
+                                                      if (isProcessed) Positioned(left: 2, child: InkWell(onTap: () { setDialogState(() { targetGroup.forEach((r) => _processedReceipts.remove(r)); }); }, child: Container(padding: const EdgeInsets.all(2), decoration: BoxDecoration(color: Colors.red.withOpacity(0.1), borderRadius: BorderRadius.circular(4), border: Border.all(color: Colors.red.withOpacity(0.3))), child: const Icon(Icons.close, size: 12, color: Colors.red)))),
                                                       Container(padding: const EdgeInsets.symmetric(horizontal: 4), alignment: Alignment.center, child: FittedBox(fit: BoxFit.scaleDown, child: Text(row.matchedDate.split(' ')[0], style: _rowStyle(Colors.black87)))),
                                                     ])),
-
-                                                    // 👇 🌟 금액 중복 뻥튀기 방지: 대가리(대표)에만 적고 꼬리(포함)들은 ↪ 포함으로 표시!
-                                                    (row.matchedField.contains("🔗") || row.matchedField.contains("[일괄수납 포함]"))
-                                                        ? _safeText("↪ 그룹포함", _rowStyle(Colors.grey, size: 12), 3)
-                                                        : _safeText("${_formatCurrency(row.matchedAmount)}원", _rowStyle(Colors.blue[800]!, isBold: true, size: 13), 3),
-
+                                                    (row.matchedField.contains("🔗") || row.matchedField.contains("[일괄수납 포함]")) ? _safeText("↪ 그룹포함", _rowStyle(Colors.grey, size: 12), 3) : _safeText("${_formatCurrency(row.matchedAmount)}원", _rowStyle(Colors.blue[800]!, isBold: true, size: 13), 3),
                                                     _safeText(row.dong, _rowStyle(Colors.black87, isBold: true), 2),
-                                                    _safeText(row.ho, _rowStyle(Colors.black87, isBold: true), 2), // 🌟 호수 정상 표시 복구
+                                                    _safeText(row.ho, _rowStyle(Colors.black87, isBold: true), 2),
                                                     _safeText(matchedName, _rowStyle(Colors.teal[700]!, isBold: true), 3),
                                                     _safeText(row.matchedBankText, _rowStyle(Colors.black87), 5),
                                                     _safeText(row.matchedBankName, _rowStyle(Colors.grey), 3),
-                                                    Expanded(flex: 4, child: InkWell(
-                                                        onTap: () => editMemoInDialog(row),
-                                                        child: Container(margin: const EdgeInsets.symmetric(horizontal: 4), padding: const EdgeInsets.all(4), alignment: Alignment.center, decoration: BoxDecoration(color: row.managerMemo.isEmpty ? Colors.white : Colors.yellow[100], border: Border.all(color: row.managerMemo.isEmpty ? Colors.grey[300]! : Colors.yellow[400]!), borderRadius: BorderRadius.circular(4)), child: Text(row.managerMemo.isEmpty ? "+ 메모" : row.managerMemo, style: TextStyle(fontSize: 10, color: row.managerMemo.isEmpty ? Colors.grey : Colors.black87), maxLines: 2, overflow: TextOverflow.ellipsis))
-                                                    ))
+                                                    Expanded(flex: 4, child: PopupInlineMemoEditor(initialText: row.managerMemo, margin: const EdgeInsets.symmetric(horizontal: 4), onSaved: (val) { setDialogState(() { handleMemoSave(row, val); }); }))
                                                   ])
                                               )
                                           );
@@ -607,14 +598,13 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                                   ]),
                                 )
 
-                              ] else ...[
+                              ] else if (popupMainTab == 1) ...[
                                 // ==========================================
-                                // 🌟 [탭 1] 자동/가상 수납 내역 (체크박스 탑재)
+                                // 🌟 [탭 1] 자동/가상 수납 내역
                                 // ==========================================
                                 Container(
                                     padding: const EdgeInsets.symmetric(vertical: 8),
                                     child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                                      // 👇 🌟 [기능 개선] 라디오 버튼을 바꿀 때마다 체크된 목록(장바구니)을 비워줍니다.
                                       Radio<int>(value: 0, groupValue: popupSubTab, activeColor: Colors.indigo, onChanged: (v) => setDialogState(() { popupSubTab = v!; checkedBankTxs.clear(); })),
                                       Text("자동이체 (PG/카드) ${autoList.length}건", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo, fontSize: 15)),
                                       const SizedBox(width: 40),
@@ -626,25 +616,15 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                                     padding: const EdgeInsets.symmetric(vertical: 12),
                                     decoration: BoxDecoration(color: Colors.grey[200], border: Border.all(color: Colors.grey[300]!), borderRadius: const BorderRadius.vertical(top: Radius.circular(8))),
                                     child: Row(children: [
-                                      // 👇 🌟 [요구사항] 전체 선택/해제용 마스터 체크박스
-                                      Expanded(flex: 3, child: Checkbox(
-                                          value: displayBankList.isNotEmpty && checkedBankTxs.length == displayBankList.length,
-                                          activeColor: Colors.indigo,
-                                          onChanged: (val) {
-                                            setDialogState(() {
-                                              if (val == true) checkedBankTxs.addAll(displayBankList);
-                                              else checkedBankTxs.clear();
-                                            });
-                                          }
-                                      )),
-                                      Expanded(flex: 5, child: Center(child: Text("동", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
-                                      Expanded(flex: 6, child: Center(child: Text("호", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
-                                      Expanded(flex: 10, child: Center(child: Text("거래일시", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
-                                      Expanded(flex: 12, child: Center(child: Text(popupSubTab == 0 ? "구분 (결제수단)" : "구분 (가상계좌)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
-                                      Expanded(flex: 22, child: Center(child: Text("적요 (입금내역)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
-                                      Expanded(flex: 10, child: Center(child: Text("입금액", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
-                                      Expanded(flex: 10, child: Center(child: Text("상대은행", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
-                                      Expanded(flex: 15, child: Center(child: Text("담당자 메모", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
+                                      Expanded(flex: 3, child: Checkbox(value: displayBankList.isNotEmpty && checkedBankTxs.length == displayBankList.length, activeColor: Colors.indigo, onChanged: (val) { setDialogState(() { if (val == true) checkedBankTxs.addAll(displayBankList); else checkedBankTxs.clear(); }); })),
+                                      const Expanded(flex: 5, child: Center(child: Text("동", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
+                                      const Expanded(flex: 6, child: Center(child: Text("호", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
+                                      const Expanded(flex: 10, child: Center(child: Text("거래일시", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
+                                      Expanded(flex: 12, child: Center(child: Text(popupSubTab == 0 ? "구분 (결제수단)" : "구분 (가상계좌)", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
+                                      const Expanded(flex: 22, child: Center(child: Text("적요 (입금내역)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
+                                      const Expanded(flex: 10, child: Center(child: Text("입금액", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
+                                      const Expanded(flex: 10, child: Center(child: Text("상대은행", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
+                                      const Expanded(flex: 15, child: Center(child: Text("담당자 메모", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
                                     ])
                                 ),
                                 Expanded(
@@ -657,22 +637,9 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                                               String d = "-"; String h = "-";
                                               if (tx.isUsed) { try { var mr = _residentList.firstWhere((r) => r.matchedTx == tx); d = mr.dong; h = mr.ho; } catch(e){} }
                                               return Container(
-                                                  decoration: BoxDecoration(
-                                                      color: checkedBankTxs.contains(tx) ? Colors.indigo.withOpacity(0.1) : (idx % 2 == 0 ? Colors.white : Colors.indigo.withOpacity(0.02)),
-                                                      border: Border(bottom: BorderSide(color: Colors.grey[200]!))
-                                                  ),
+                                                  decoration: BoxDecoration(color: checkedBankTxs.contains(tx) ? Colors.indigo.withOpacity(0.1) : (idx % 2 == 0 ? Colors.white : Colors.indigo.withOpacity(0.02)), border: Border(bottom: BorderSide(color: Colors.grey[200]!))),
                                                   child: Row(children: [
-                                                    // 👇 🌟 [요구사항] 개별 체크박스
-                                                    Expanded(flex: 3, child: Checkbox(
-                                                        value: checkedBankTxs.contains(tx),
-                                                        activeColor: Colors.indigo,
-                                                        onChanged: (val) {
-                                                          setDialogState(() {
-                                                            if (val == true) checkedBankTxs.add(tx);
-                                                            else checkedBankTxs.remove(tx);
-                                                          });
-                                                        }
-                                                    )),
+                                                    Expanded(flex: 3, child: Checkbox(value: checkedBankTxs.contains(tx), activeColor: Colors.indigo, onChanged: (val) { setDialogState(() { if (val == true) checkedBankTxs.add(tx); else checkedBankTxs.remove(tx); }); })),
                                                     Expanded(flex: 5, child: Container(alignment: Alignment.center, padding: const EdgeInsets.symmetric(vertical: 16), child: Text(d, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
                                                     Expanded(flex: 6, child: Container(alignment: Alignment.center, child: Text(h, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
                                                     Expanded(flex: 10, child: Container(alignment: Alignment.center, child: Text(tx.date, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)))),
@@ -680,10 +647,7 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                                                     Expanded(flex: 22, child: Container(padding: const EdgeInsets.symmetric(horizontal: 4), alignment: Alignment.center, child: Text(tx.description, style: TextStyle(color: popupSubTab == 1 ? Colors.teal[900] : Colors.indigo[900], fontWeight: FontWeight.bold, fontSize: 13), overflow: TextOverflow.ellipsis))),
                                                     Expanded(flex: 10, child: Container(alignment: Alignment.center, child: Text("${_formatCurrency(tx.amount)}원", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
                                                     Expanded(flex: 10, child: Container(alignment: Alignment.center, child: Text(tx.bankName.isEmpty ? "-" : tx.bankName, style: const TextStyle(color: Colors.grey, fontSize: 12)))),
-                                                    Expanded(flex: 15, child: InkWell(
-                                                        onTap: () => editMemoInDialog(tx),
-                                                        child: Container(margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), padding: const EdgeInsets.all(8), alignment: Alignment.center, decoration: BoxDecoration(color: tx.managerMemo.isEmpty ? Colors.white : Colors.yellow[100], border: Border.all(color: tx.managerMemo.isEmpty ? Colors.grey[300]! : Colors.yellow[400]!), borderRadius: BorderRadius.circular(4)), child: Text(tx.managerMemo.isEmpty ? "+ 메모입력" : tx.managerMemo, textAlign: TextAlign.center, style: TextStyle(fontSize: 11, color: tx.managerMemo.isEmpty ? Colors.grey : Colors.black87), maxLines: 2, overflow: TextOverflow.ellipsis))
-                                                    )),
+                                                    Expanded(flex: 15, child: PopupInlineMemoEditor(initialText: tx.managerMemo, margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), onSaved: (val) { setDialogState(() { handleMemoSave(tx, val); }); })),
                                                   ])
                                               );
                                             }
@@ -697,16 +661,115 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
                                       Text("총 ${displayBankList.length}건", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.indigo[900])),
                                       const SizedBox(width: 32),
                                       Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                                        // 👇 🌟 [요구사항] 선택된 항목들의 합계 금액 표시
                                         Text("☑️ 선택 항목 합계 (${checkedBankTxs.length}건)", style: TextStyle(fontSize: 13, color: Colors.indigo[500], fontWeight: FontWeight.bold)),
                                         const SizedBox(height: 2),
                                         Text("${_formatCurrency(checkedTotalAmt)} 원", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.indigo[600])),
-                                        Container(margin: const EdgeInsets.symmetric(vertical: 6), width: 180, height: 1, color: Colors.indigo[200]), // 얇은 구분선
-
-                                        // 👇 기존 전체 합계
+                                        Container(margin: const EdgeInsets.symmetric(vertical: 6), width: 180, height: 1, color: Colors.indigo[200]),
                                         Text("전체 수납액 총합", style: TextStyle(fontSize: 12, color: Colors.grey[700], fontWeight: FontWeight.bold)),
                                         const SizedBox(height: 4),
                                         Text("${_formatCurrency(bankTotalAmt)} 원", style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Colors.indigo[900])),
+                                      ])
+                                    ])
+                                ),
+                              ] else if (popupMainTab == 2) ...[
+                                // ==========================================
+                                // 🌟 [탭 2] 확인필요 내역 (오렌지색)
+                                // ==========================================
+                                Container(
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    decoration: BoxDecoration(color: Colors.orange[50], border: Border.all(color: Colors.orange[200]!), borderRadius: const BorderRadius.vertical(top: Radius.circular(8))),
+                                    child: Row(children: [
+                                      const Expanded(flex: 3, child: Center(child: Text("동", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
+                                      const Expanded(flex: 3, child: Center(child: Text("호", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
+                                      const Expanded(flex: 6, child: Center(child: Text("입금일자", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
+                                      const Expanded(flex: 6, child: Center(child: Text("입금액", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
+                                      const Expanded(flex: 12, child: Center(child: Text("은행적요(내용)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
+                                      const Expanded(flex: 12, child: Center(child: Text("AI 매칭 사유", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
+                                      const Expanded(flex: 8, child: Center(child: Text("담당자 메모", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
+                                    ])
+                                ),
+                                Expanded(
+                                    child: Container(
+                                        decoration: BoxDecoration(border: Border.all(color: Colors.grey[200]!)),
+                                        child: ListView.builder(
+                                            itemCount: checkList.length,
+                                            itemBuilder: (ctx, idx) {
+                                              var r = checkList[idx];
+                                              return Container(
+                                                  decoration: BoxDecoration(color: idx % 2 == 0 ? Colors.white : Colors.orange.withOpacity(0.02), border: Border(bottom: BorderSide(color: Colors.grey[200]!))),
+                                                  child: Row(children: [
+                                                    Expanded(flex: 3, child: Container(alignment: Alignment.center, padding: const EdgeInsets.symmetric(vertical: 12), child: Text(r.dong, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
+                                                    Expanded(flex: 3, child: Container(alignment: Alignment.center, child: Text(r.ho, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
+                                                    Expanded(flex: 6, child: Container(alignment: Alignment.center, child: Text(r.matchedDate.split(' ')[0], style: const TextStyle(fontSize: 13)))),
+                                                    Expanded(flex: 6, child: Container(alignment: Alignment.center, child: Text("${_formatCurrency(r.matchedAmount)}원", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.orange[900])))),
+                                                    Expanded(flex: 12, child: Container(padding: const EdgeInsets.symmetric(horizontal: 8), alignment: Alignment.centerLeft, child: Text(r.matchedBankText, style: const TextStyle(fontSize: 13), overflow: TextOverflow.ellipsis))),
+                                                    Expanded(flex: 12, child: Container(padding: const EdgeInsets.symmetric(horizontal: 8), alignment: Alignment.centerLeft, child: Text(r.matchedField, style: TextStyle(fontSize: 11, color: Colors.orange[800], fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis))),
+                                                    Expanded(flex: 8, child: PopupInlineMemoEditor(initialText: r.managerMemo, margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 6), onSaved: (val) { setDialogState(() { handleMemoSave(r, val); }); })),
+                                                  ])
+                                              );
+                                            }
+                                        )
+                                    )
+                                ),
+                                Container(
+                                    margin: const EdgeInsets.only(top: 16), padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                                    decoration: BoxDecoration(color: Colors.orange[50], borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.orange[200]!)),
+                                    child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                                      Text("확인필요 총 ${checkList.length}건", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.orange[900])),
+                                      const SizedBox(width: 32),
+                                      Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                                        Text("확인필요 금액 총합", style: TextStyle(fontSize: 12, color: Colors.orange[800], fontWeight: FontWeight.bold)),
+                                        const SizedBox(height: 4),
+                                        Text("${_formatCurrency(checkList.fold(0, (sum, r) => sum + r.matchedAmount))} 원", style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Colors.orange[900])),
+                                      ])
+                                    ])
+                                ),
+                              ] else ...[
+                                // ==========================================
+                                // 🌟 [탭 3] 미확인 입금 내역 (빨간색)
+                                // ==========================================
+                                Container(
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    decoration: BoxDecoration(color: Colors.red[50], border: Border.all(color: Colors.red[200]!), borderRadius: const BorderRadius.vertical(top: Radius.circular(8))),
+                                    child: Row(children: [
+                                      const Expanded(flex: 6, child: Center(child: Text("입금일자", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
+                                      const Expanded(flex: 6, child: Center(child: Text("입금액", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
+                                      const Expanded(flex: 14, child: Center(child: Text("적요 (입금내역)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
+                                      const Expanded(flex: 8, child: Center(child: Text("상대은행", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
+                                      const Expanded(flex: 10, child: Center(child: Text("담당자 메모", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
+                                    ])
+                                ),
+                                Expanded(
+                                    child: Container(
+                                        decoration: BoxDecoration(border: Border.all(color: Colors.grey[200]!)),
+                                        child: ListView.builder(
+                                            itemCount: unconfirmedList.length,
+                                            itemBuilder: (ctx, idx) {
+                                              var tx = unconfirmedList[idx];
+                                              return Container(
+                                                  decoration: BoxDecoration(color: idx % 2 == 0 ? Colors.white : Colors.red.withOpacity(0.02), border: Border(bottom: BorderSide(color: Colors.grey[200]!))),
+                                                  child: Row(children: [
+                                                    Expanded(flex: 6, child: Container(alignment: Alignment.center, padding: const EdgeInsets.symmetric(vertical: 12), child: Text(tx.date, style: const TextStyle(fontSize: 13)))),
+                                                    Expanded(flex: 6, child: Container(alignment: Alignment.center, child: Text("${_formatCurrency(tx.amount)}원", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.red[900])))),
+                                                    Expanded(flex: 14, child: Container(padding: const EdgeInsets.symmetric(horizontal: 8), alignment: Alignment.centerLeft, child: Text(tx.description, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis))),
+                                                    Expanded(flex: 8, child: Container(alignment: Alignment.center, child: Text(tx.bankName.isEmpty ? "-" : tx.bankName, style: const TextStyle(fontSize: 12, color: Colors.grey)))),
+                                                    Expanded(flex: 10, child: PopupInlineMemoEditor(initialText: tx.managerMemo, margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 6), onSaved: (val) { setDialogState(() { handleMemoSave(tx, val); }); })),
+                                                  ])
+                                              );
+                                            }
+                                        )
+                                    )
+                                ),
+                                Container(
+                                    margin: const EdgeInsets.only(top: 16), padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                                    decoration: BoxDecoration(color: Colors.red[50], borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.red[200]!)),
+                                    child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                                      Text("미확인 입금 총 ${unconfirmedList.length}건", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.red[900])),
+                                      const SizedBox(width: 32),
+                                      Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                                        Text("미확인 금액 총합", style: TextStyle(fontSize: 12, color: Colors.red[800], fontWeight: FontWeight.bold)),
+                                        const SizedBox(height: 4),
+                                        Text("${_formatCurrency(unconfirmedList.fold(0, (sum, tx) => sum + tx.amount))} 원", style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Colors.red[900])),
                                       ])
                                     ])
                                 )
@@ -1338,20 +1401,32 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
           int n1 = int.tryParse(num1Str) ?? 0;
           int n2 = int.tryParse(num2Str) ?? 0;
 
-          bool isObviousDongHo = (num1Str.length <= 3 && num2Str.length >= 3 && n2 > n1 && (n2 - n1) > 100);
+          // 🌟 [완벽 공식 1] 101호 및 1층(0001) 증발 사건 완전 해결! 동/호수 절대 판별식
+          // 1. 앞자리(동) 1~99 + 뒷자리(호) 100 이상 (예: 1-0101 -> 1동 101호)
+          // 2. 앞자리 100 이상이어도 두 숫자 차이가 80 이상 (예: 101-201)
+          // 3. 🌟 [추가] 뒷자리가 '0'으로 시작하면 1층(1-0001)이든 뭐든 묻지도 따지지도 않고 가상계좌로 프리패스!
+          bool isObviousDongHo = (n1 > 0 && n1 < 100 && n2 >= 100) ||
+              (n2 > n1 && (n2 - n1) >= 80) ||
+              num2Str.startsWith('0');
 
           if (!isObviousDongHo) {
-            // 🌟 [수술 1] 101-1108이 101-110으로 잘렸을 때, '범위(Range)'로 오해해서 삭제하는 대참사 방지!
+            // 🌟 [완벽 공식 2] 가상계좌의 '0101' 형태를 '101'로 변환 (Zero-Padding 파괴 안경)
+            String pNum1 = n1.toString();
+            String pNum2 = n2.toString();
+
             bool existsDirect = _residentList.any((r) {
               String cleanDbD = r.dong.replaceAll(RegExp(r'[^0-9]'),'');
               String cleanDbH = r.ho.replaceAll(RegExp(r'[^0-9]'),'');
-              return (cleanDbD.isEmpty || cleanDbD == num1Str) && cleanDbH.startsWith(num2Str);
+              // 원본(0101)과 숫자변환본(101) 모두 매칭 허용!
+              return (cleanDbD.isEmpty || cleanDbD == num1Str || cleanDbD == pNum1) &&
+                  (cleanDbH.startsWith(num2Str) || cleanDbH.startsWith(pNum2));
             });
 
             bool existsSwapped = _residentList.any((r) {
               String cleanDbD = r.dong.replaceAll(RegExp(r'[^0-9]'),'');
               String cleanDbH = r.ho.replaceAll(RegExp(r'[^0-9]'),'');
-              return (cleanDbD.isEmpty || cleanDbD == num2Str) && cleanDbH.startsWith(num1Str);
+              return (cleanDbD.isEmpty || cleanDbD == num2Str || cleanDbD == pNum2) &&
+                  (cleanDbH.startsWith(num1Str) || cleanDbH.startsWith(pNum1));
             });
 
             if (!existsDirect && !existsSwapped) {
@@ -2309,6 +2384,9 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
     );
   }
 
+  // =======================================================
+  // 🌟 [최종 고도화] 미확인 입금 수동 매칭 시 '스마트 데이터 보존 엔진' 작동!
+  // =======================================================
   void _manualMatchFromBank(BankTx tx, {bool isCheckRequired = false}) {
     if (tx.inputDong.trim().isEmpty || tx.inputHo.trim().isEmpty) {
       _showSnackBar("동과 호수를 필수로 입력해주세요.", isError: true);
@@ -2319,21 +2397,65 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
       String targetDong = tx.inputDong.trim();
       String targetHo = tx.inputHo.trim();
 
-      // 👇 🌟 기존 명부(DB)에서 동/호수를 찾아 기존 데이터를 완벽 보존합니다!
       ResidentRow? existingRow;
       try { existingRow = _residentList.firstWhere((r) => r.dong == targetDong && r.ho == targetHo); } catch (e) {}
 
       ResidentRow newRow;
       if (existingRow != null) {
-        // 기존 데이터에 수동 입력값만 덧씌우기 (병합)
+        // 🌟 [핵심] 기존 정보가 있으면 절대 덮어쓰지 않고, 남는 방(기타, 메모)으로 안전하게 대피시킵니다!
         newRow = existingRow;
-        if (tx.inputOwner.trim().isNotEmpty) newRow.owner = tx.inputOwner.trim();
-        if (tx.inputResident.trim().isNotEmpty) newRow.resident = tx.inputResident.trim();
-        if (tx.inputOthers.trim().isNotEmpty) newRow.others[0] = tx.inputOthers.trim();
-        if (tx.inputType.trim().isNotEmpty) newRow.type = tx.inputType.trim();
-        if (tx.inputRemark.trim().isNotEmpty) newRow.remark = tx.inputRemark.trim();
+
+        // 🛠️ 도우미 엔진: 남는 기타 인원 칸을 찾아서 대리납부자 이름을 쏙 넣어줍니다.
+        void safelyAddOther(String name) {
+          if (name.isEmpty) return;
+          if (newRow.owner == name || newRow.resident == name || newRow.others.contains(name)) return; // 이미 있으면 패스
+          for (int i = 0; i < newRow.others.length; i++) {
+            if (newRow.others[i] == "-" || newRow.others[i].trim().isEmpty) {
+              newRow.others[i] = name;
+              return;
+            }
+          }
+          // 기타 칸 4개가 다 찼다면 마지막 수단으로 메모장으로 보냅니다.
+          String timeStamp = "[${DateTime.now().month}/${DateTime.now().day}]";
+          newRow.managerMemo = newRow.managerMemo.isEmpty ? "$timeStamp 대리입금자: $name" : "${newRow.managerMemo}\n$timeStamp 대리입금자: $name";
+        }
+
+        // 1. 소유자 보호 로직 (🌟 trim() 검사 추가)
+        String inOwner = tx.inputOwner.trim();
+        if (inOwner.isNotEmpty) {
+          if (newRow.owner.trim().isEmpty || newRow.owner == "-") newRow.owner = inOwner;
+          else if (newRow.owner != inOwner) safelyAddOther(inOwner);
+        }
+
+        // 2. 입주자 보호 로직 (🌟 trim() 검사 추가)
+        String inResident = tx.inputResident.trim();
+        if (inResident.isNotEmpty) {
+          if (newRow.resident.trim().isEmpty || newRow.resident == "-") newRow.resident = inResident;
+          else if (newRow.resident != inResident) safelyAddOther(inResident);
+        }
+
+        // 3. 기타 인원 추가 로직
+        String inOthers = tx.inputOthers.trim();
+        if (inOthers.isNotEmpty) safelyAddOther(inOthers);
+
+        // 4. 구분(타입) 채우기 (🌟 trim() 검사 추가)
+        String inType = tx.inputType.trim();
+        if (inType.isNotEmpty) {
+          if (newRow.type.trim().isEmpty || newRow.type == "-") newRow.type = inType;
+        }
+
+        // 5. 비고(Remark) 보호 로직 (🌟 trim() 검사 추가)
+        String inRemark = tx.inputRemark.trim();
+        if (inRemark.isNotEmpty) {
+          if (newRow.remark.trim().isEmpty || newRow.remark == "-") {
+            newRow.remark = inRemark;
+          } else if (newRow.remark != inRemark) {
+            String timeStamp = "[${DateTime.now().month}/${DateTime.now().day}]";
+            newRow.managerMemo = newRow.managerMemo.isEmpty ? "$timeStamp 추가비고: $inRemark" : "${newRow.managerMemo}\n$timeStamp 추가비고: $inRemark";
+          }
+        }
       } else {
-        // 아예 명부에 없던 세대면 새로 생성
+        // 🌟 아예 명부에 없던 신규 세대면 깔끔하게 새로 생성
         newRow = ResidentRow(
           dong: targetDong, ho: targetHo, owner: tx.inputOwner.trim(), resident: tx.inputResident.trim(),
           others: [tx.inputOthers.trim().isEmpty ? "-" : tx.inputOthers.trim(), "-", "-", "-"], type: tx.inputType.trim(), remark: tx.inputRemark.trim(),
@@ -2345,7 +2467,7 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
         _residentList.insert(insertIdx, newRow);
       }
 
-      // 👇 🌟 1:1 전용으로 깔끔하게 데이터 확정!
+      // 👇 🌟 최종 수납 매칭 확정
       newRow.isMatched = true;
       newRow.isCheckRequired = isCheckRequired;
       newRow.matchedBankText = tx.description;
@@ -2353,13 +2475,25 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
       newRow.matchedBankName = tx.bankName;
       newRow.matchedDate = tx.date;
       newRow.matchedMemo = tx.memo;
-      newRow.matchedTx = tx;
-      newRow.managerMemo = tx.managerMemo;
-      newRow.isMultiGroupExcluded = false;
 
+      // 🌟 [치명적 누락 해결] 수동 일반매칭/확인필요 시 txType을 리셋하여 남색 탭(가상/자동)에 유령처럼 나타나는 것을 방지!
+      if (tx.txType != '수동PG' && tx.txType != '수동가상') {
+        tx.txType = "";
+      }
+
+      newRow.matchedTx = tx;
+
+      // 만약 미확인 탭에서 메모까지 입력해서 보냈다면? 기존 메모와 안전하게 합체!
+      if (tx.managerMemo.isNotEmpty) {
+        if (!newRow.managerMemo.contains(tx.managerMemo)) {
+          newRow.managerMemo = newRow.managerMemo.isEmpty ? tx.managerMemo : "${newRow.managerMemo}\n${tx.managerMemo}";
+        }
+      }
+
+      newRow.isMultiGroupExcluded = false;
       newRow.matchedField = isCheckRequired ? "수동등록 (미확인➔확인필요)" : "수동등록 (미확인➔매칭완료)";
 
-      tx.isUsed = true;
+      tx.isUsed = true; // 돈 사용 완료 처리
     });
 
     _showSnackBar("${tx.inputDong}동 ${tx.inputHo}호 이동 및 명부 매칭이 완료되었습니다.");
@@ -3252,88 +3386,6 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
     );
   }
 
-  // 🌟 [신규] 전체 세대 탭 전용: 타세대 수동 묶기 엔진
-  void _showAddMultiRoomPopup(ResidentRow repRow) {
-    TextEditingController dongCtrl = TextEditingController();
-    TextEditingController hoCtrl = TextEditingController();
-
-    showDialog(
-        context: context,
-        builder: (ctx) => AlertDialog(
-            title: const Text("타세대 수동 묶기 (일괄수납)", style: TextStyle(fontWeight: FontWeight.bold)),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text("현재 대표 호실: ${repRow.dong}동 ${repRow.ho}호\n여기에 추가로 묶을 동/호수를 입력하세요.", style: const TextStyle(fontSize: 13)),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(child: TextField(controller: dongCtrl, decoration: const InputDecoration(labelText: "동", border: OutlineInputBorder()))),
-                    const SizedBox(width: 8),
-                    Expanded(child: TextField(controller: hoCtrl, decoration: const InputDecoration(labelText: "호", border: OutlineInputBorder()))),
-                  ],
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("취소")),
-              ElevatedButton(
-                  onPressed: () {
-                    String addDong = dongCtrl.text.trim();
-                    String addHo = hoCtrl.text.trim();
-                    if (addDong.isEmpty || addHo.isEmpty) { _showSnackBar("동/호수를 모두 입력하세요.", isError: true); return; }
-
-                    setState(() {
-                      // 1. 묶일 대상 행 찾기 (명부 보존)
-                      ResidentRow? targetRow;
-                      try { targetRow = _residentList.firstWhere((r) => r.dong == addDong && r.ho == addHo); } catch(e) {}
-
-                      if (targetRow == null) {
-                        targetRow = ResidentRow(dong: addDong, ho: addHo, others: ["-","-","-","-"]);
-                        int insertIdx = _residentList.length;
-                        for (int j = 0; j < _residentList.length; j++) {
-                          if (_residentList[j].dong == addDong) { insertIdx = j; break; }
-                        }
-                        _residentList.insert(insertIdx, targetRow);
-                      }
-
-                      // 2. 가족으로 영입
-                      List<ResidentRow> group = _getMultiGroup(repRow);
-                      if (!group.contains(repRow)) group.insert(0, repRow);
-                      if (!group.contains(targetRow)) group.add(targetRow);
-
-                      // 3. 상태 및 텍스트 동기화
-                      String baseLabel = "${group.first.dong}동 ${group.first.ho}호 외 ${group.length - 1}세대";
-
-                      for (var r in group) {
-                        r.isMatched = true;
-                        r.isCheckRequired = repRow.isCheckRequired;
-                        r.matchedTx = repRow.matchedTx;
-                        r.matchedDate = repRow.matchedDate;
-                        r.matchedBankName = repRow.matchedBankName;
-                        r.matchedBankText = repRow.matchedBankText;
-                        r.matchedName = repRow.matchedName;
-                        r.isMultiGroupExcluded = false; // 꼬리표 소각
-
-                        if (r == group.first) {
-                          r.matchedAmount = repRow.matchedTx?.amount ?? 0;
-                          r.matchedField = r.isCheckRequired ? "확인필요(수동일괄-$baseLabel)" : "[일괄수납 대표] $baseLabel";
-                        } else {
-                          r.matchedAmount = 0;
-                          r.matchedField = r.isCheckRequired ? "🔗 확인필요(수동일괄 포함)" : "🔗 [일괄수납 포함]";
-                        }
-                      }
-                    });
-                    Navigator.pop(ctx);
-                    _showSnackBar("$addDong동 $addHo호가 수동으로 묶였습니다.");
-                  },
-                  child: const Text("묶기")
-              )
-            ]
-        )
-    );
-  }
-
   // =======================================================
   // 🌟 [수정] "수납 확인" 전용 UI (가상계좌 시 동/호 렌더링 지원 및 상태보내기 추가)
   // =======================================================
@@ -3704,7 +3756,7 @@ class _AiPaymentPageState extends State<AiPaymentPage> {
 }
 // =======================================================
 // 🌟 [UI/UX 메모리 최적화] 인라인 에디팅(Inline Editing) 위젯
-// 평소엔 가벼운 Text로 렌더링하고, 클릭 시에만 무거운 TextField로 변환!
+// 🌟 [고도화] Tab키와 Enter키 만으로 다음 칸으로 초고속 점프하는 터보 엔진 장착!
 // =======================================================
 class InlineEditableText extends StatefulWidget {
   final String text;
@@ -3731,20 +3783,31 @@ class InlineEditableText extends StatefulWidget {
 class _InlineEditableTextState extends State<InlineEditableText> {
   bool _isEditing = false;
   late TextEditingController _controller;
-  late FocusNode _focusNode;
+  late FocusNode _focusNode; // 실제 입력 시 포커스
+  late FocusNode _readModeFocusNode; // 🌟 [신규] 탭(Tab) 키 감지용 투명 레이더
 
   @override
   void initState() {
     super.initState();
     _controller = TextEditingController(text: widget.text);
     _focusNode = FocusNode();
+    _readModeFocusNode = FocusNode();
+
+    // 1. 입력 모드에서 바깥을 클릭하면 저장
     _focusNode.addListener(() {
       if (!_focusNode.hasFocus && _isEditing) {
-        // 포커스를 잃으면(다른 곳을 클릭하면) 자동으로 텍스트 모드로 복귀 및 저장
         setState(() {
           _isEditing = false;
           widget.onChanged(_controller.text);
         });
+      }
+    });
+
+    // 2. 🌟 [신규] 읽기 모드일 때 사용자가 Tab 키를 눌러 이 칸으로 넘어오면 즉시 입력 모드로 변신!
+    _readModeFocusNode.addListener(() {
+      if (_readModeFocusNode.hasFocus && !_isEditing) {
+        setState(() => _isEditing = true);
+        WidgetsBinding.instance.addPostFrameCallback((_) => _focusNode.requestFocus());
       }
     });
   }
@@ -3761,6 +3824,7 @@ class _InlineEditableTextState extends State<InlineEditableText> {
   void dispose() {
     _controller.dispose();
     _focusNode.dispose();
+    _readModeFocusNode.dispose(); // 메모리 청소
     super.dispose();
   }
 
@@ -3771,6 +3835,7 @@ class _InlineEditableTextState extends State<InlineEditableText> {
         controller: _controller,
         focusNode: _focusNode,
         textAlign: TextAlign.center,
+        textInputAction: TextInputAction.next, // 🌟 [신규] 키보드에 '다음' 버튼(또는 엔터) 활성화
         style: TextStyle(
             fontSize: 11,
             fontWeight: widget.isHighlight || (widget.isType && _controller.text.contains("수동")) ? FontWeight.bold : FontWeight.normal,
@@ -3784,39 +3849,170 @@ class _InlineEditableTextState extends State<InlineEditableText> {
           filled: true, fillColor: Colors.white,
         ),
         onFieldSubmitted: (v) {
-          // 엔터키를 누르면 저장 후 텍스트 모드로 복귀
+          // 🌟 [신규] 엔터를 치면 즉시 저장하고, 빛의 속도로 '다음 칸'으로 커서 이동!
           setState(() {
             _isEditing = false;
             widget.onChanged(v);
           });
+          FocusScope.of(context).nextFocus();
         },
       );
     }
 
     // [읽기 모드] 가벼운 렌더링
-    return InkWell(
-      onTap: () {
-        setState(() => _isEditing = true);
-        WidgetsBinding.instance.addPostFrameCallback((_) => _focusNode.requestFocus());
-      },
-      child: Container(
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-            color: Colors.white,
-            border: Border.all(color: widget.borderColor),
-            borderRadius: BorderRadius.circular(4)
-        ),
-        child: Text(
-          widget.text.isEmpty ? (widget.hintText ?? "") : widget.text,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-              fontSize: 11,
-              fontWeight: widget.isHighlight || (widget.isType && widget.text.contains("수동")) ? FontWeight.bold : FontWeight.normal,
-              color: widget.text.isEmpty
-                  ? Colors.grey
-                  : ((widget.isType && widget.text.contains("수동")) ? Colors.black : Colors.black87)
+    return Focus(
+      focusNode: _readModeFocusNode, // 🌟 [신규] 탭(Tab) 키를 감지하는 센서 부착
+      child: InkWell(
+        onTap: () {
+          setState(() => _isEditing = true);
+          WidgetsBinding.instance.addPostFrameCallback((_) => _focusNode.requestFocus());
+        },
+        child: Container(
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+              color: Colors.white,
+              border: Border.all(color: widget.borderColor),
+              borderRadius: BorderRadius.circular(4)
           ),
-          overflow: TextOverflow.ellipsis,
+          child: Text(
+            widget.text.isEmpty ? (widget.hintText ?? "") : widget.text,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+                fontSize: 11,
+                fontWeight: widget.isHighlight || (widget.isType && widget.text.contains("수동")) ? FontWeight.bold : FontWeight.normal,
+                color: widget.text.isEmpty
+                    ? Colors.grey
+                    : ((widget.isType && widget.text.contains("수동")) ? Colors.black : Colors.black87)
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// =======================================================
+// 🌟 [UI/UX 혁신] 팝업창 전용 '트랜스포머 인라인 메모장'
+// 클릭하면 무제한으로 쭉 늘어나 줄바꿈(엔터)이 가능하고,
+// 작성 후 바깥을 클릭하면 깔끔하게 축소되며 ... 으로 처리되는 마법의 위젯!
+// =======================================================
+class PopupInlineMemoEditor extends StatefulWidget {
+  final String initialText;
+  final Function(String) onSaved;
+  final EdgeInsetsGeometry margin;
+
+  const PopupInlineMemoEditor({
+    super.key,
+    required this.initialText,
+    required this.onSaved,
+    this.margin = const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+  });
+
+  @override
+  State<PopupInlineMemoEditor> createState() => _PopupInlineMemoEditorState();
+}
+
+class _PopupInlineMemoEditorState extends State<PopupInlineMemoEditor> {
+  bool _isEditing = false;
+  late TextEditingController _controller;
+  late FocusNode _focusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialText);
+    _focusNode = FocusNode();
+    _focusNode.addListener(() {
+      // 포커스를 잃으면(바탕을 클릭하면) 자동으로 저장 모드 발동
+      if (!_focusNode.hasFocus && _isEditing) {
+        _saveAndClose();
+      }
+    });
+  }
+
+  @override
+  void didUpdateWidget(PopupInlineMemoEditor oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialText != widget.initialText && !_isEditing) {
+      _controller.text = widget.initialText;
+    }
+  }
+
+  void _saveAndClose() {
+    setState(() {
+      _isEditing = false;
+      widget.onSaved(_controller.text.trim());
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    bool isEmpty = _controller.text.isEmpty && !_isEditing;
+    Color bgColor = isEmpty ? Colors.white : Colors.yellow[100]!;
+    Color borderColor = isEmpty ? Colors.grey[300]! : Colors.yellow[400]!;
+
+    if (_isEditing) {
+      // 🌟 [작성 모드] 고무줄처럼 아래로 제한 없이 쭉쭉 늘어나는 무제한 텍스트 필드!
+      return Container(
+        margin: widget.margin,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border.all(color: Colors.blue[400]!, width: 2.0),
+          borderRadius: BorderRadius.circular(4),
+          boxShadow: [BoxShadow(color: Colors.blue.withOpacity(0.2), blurRadius: 6)],
+        ),
+        child: TextFormField(
+          controller: _controller,
+          focusNode: _focusNode,
+          maxLines: null, // 🔥 핵심: 줄바꿈(엔터) 무제한 허용!
+          keyboardType: TextInputType.multiline,
+          style: const TextStyle(fontSize: 11, color: Colors.black87),
+          decoration: const InputDecoration(
+            hintText: "메모 입력 (엔터로 줄바꿈)",
+            hintStyle: TextStyle(color: Colors.grey, fontSize: 10),
+            contentPadding: EdgeInsets.all(8),
+            border: InputBorder.none,
+            isDense: true,
+          ),
+        ),
+      );
+    }
+
+    // 🌟 [열람 모드] 평소에는 얌전하게 제자리를 지키며, 길면 ... 처리
+    return ExcludeFocus( // 👇 🌟 [핵심] Tab 키를 쳐서 이동할 때 이 메모칸은 100% 무시하고 건너뜁니다! (오직 마우스 클릭만 허용)
+      child: InkWell(
+        onTap: () {
+          setState(() => _isEditing = true);
+          // 클릭 즉시 키보드 포커스 활성화
+          WidgetsBinding.instance.addPostFrameCallback((_) => _focusNode.requestFocus());
+        },
+        child: Container(
+          margin: widget.margin,
+          padding: const EdgeInsets.all(6),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: bgColor,
+            border: Border.all(color: borderColor),
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Text(
+            isEmpty ? "+ 메모입력" : _controller.text,
+            style: TextStyle(
+              fontSize: 11,
+              color: isEmpty ? Colors.grey : Colors.black87,
+            ),
+            textAlign: TextAlign.center,
+            maxLines: 2, // 평소엔 2줄까지만 보여주고
+            overflow: TextOverflow.ellipsis, // 넘치면 ... 처리!
+          ),
         ),
       ),
     );
